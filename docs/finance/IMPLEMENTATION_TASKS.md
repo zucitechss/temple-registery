@@ -73,14 +73,50 @@ locking, so a second process would have **delivered duplicate emails to real rec
 
 ## Phase 3 — Connector Framework
 
-| ID | Description | Status | Depends on |
-|---|---|---|---|
-| FIN-030 | `TempleFinanceConnector` interface and supporting types | NOT_STARTED | FIN-016 |
-| FIN-031 | Connector registry resolving `connector_bean` | NOT_STARTED | FIN-030 |
-| FIN-032 | `testConnection` and `describeCapabilities` | NOT_STARTED | FIN-030 |
+| ID | Description | Status | Depends on | Files | Tests |
+|---|---|---|---|---|---|
+| FIN-030 | `TempleFinanceConnector` contract and supporting types | **COMPLETE** | FIN-016 | `connector/finance/*.java` (11 types) | 33/33 pass |
+| FIN-031 | Connector registry resolving `connector_bean` | NOT_STARTED | FIN-030 | | |
+| FIN-032 | Probe and capability declaration wiring into onboarding | NOT_STARTED | FIN-030, FIN-031 | | |
 
 Capabilities are declared per connector. No connector implements a capability its temple
 does not have.
+
+**FIN-030 delivered** — contract only: no implementation, no transport, no credential, no
+schema change.
+
+| Type | Purpose |
+|---|---|
+| `TempleFinanceConnector` | The contract: `metadata`, `describeCapabilities`, `probe`, `fingerprintSchema`, `extract`, `sourceTotals` |
+| `ConnectorMetadata` | Identity; `connectorId` is what `fin_source_system.connector_bean` names |
+| `SourceSystemDescriptor` | Which source, carrying a credential **alias** and no connection information |
+| `SyncContext` | One extraction request; change axis and business-date axis kept separate |
+| `DateRange` | Business dates, open-ended both sides for full-history checks |
+| `RawRow` | One source record, values as raw strings |
+| `SourceTotals` | Source-computed totals; an absent metric is NOT_AVAILABLE, never zero |
+| `ReconMetric` | `RECORD_COUNT`, `GROSS_AMOUNT`, `CANCELLED_COUNT`, `CANCELLED_AMOUNT`, `QUANTITY` |
+| `SchemaFingerprint` | Drift detection (R9); optional, because not every source has an inspectable schema |
+| `SourceProbeResult` | Whether the source is usable — named for the question, not the mechanism |
+| `UnsupportedCapabilityException` | Fails loudly, so an undeclared capability is never an empty result |
+
+Decisions recorded as FIN-D-011 (reuse shared enums), FIN-D-012 (framework owns the
+watermark; two axes), FIN-D-013 (raw strings, streamed).
+
+**Architectural review, each answer backed by a test rather than a tick:**
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Assumes JDBC? | NO | `should_assumeNoTransport_when_scanned` |
+| Assumes HTTP/API? | NO | same |
+| Assumes the registry can reach temple DBs? | NO | contract is transport-free; implementations live in the worker |
+| Contains credentials? | NO | `should_requireNoCredential_when_scanned` |
+| Contains source-specific knowledge? | NO | `should_containNoTempleSpecificKnowledge_when_scanned` |
+| Depends on JPA entities? | NO | `should_dependOnNoJpaEntity_when_scanned`, `should_beFrameworkFree_when_sharedEnumsInspected` |
+| Bypasses reconciliation? | NO | `should_exposeNoReconciliationVerdict_when_contractInspected` |
+| Allows all four mechanisms? | YES | parameterized over every `ConnectorType` value |
+
+The purity guard was verified by mutation: a probe interface importing `java.sql.ResultSet`,
+naming a password parameter and mentioning the first temple made **3** tests fail.
 
 ---
 
@@ -241,7 +277,14 @@ There is no `FIN-017` in this numbering — Phase 1 ends at FIN-016. The next ta
 
 | ID | Description | Status | Why it is next |
 |---|---|---|---|
-| **FIN-030** | `TempleFinanceConnector` contract and supporting types | **RECOMMENDED NEXT** | The worker now has a place for connectors and nothing to put in it. The contract is self-contained, needs no credentials and no network, and gives `fin_source_system.connector_bean` something real to name |
-| FIN-021…024 | Seed Kollur source system, capabilities, source-of-truth, mappings | Available | Pure configuration data; safe because `sync_enabled` defaults to `0`. More meaningful once FIN-030 defines what a connector is |
+| ~~FIN-030~~ | `TempleFinanceConnector` contract | **COMPLETE** | Delivered |
+| **FIN-021…024** | Seed Kollur source system, capabilities, source-of-truth, mappings | **RECOMMENDED NEXT** | Pure configuration data. Safe because `sync_enabled` defaults to `0` and only a credential *alias* is stored, so nothing is contacted. FIN-030 now defines what `connector_bean` refers to, so the configuration is meaningful |
+| FIN-031 | Connector registry resolving `connector_bean` to a bean | Available | Small; needs at least one connector to be useful, so it pairs naturally with FIN-040 |
 
-Both are unblocked by Q4 and Q5.
+All are unblocked by Q4 and Q5.
+
+**Why configuration before the registry.** FIN-022 forces the capability reasons to be
+written down, and those strings are what the dashboard renders in place of a number. They
+are user-facing copy about a government temple's finances, so they deserve review on their
+own rather than as an afterthought attached to connector code. FIN-031 is mechanical by
+comparison and has nothing to resolve until a connector exists.

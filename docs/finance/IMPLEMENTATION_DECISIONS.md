@@ -265,3 +265,89 @@ rows.
 **Tested.** `SyncWorkerProfileBoundaryTest.should_failStartup_when_syncWorkerRunsAsWebApplication`
 (via `WebApplicationContextRunner`) and
 `SyncWorkerRuntimeContextTest.should_startWithoutWebLayer_when_syncWorkerProfileActive`.
+
+---
+
+## FIN-D-011 — The contract reuses the shared finance enums rather than duplicating them
+
+**Date:** 2026-09-16 · **Affects:** `com.templeregistry.connector.finance`
+
+**Decision.** The connector contract imports `FinanceCapability`, `ConnectorType`,
+`SourceTechnology` and `SyncType` from `com.templeregistry.entity.finance.enums`. It imports
+nothing else from `com.templeregistry.entity` and no JPA entity at all.
+
+**Reason.** These enums are the canonical vocabulary established in FIN-010, and they are
+already the persisted vocabulary of `fin_temple_capability`, `fin_source_system` and
+`fin_sync_batch`. Defining a parallel set inside the connector package would create two
+vocabularies for one concept and a translation layer between them — and the first time they
+drifted, a capability declared by a connector would stop matching the capability stored
+against the temple.
+
+**Rejected.** Duplicating the enums in the connector package (two sources of truth for the
+same closed set). Moving them to a neutral package (a refactor of committed code that would
+break the `entity/<domain>/enums` convention this codebase already follows in
+`entity/accesscontrol/enums`).
+
+**Why it is safe.** The package name says `entity`, but these are plain Java enums with
+**zero imports and zero annotations** — no JPA, no Spring, no Hibernate. That was verified,
+not assumed. The risk is that someone later adds an annotation to one and the connector
+layer silently inherits a framework dependency, so
+`ConnectorContractPurityTest.should_beFrameworkFree_when_sharedEnumsInspected` fails the
+build if any of them ever imports `jakarta.*`, `org.springframework.*` or `org.hibernate.*`.
+
+---
+
+## FIN-D-012 — The framework owns the watermark; a connector cannot propose one
+
+**Date:** 2026-09-16 · **Affects:** `TempleFinanceConnector`, `SyncContext`
+
+**Decision.** `SyncContext` supplies `changedSince` (the watermark of the last **successful**
+batch) and `changedUpTo` (chosen by the framework before the call). No contract method
+accepts or returns a watermark, and extraction reports none.
+
+**Reason.** FIN-D-005 established that a failed batch must never advance the watermark. A
+connector that returned the highest change-timestamp it observed would make the opposite
+easy: the natural implementation stores what the connector returned, and a batch that
+extracted successfully but failed during load or reconciliation would still have moved the
+mark past data it never loaded. Removing the return value removes the opportunity.
+
+`changedUpTo` being decided in advance also makes a batch deterministic and replayable: the
+same window can be re-run and must produce the same rows.
+
+**Also decided.** `SyncContext` separates two axes that are easy to conflate:
+`changedSince`/`changedUpTo` is the **change axis** (what the source modified), while
+`businessDateRange` is the **business-date axis** (which transaction dates are in scope, for
+a historical load or a restatement window). Filtering reconciliation by modification time
+would silently exclude older records that were never touched, and the resulting total would
+look correct because both sides compared the same subset.
+
+**Tested.** `should_exposeNoWatermarkReturn_when_contractInspected`,
+`should_reject_when_historicalLoadCarriesWatermark`,
+`should_useDifferentAxes_when_comparingExtractAndSourceTotals`.
+
+---
+
+## FIN-D-013 — Extraction returns raw string values, streamed
+
+**Date:** 2026-09-16 · **Affects:** `RawRow`, `TempleFinanceConnector.extract`
+
+**Decision.** `RawRow` carries `Map<String, String>` and `extract` returns
+`Stream<RawRow>`, not a collection.
+
+**Reason for strings.** Staging exists so that a malformed source value **lands and is
+rejected with a reason** rather than aborting a batch. Real sources contain impossible dates
+(the Kollur analysis found 1955, 1969 and 2004 values), nulls where the schema promises
+otherwise, and text in numeric columns. A typed extraction contract turns each of those into
+a crash during extraction, losing the diagnostic record that `fin_sync_error.raw_payload_json`
+is designed to keep. Money is unaffected: a decimal rendered as text and parsed back is
+exact — this would not hold for binary floating point, which financial values must not use
+anyway.
+
+**Reason for streaming.** A first historical load can run to tens of millions of source
+records. Nothing in the pipeline may require the whole result in memory. The stream may hold
+a resource, so the contract documents that callers must close it.
+
+**Rejected.** `Map<String, Object>` — preserves source types but invites a connector to pass
+a driver-specific object (a `ResultSet` row, a vendor date type) up into staging, which is
+exactly the source-vocabulary leak the boundary exists to prevent. `List<RawRow>` — simpler,
+and impossible at Kollur volume.

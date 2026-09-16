@@ -21,7 +21,7 @@ proven by test. Next work is Phase 2 or Phase 3; both are unblocked.
 | Architecture | COMPLETE | 100 | 6 design docs + 11 ADRs, delivered previously |
 | Finance Foundation | **COMPLETE** | 100 | FIN-010…FIN-016, including the runtime boundary |
 | Source Configuration | IN_PROGRESS | 20 | FIN-020 abstraction delivered by FIN-016; Q5 decides the permanent store |
-| Connector Framework | NOT_STARTED | 0 | |
+| Connector Framework | IN_PROGRESS | 40 | FIN-030 contract COMPLETE; FIN-031 registry outstanding |
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
 | Staging | NOT_STARTED | 0 | |
 | Canonical Finance Data | NOT_STARTED | 0 | |
@@ -148,10 +148,49 @@ method.
 
 ---
 
-## Phases 3–17 · NOT_STARTED · 0%
+## Phase 3 — Connector Framework · IN_PROGRESS · 40%
+
+**Completed.** FIN-030 — the `TempleFinanceConnector` contract and ten supporting types in
+`com.templeregistry.connector.finance`. Contract only: no implementation, no transport, no
+credential, no schema change, no dependency on any JPA entity.
+
+The contract describes a **synchronization capability, not a transport**, which is what
+keeps `PULL_JDBC`, `PUSH_AGENT`, `SOURCE_API` and `FILE_DROP` equally implementable. A
+`getConnection()` or `getClient()` method would have decided the deployment model for every
+future temple on behalf of the first one — and since permission for an inbound connection to
+a government temple database is frequently refused as policy rather than capability, that
+decision would have been wrong for a large share of them.
+
+Three things the contract deliberately does **not** do, each protecting a decision made
+earlier:
+
+1. **It cannot carry a credential.** A connector receives only a credential *alias* and
+   resolves it inside the worker (FIN-D-002, FIN-D-009). This is why the contract is safe to
+   make visible to both runtimes.
+2. **It cannot propose a watermark** (FIN-D-012). The framework fixes the change window
+   before calling and stores it only on success, so a failed batch has no mechanism by which
+   to skip a window it never loaded.
+3. **It cannot reconcile itself.** `sourceTotals()` reports; it never compares, applies a
+   tolerance, or decides to publish. A connector judging its own output would be marking its
+   own homework.
+
+**Remaining.** FIN-031 (connector registry resolving `connector_bean`), FIN-032.
+
+**Blockers.** None.
+
+**Tests.** 33 across 2 classes: `TempleFinanceConnectorContractTest` (25) and
+`ConnectorContractPurityTest` (8). The purity guard was verified by mutation — a probe
+importing `java.sql.ResultSet`, naming a password parameter and mentioning the first temple
+made 3 tests fail.
+
+**Decisions.** FIN-D-011 … FIN-D-013.
+
+---
+
+## Phases 4–17 · NOT_STARTED · 0%
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
-FIN-030 (connector contract) is unblocked and is the recommended next task.
+FIN-021 … FIN-024 (Kollur configuration seed) are unblocked and recommended next.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
 Kollur database, and the connector cannot be tested without one. This is exactly the
@@ -166,7 +205,7 @@ connector implementation.
 
 ## Known Defects Outside Finance Scope
 
-The full suite reports **898 tests, 0 failures, 18 errors**. All 18 are in
+The full suite reports **931 tests, 0 failures, 18 errors**. All 18 are in
 `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17), and all share one
 root cause: `ddl-auto: validate` rejecting
 `missing column [field_names_json] in table [declaration_clarifications]`.

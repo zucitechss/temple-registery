@@ -8,41 +8,63 @@
 
 ---
 
+## FIN-030 Status
+
+**COMPLETE.** Contract and supporting types implemented, compiled, and verified by 33
+passing tests. No implementation, no transport, no credential, no schema change.
+
+---
+
 ## Current State
 
-**What works.** Phase 1 is complete: the finance data foundation and the runtime boundary
-that the whole architecture depends on.
+**What works.**
 
 *Foundation (FIN-010 … FIN-015).* Seven tables, seven entities, seven repositories, eleven
-enums. The schema can record which external system feeds which temple, what each temple
-can and cannot answer, which source field is authoritative for each metric, how source
-values map to canonical ones, and the audit trail of every sync attempt and reconciliation.
+enums. The schema records which external system feeds which temple, what each temple can
+and cannot answer, which source field is authoritative, how source values map to canonical
+ones, and the audit trail of every sync attempt and reconciliation.
 
-*Boundary (FIN-016).* The registry and the finance sync worker are two runtimes built from
-one artifact:
+*Runtime boundary (FIN-016).* Registry and sync worker are two runtimes from one artifact.
+The registry runtime contains no bean that can resolve a temple credential or reach a source
+system — asserted against the fully assembled application. The worker runs non-web and
+refuses to start if it ever serves HTTP.
 
-```
-  --spring.profiles.active=prod          registry / web / API
-  --spring.profiles.active=sync-worker   finance ingestion (non-web)
-```
+*Connector contract (FIN-030).* `TempleFinanceConnector` plus ten supporting types define
+what a temple finance source must be able to do, without saying how it is reached.
 
-The registry runtime contains **no bean** that can resolve a temple credential or reach a
-temple source system. That is asserted against the fully assembled application — all 39
-controllers and 155 services — not merely against the configuration classes. The worker
-runs without a web layer and refuses to start if it ever comes up serving HTTP.
-
-**What does not work yet.** Nothing is connected to anything. There is no connector, no
-extraction, no canonical fact table, no API, and the dashboard is still the static HTML
-file it was. No row of temple financial data has been read or stored, and no credential
-exists anywhere. This is expected: Phases 1 built the spine and the boundary, not the
-pipeline.
+**What does not work yet.** Nothing is connected to anything. There is no connector
+implementation, no extraction, no canonical fact table, no API, and the dashboard is still
+the static HTML file. No row of temple financial data has been read, and no credential exists
+anywhere.
 
 ---
 
 ## Last Completed Task
 
-**FIN-016 — sync-worker profile split.** Verified: 32 new tests across 5 classes, all
-passing; full suite shows no regression.
+**FIN-030 — the `TempleFinanceConnector` contract.**
+
+The shape worth knowing:
+
+```java
+ConnectorMetadata            metadata();
+Set<FinanceCapability>       describeCapabilities(SourceSystemDescriptor source);
+SourceProbeResult            probe(SourceSystemDescriptor source);
+Optional<SchemaFingerprint>  fingerprintSchema(SourceSystemDescriptor source);
+Stream<RawRow>               extract(FinanceCapability capability, SyncContext context);
+SourceTotals                 sourceTotals(FinanceCapability capability,
+                                          SourceSystemDescriptor source,
+                                          DateRange period);
+```
+
+Four properties a later change must not quietly remove:
+
+1. **No transport anywhere.** No `getConnection()`, no `getClient()`, no stream or file
+   handle. `probe()` is named for the question — "is this source usable" — because a push or
+   file-drop source has no connection to test.
+2. **No credential.** The connector gets an alias and resolves it inside the worker.
+3. **No watermark return.** The framework fixes `SyncContext.changedUpTo()` before calling
+   and stores it only on success (FIN-D-012). A connector has no way to advance one.
+4. **No self-reconciliation.** `sourceTotals()` reports; the reconciliation layer judges.
 
 ---
 
@@ -52,222 +74,148 @@ Nothing is half-built. Every committed file compiles and is covered by a passing
 
 ---
 
-## Next Task
+## Files Created / Modified
 
-There is no `FIN-017` in this numbering — Phase 1 ends at FIN-016.
+**Created — contract** (`backend/src/main/java/com/templeregistry/connector/finance/`)
 
-**FIN-030 — define the `TempleFinanceConnector` contract and its supporting types.**
+`TempleFinanceConnector.java` · `ConnectorMetadata.java` · `SourceSystemDescriptor.java` ·
+`SyncContext.java` · `DateRange.java` · `RawRow.java` · `SourceTotals.java` ·
+`ReconMetric.java` · `SchemaFingerprint.java` · `SourceProbeResult.java` ·
+`UnsupportedCapabilityException.java`
 
-The worker now has a place for connectors and nothing to put in it. The contract is
-self-contained: it needs no credentials, no network access and no Kollur knowledge, so it
-is unblocked by both Q4 and Q5. It also gives `fin_source_system.connector_bean` something
-real to name.
+**Created — tests** (`backend/src/test/java/com/templeregistry/connector/finance/`)
 
-Register it, and every later connector, as an explicit `@Bean` in `SyncWorkerConfig` —
-**not** as a `@Component`. `FinanceIntegrationBoundaryTest` will fail the build otherwise,
-which is deliberate (FIN-D-008).
+`TempleFinanceConnectorContractTest.java` (25) · `ConnectorContractPurityTest.java` (8)
 
-FIN-021 … FIN-024 (seeding Kollur configuration) are equally unblocked if configuration-first
-is preferred; they are pure data and contact nothing.
-
-**Do not start the Kollur connector (FIN-040+).** It is blocked on Q4.
+**Modified.** None. FIN-030 touched no existing file.
 
 ---
 
-## Files Recently Changed
+## Tests Added
 
-**Modified (1)**
-- `backend/src/main/java/com/templeregistry/TempleRegistryApplication.java` —
-  `@EnableScheduling` removed; see `SchedulingConfig` for why.
+| Class | Count | Proves |
+|---|---:|---|
+| `TempleFinanceConnectorContractTest` | 25 | Identity, capability declaration, sync context, source totals, raw rows, schema fingerprint — via a stub connector built from in-memory data alone |
+| `ConnectorContractPurityTest` | 8 | No source-specific knowledge, no credential, no JPA, no transport, no reconciliation verdict |
 
-**Added — configuration**
-- `backend/src/main/java/com/templeregistry/config/FinanceProfiles.java`
-- `backend/src/main/java/com/templeregistry/config/SchedulingConfig.java`
-- `backend/src/main/resources/application-sync-worker.yml`
-
-**Added — worker runtime** (`backend/src/main/java/com/templeregistry/service/finance/sync/`)
-- `SyncWorkerConfig.java` — the only place worker beans are registered
-- `SyncWorkerProperties.java` — `trm.finance.sync.*`, extraction off by default
-- `SyncWorkerBoundaryGuard.java` — fails startup if the worker is a web application
-- `SourceCredentialProvider.java` — the Q5 seam
-- `EnvironmentSourceCredentialProvider.java` — interim environment-backed implementation
-- `SourceCredentials.java` — redacting record
-- `CredentialNotConfiguredException.java`
-
-**Added — tests** (`backend/src/test/java/com/templeregistry/service/finance/sync/`)
-- `SyncWorkerProfileBoundaryTest.java` (7)
-- `FinanceIntegrationBoundaryTest.java` (6)
-- `EnvironmentSourceCredentialProviderTest.java` (9)
-- `SyncWorkerRuntimeContextTest.java` (5)
-- `RegistryRuntimeContextTest.java` (5)
-
-Earlier in this branch: `V110__finance_foundation.sql`, 11 enums, 7 entities, 7
-repositories, `FinanceFoundationRepositoryTest`, and the documentation set.
+The stub connector is the substantive evidence: a complete implementation of the contract
+with **no database, no HTTP client, no file handle and no credential**. If the contract
+assumed a transport, that class could not exist.
 
 ---
 
-## Database Changes
-
-**None in FIN-016.** No migration, no schema change, no new column.
-
-The worker profile explicitly disables Flyway and sets `ddl-auto: none`: the registry
-runtime owns the schema, and two processes performing DDL against one database is a race
-with no upside.
-
----
-
-## APIs Added or Changed
-
-None. No controller, no endpoint, no DTO. The contract is written
-([API_CONTRACT.md](API_CONTRACT.md)) but unimplemented.
-
-The worker adds no endpoint by construction — it has no web layer at all.
-
----
-
-## Tests
+## Tests Executed
 
 | Command | Result |
 |---|---|
 | `mvn -o compile -DskipTests` | BUILD SUCCESS |
-| `mvn -o test -Dtest=SyncWorkerProfileBoundaryTest` | 7/7 pass |
-| `mvn -o test -Dtest=FinanceIntegrationBoundaryTest` | 6/6 pass |
-| `mvn -o test -Dtest=EnvironmentSourceCredentialProviderTest` | 9/9 pass |
-| `mvn -o test -Dtest=SyncWorkerRuntimeContextTest` | 5/5 pass |
-| `mvn -o test -Dtest=RegistryRuntimeContextTest` | 5/5 pass |
-| `mvn -o test -Dtest=FinanceFoundationRepositoryTest` | 11/11 pass |
-| `mvn -o test` (full suite) | **898 run · 0 failures · 18 errors** — all 18 pre-existing |
+| `mvn -o test -Dtest=TempleFinanceConnectorContractTest` | 25/25 pass |
+| `mvn -o test -Dtest=ConnectorContractPurityTest` | 8/8 pass |
+| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*'` | **76/76 pass** |
+| `mvn -o test` (full suite) | **931 run · 0 failures · 18 errors** |
 
-Full-suite comparison: 866 errors-18 before any finance work → 888 after FIN-015 → 898
-after FIN-016, with the **same 18 errors in the same 4 report files** throughout. No
-regression at any step.
-
-**What the boundary tests actually assert**
-
-- The registry runtime, fully assembled, has zero beans of type `SourceCredentialProvider`,
-  zero beans from `service.finance.sync` or `connector`, and no worker scheduler.
-- The worker runtime is not a `WebApplicationContext` and registers no `DispatcherServlet`.
-- The worker registers no `ScheduledAnnotationBeanPostProcessor`, so no registry background
-  job runs in it — while `EmailDeliveryService` remains present and injectable.
-- The registry still schedules its jobs, so moving `@EnableScheduling` broke nothing.
-- Starting the worker as a web application fails with a clear message.
-- No committed configuration file declares a `trm.finance.source.` property.
-- No credential resolves unless explicitly supplied; a missing one throws.
-
-**The classpath guard was verified by mutation**, not assumed: a temporary `@Component` was
-added to the worker package, two tests failed with the intended messages, and the probe was
-removed. A guard that cannot fail is not a guard.
+**Mutation check.** A probe interface importing `java.sql.ResultSet`, declaring a `password`
+parameter and mentioning the first temple by name was added to the contract package; **3**
+purity tests failed with the intended messages; the probe was removed and all 8 passed again.
+A guard that cannot fail is not a guard.
 
 ---
 
-## Known Problems
+## Any Failures
 
-**1. FIN-X-001 — 18 pre-existing test errors, unrelated to finance.**
+**New failures: none.**
 
-```
-Schema-validation: missing column [field_names_json] in table [declaration_clarifications]
-```
+**Pre-existing: 18**, unchanged in count, cause and location across the whole branch
+(866 → 888 → 898 → 931 tests, always the same 18 errors in the same 4 report files).
 
-`DeclarationClarification` maps the column; `V1__initial_schema.sql:657` does not create it
-and no migration adds it. It exists in running environments only because
-`ddl-auto: update` creates it silently. Affects `ApplicationContextIntegrationTest` (1) and
-all 17 `TrustIntegrationTest` cases. Confirmed pre-existing by stashing all finance code and
-reproducing the identical failures. This is architecture risk **R7**, observed.
+- **FIN-X-001** — `Schema-validation: missing column [field_names_json] in table
+  [declaration_clarifications]`. Mapped by `DeclarationClarification`; created by no
+  migration; present in running environments only because `ddl-auto: update` adds it.
+  Affects `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17). Confirmed
+  pre-existing by stashing all finance code and reproducing identically. Architecture risk
+  **R7**, observed. Fix is one additive `ALTER`, owned by the declaration module.
+- **FIN-X-002** — the `test` profile cannot boot a full context: `jwt-test.pub` is a
+  placeholder that fails to parse, and `application.yml` carries a TiDB-only
+  `connection-init-sql` H2 rejects. Finance tests override both locally.
 
-Recommended fix, owned by the declaration module:
-`ALTER TABLE declaration_clarifications ADD COLUMN field_names_json JSON NULL;`
+---
 
-**2. FIN-X-002 — the `test` profile cannot boot a full application context.**
-Found while building the FIN-016 tests. Two independent causes, both pre-existing:
+## Architectural Decisions
 
-- `src/test/resources/application-test.properties` points `app.jwt.public-key-path` at
-  `classpath:jwt-test.pub`, which is a placeholder (`...Qw1Qw1Qw1...`), not a real RSA key.
-- `application.yml` sets `connection-init-sql` to the TiDB-only
-  `SET tidb_enable_noop_functions=1`, which H2 rejects.
+**FIN-D-011 — reuse the shared finance enums rather than duplicate them.** The contract
+imports `FinanceCapability`, `ConnectorType`, `SourceTechnology` and `SyncType` from
+`entity.finance.enums`. Duplicating them would create two vocabularies for one concept, and
+the first drift would mean a capability a connector declared no longer matched the capability
+stored against the temple. The package is named `entity`, but these are plain Java enums with
+**zero imports and zero annotations** — verified, not assumed, and a test now fails the build
+if any of them ever imports `jakarta.*`, `org.springframework.*` or `org.hibernate.*`.
 
-Both were invisible before because every existing full-context test fails earlier on
-FIN-X-001. `SyncWorkerRuntimeContextTest` and `RegistryRuntimeContextTest` override both
-locally via `@TestPropertySource`, adding no key material and changing nothing in
-production configuration. Worth fixing centrally — the project has no working full-context
-test on the `test` profile.
+**FIN-D-012 — the framework owns the watermark; a connector cannot propose one.** Extends
+FIN-D-005 into the contract shape. Also separates two axes that are easy to conflate:
+`changedSince`/`changedUpTo` is the change axis, `businessDateRange` is the business-date
+axis. Filtering reconciliation by modification time would silently exclude older untouched
+records, and the total would look correct because both sides compared the same subset.
 
-**3. Namespace collision.** `com.templeregistry.event.finance` already exists and belongs to
-the **trust financial declaration workflow**. It has nothing to do with this platform. New
-work goes in `entity.finance`, `repository.finance`, `service.finance`, `connector.finance`.
+**FIN-D-013 — extraction returns raw string values, streamed.** Strings because staging
+exists so a malformed value *lands and is rejected with a reason* rather than aborting a
+batch — the source is known to contain impossible dates. Money is unaffected: a decimal
+rendered as text and parsed back is exact. Streamed because a first historical load runs to
+tens of millions of records.
 
 ---
 
 ## Remaining Risks
 
-| Risk | State after FIN-016 |
+| Risk | State |
 |---|---|
-| **R12** — the profile split is collapsed "just for Kollur" | **Substantially mitigated.** Two runtime tests and a classpath guard fail the build if worker beans appear in the registry runtime. The remaining exposure is someone deleting the tests |
-| **R7** — `ddl-auto: update` masking missing migrations | Unchanged, now observed twice (FIN-X-001). The worker sets `ddl-auto: none`, so it cannot contribute to drift |
-| Duplicate background jobs across two processes | **Closed** by FIN-D-007, before a second process ever ran |
-| Credentials reaching version control | **Mitigated:** no credential property in any YAML, no fallback, a test asserting their absence, and a redacting `toString()`. Not eliminated until Q5 chooses a real store |
-| Worker accidentally serving HTTP | **Closed:** property plus a startup guard that fails closed |
-| A future connector wired into the registry runtime | **Mitigated** by FIN-D-008 and the classpath guard, verified by mutation |
+| A connector implementation leaks source vocabulary upward | Contract is clean and guarded, but `ConnectorContractPurityTest` scans only the contract package. When FIN-040 lands, the equivalent guard must cover *staging output*, not just the connector — the leak would come through field names in `RawRow`, which are legitimately source-specific |
+| `extract` and `sourceTotals` collapse into one shared query | Mitigated by different signatures and axes, and documented as binding. **Not structurally enforceable** — a connector implementation can still call one from the other. FIN-044 must be reviewed specifically for this |
+| **R12** — the profile split is collapsed | Mitigated by two runtime tests and the classpath guard |
+| **R9** — silent source schema change | Contract supports it via `fingerprintSchema`; nothing compares fingerprints yet — that is FIN-042 |
+| **R7** — `ddl-auto: update` masking missing migrations | Unchanged; observed twice |
+| Stream leak from `extract` | Contract documents that callers must close it. No implementation exists yet to leak one; the pipeline code in FIN-05x must use try-with-resources |
 
 ---
 
-## Q4 / Q5 Status
+## Q4 Status
 
-**Q4 — network path to Kollur: UNRESOLVED, and not assumed.** Nothing built so far presumes
-inbound JDBC works. `ConnectorType` models `PULL_JDBC`, `PUSH_AGENT`, `SOURCE_API` and
-`FILE_DROP` as equals, and `SourceCredentials` carries an *optional* principal precisely so
-that a token or shared key fits the same shape as a database user — a push agent
-authenticating inbound needs a secret but no username.
+**UNRESOLVED, and still not assumed.** FIN-030 strengthened this rather than deferring it:
+the contract names no transport at all, so `PULL_JDBC`, `PUSH_AGENT`, `SOURCE_API` and
+`FILE_DROP` are equally implementable — proven by a test parameterized over every
+`ConnectorType` value.
 
 If inbound access to Kollur is refused, the change is a `connector_type` value and a
 different connector implementation. The canonical model, aggregation, Finance APIs and
-dashboard are untouched. Across government temples, refusing inbound database connections
-is usually a policy position rather than a technical one, so `PUSH_AGENT` should be treated
-as a likely outcome, not a fallback.
+dashboard are untouched.
 
-**Q5 — secret storage: UNRESOLVED, abstraction delivered.** No temple credential exists
-anywhere in the repository, the database, or any configuration file. The seam is
-`SourceCredentialProvider`; the interim implementation reads
-`trm.finance.source.<ref>.secret` from the worker process environment and throws
-`CredentialNotConfiguredException` when absent.
+One point for FIN-040 that Q4 will settle: the contract deliberately carries **no endpoint**
+— no host, URL or file path. A `PULL_JDBC` connector will need one, and it must come from
+worker configuration alongside the credential, not from `fin_source_system`. That keeps
+FIN-D-002 intact and is worth deciding explicitly rather than by accident.
 
-Deliberately not done: no encrypted connection string (rejected in FIN-D-002 — it would put
-a decryptable route to every temple database inside the registry process), no credential
-columns on `fin_source_system`, and no placeholder defaults in YAML. That last point is
-specific: `application.yml` already carries committed fallback values for `DB_USERNAME` and
-`DB_PASSWORD`, and declaring finance credentials with placeholder defaults is exactly how
-those got there.
+## Q5 Status
 
-Choosing the permanent store changes one `@Bean` method in `SyncWorkerConfig`.
+**UNRESOLVED, abstraction unchanged.** No temple credential exists in the repository, the
+database, or any configuration file. FIN-030 added no credential surface: the contract
+carries only `SourceSystemDescriptor.credentialRef()`, an alias, and a purity test fails the
+build if `SourceCredentials` or `SourceCredentialProvider` is ever referenced from the
+contract package.
 
----
-
-## Important Decisions
-
-FIN-D-001 … FIN-D-010 in [IMPLEMENTATION_DECISIONS.md](IMPLEMENTATION_DECISIONS.md). The
-four from this session:
-
-- **FIN-D-007** — `@EnableScheduling` moved to a registry-only configuration rather than
-  annotating five scheduler beans, several of which expose methods other services call.
-  This also closed a duplicate-email hazard.
-- **FIN-D-008** — worker beans are explicit `@Bean` registrations, never `@Component` +
-  `@Profile`, because a forgotten annotation fails *open*.
-- **FIN-D-009** — credentials resolve through an interface, from the environment, with no
-  fallback, redacted rendering, and validation of `credential_ref` so a database row cannot
-  read an unrelated property.
-- **FIN-D-010** — the worker is non-web, asserted at startup, and owns no schema.
+Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConfig`.
 
 ---
 
 ## How To Continue
 
 1. Read this file, then `IMPLEMENTATION_STATUS.md` and `IMPLEMENTATION_TASKS.md`.
-2. `git status` and `git log --oneline -6` on `feature/db-integration`.
+2. `git status` and `git log --oneline -8` on `feature/db-integration`.
 3. Confirm the baseline:
-   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*'`
-   — expect **43 passing, 0 failures**. (Verified; omitting `*SourceCredential*` yields 34.)
-4. Implement FIN-030 only. Do not implement a connector in the same change.
-5. Register anything new in `SyncWorkerConfig` as a `@Bean`; do not annotate it `@Component`.
-6. Run the suite, update the four tracking documents, commit as `FIN-030 ...`.
+   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*'`
+   — expect **76 passing, 0 failures**.
+4. Implement FIN-021 … FIN-024 only. Do not start a connector implementation.
+5. Anything new that can reach a source system goes in `SyncWorkerConfig` as a `@Bean`, never
+   as a `@Component`.
+6. Run the suite, update the four tracking documents, commit as `FIN-021 ...`.
 
 Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
@@ -275,8 +223,12 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-030**: define the `TempleFinanceConnector` interface and its supporting
-types (`SyncWindow`, `ExtractionContext`, `RawRow`, `ConnectionResult`,
-`SchemaFingerprint`, `ReconMetric`) in `com.templeregistry.connector.finance`, with no
-implementation and no temple-specific knowledge. Capabilities must be explicit so that no
-temple is forced to implement what it cannot supply.
+Implement **FIN-021 … FIN-024**: a seed migration registering the Kollur source system
+(`temple_id=300001`, `system_code=KOLSOHAM`, `source_temple_code=43`,
+`connector_bean=kollurFinanceConnector`, `sync_enabled=0`, `credential_ref` alias only),
+its 19 capability rows with user-facing reasons, its `REVENUE_AMOUNT` source-of-truth
+declaration including the three measured rejected alternatives, and its mapping rules.
+
+Configuration data only — no connector, no credential, no network access. The capability
+reasons are user-facing copy that the dashboard renders in place of a number, so write them
+to be read by a Deputy Commissioner, not by a developer.
