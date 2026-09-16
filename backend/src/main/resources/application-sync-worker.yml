@@ -1,0 +1,63 @@
+# ============================================================================
+# Finance Sync Worker profile
+#
+#   java -jar temple-registry-backend.jar --spring.profiles.active=sync-worker
+#
+# Same artifact as the registry runtime, different responsibilities. This is the
+# only runtime that holds temple source credentials or reaches a temple network.
+#
+# NO CREDENTIALS APPEAR IN THIS FILE, and none may be added to it.
+# Source credentials are supplied to the worker process as environment
+# variables and resolved at extraction time by SourceCredentialProvider:
+#
+#   TRM_FINANCE_SOURCE_<REF>_PRINCIPAL
+#   TRM_FINANCE_SOURCE_<REF>_SECRET
+#
+# where <REF> is fin_source_system.credential_ref. Declaring them here with
+# placeholder defaults is exactly how the committed DB_USERNAME / DB_PASSWORD
+# fallbacks in application.yml came about; temple credentials must not repeat it.
+# A missing credential fails loudly (CredentialNotConfiguredException) rather
+# than falling back to anything.
+# ============================================================================
+
+spring:
+  main:
+    # No web layer. The worker holds temple credentials; it must not also serve
+    # HTTP, or every controller in the artifact would be reachable from a process
+    # that can open a connection to a temple database.
+    #
+    # SyncWorkerBoundaryGuard asserts this at startup and refuses to start if the
+    # property is lost to a deployment override.
+    web-application-type: none
+
+  # Schema is owned by the registry runtime. The worker neither migrates nor
+  # alters it: two processes performing DDL against the same database is a race
+  # with no upside, and the worker has no reason to change a schema it only writes
+  # rows into.
+  flyway:
+    enabled: false
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+  # The worker never delivers email. It writes to email_outbox and the registry
+  # runtime delivers -- which is what the outbox pattern is for, and avoids two
+  # processes claiming the same PENDING rows.
+  mail:
+    enabled: false
+
+trm:
+  finance:
+    sync:
+      # Master switch, off by default. Deploying the worker and permitting it to
+      # contact temple systems are separate decisions. Mirrors
+      # fin_source_system.sync_enabled, which defaults off for the same reason.
+      enabled: false
+      instance-id: finance-sync-worker
+
+logging:
+  level:
+    root: INFO
+    com.templeregistry: INFO
+    com.templeregistry.service.finance: DEBUG
