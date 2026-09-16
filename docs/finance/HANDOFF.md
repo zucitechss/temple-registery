@@ -8,198 +8,248 @@
 
 ---
 
-## FIN-030 Status
+## Task Status
 
-**COMPLETE.** Contract and supporting types implemented, compiled, and verified by 33
-passing tests. No implementation, no transport, no credential, no schema change.
+| Task | Status |
+|---|---|
+| FIN-021 — Kollur source system | **COMPLETE** |
+| FIN-022 — Kollur capabilities | **COMPLETE** |
+| FIN-023 — Revenue source of truth | **COMPLETE** |
+| FIN-024 — Mapping rules | **COMPLETE** |
+
+Verified against a real MySQL database, not against the migration file. 27 tests.
 
 ---
 
 ## Current State
 
-**What works.**
+**What works.** The finance foundation (FIN-010…015), the registry / sync-worker runtime
+boundary (FIN-016), the generic connector contract (FIN-030), and now the complete Kollur
+configuration (FIN-021…024).
 
-*Foundation (FIN-010 … FIN-015).* Seven tables, seven entities, seven repositories, eleven
-enums. The schema records which external system feeds which temple, what each temple can
-and cannot answer, which source field is authoritative, how source values map to canonical
-ones, and the audit trail of every sync attempt and reconciliation.
+The platform can now say, for one real temple, what it can and cannot report, which source
+field is authoritative for revenue, and how that source's vocabulary translates into
+canonical terms — without holding a credential, knowing an endpoint, or being able to reach
+anything.
 
-*Runtime boundary (FIN-016).* Registry and sync worker are two runtimes from one artifact.
-The registry runtime contains no bean that can resolve a temple credential or reach a source
-system — asserted against the fully assembled application. The worker runs non-web and
-refuses to start if it ever serves HTTP.
-
-*Connector contract (FIN-030).* `TempleFinanceConnector` plus ten supporting types define
-what a temple finance source must be able to do, without saying how it is reached.
-
-**What does not work yet.** Nothing is connected to anything. There is no connector
-implementation, no extraction, no canonical fact table, no API, and the dashboard is still
-the static HTML file. No row of temple financial data has been read, and no credential exists
-anywhere.
+**What does not work yet.** No connector implementation, no extraction, no canonical fact
+table, no API. The dashboard is still the static HTML file. No row of temple financial data
+has been read and no credential exists anywhere.
 
 ---
 
-## Last Completed Task
+## Migration Files
 
-**FIN-030 — the `TempleFinanceConnector` contract.**
+`backend/src/main/resources/db/migration/V111__kollur_finance_configuration.sql`
 
-The shape worth knowing:
+Configuration data only. Creates no table, alters no schema, enables no synchronization,
+stores no credential, no host, no port, no URL and no connection string.
 
-```java
-ConnectorMetadata            metadata();
-Set<FinanceCapability>       describeCapabilities(SourceSystemDescriptor source);
-SourceProbeResult            probe(SourceSystemDescriptor source);
-Optional<SchemaFingerprint>  fingerprintSchema(SourceSystemDescriptor source);
-Stream<RawRow>               extract(FinanceCapability capability, SyncContext context);
-SourceTotals                 sourceTotals(FinanceCapability capability,
-                                          SourceSystemDescriptor source,
-                                          DateRange period);
-```
+**Every statement is conditional on temple 300001 existing** (FIN-D-014). No migration in
+this repository creates that temple — `V100` seeds temples with ids `100`… — so an
+unconditional seed would have left a source system, 19 capability rows, a source-of-truth
+declaration and 9 mapping rules orphaned in every fresh developer and CI database.
 
-Four properties a later change must not quietly remove:
-
-1. **No transport anywhere.** No `getConnection()`, no `getClient()`, no stream or file
-   handle. `probe()` is named for the question — "is this source usable" — because a push or
-   file-drop source has no connection to test.
-2. **No credential.** The connector gets an alias and resolves it inside the worker.
-3. **No watermark return.** The framework fixes `SyncContext.changedUpTo()` before calling
-   and stores it only on success (FIN-D-012). A connector has no way to advance one.
-4. **No self-reconciliation.** `sourceTotals()` reports; the reconciliation layer judges.
+> **Operational consequence that must not be forgotten.** A versioned migration runs once.
+> In an environment where temple 300001 is created *after* V111 has run, the seed never
+> applies and Kollur configuration must be applied through the onboarding path (FIN-140) or
+> by re-running the statements manually. V111 is idempotent, so re-running is safe.
 
 ---
 
-## Currently In Progress
+## Seeded Rows
 
-Nothing is half-built. Every committed file compiles and is covered by a passing test.
+| Table | Rows |
+|---|---:|
+| `fin_source_system` | 1 |
+| `fin_temple_capability` | 19 |
+| `fin_source_of_truth_decl` | 1 |
+| `fin_mapping_rule` | 9 |
 
----
+### Source system (FIN-021)
 
-## Files Created / Modified
+`temple_id=300001` · `system_code=KOLSOHAM` · `source_temple_code=43` ·
+`source_database_name=KOLSOHAM_LOCAL` (documentation only) · `credential_ref=kollur-readonly`
+(an **alias**) · `sync_enabled=0` · `sync_schedule_cron=NULL`.
 
-**Created — contract** (`backend/src/main/java/com/templeregistry/connector/finance/`)
+`connector_type` is **`PULL_JDBC` and provisional**, recorded as such in the row's own
+`notes` (FIN-D-016). Q4 is unresolved and the column is `NOT NULL`, so a value had to be
+written; it reflects how the source was analysed, not a finding that the platform can reach
+it. If Q4 resolves to `PUSH_AGENT`, that is one `UPDATE` and nothing else changes — which is
+what the FIN-030 contract exists to guarantee.
 
-`TempleFinanceConnector.java` · `ConnectorMetadata.java` · `SourceSystemDescriptor.java` ·
-`SyncContext.java` · `DateRange.java` · `RawRow.java` · `SourceTotals.java` ·
-`ReconMetric.java` · `SchemaFingerprint.java` · `SourceProbeResult.java` ·
-`UnsupportedCapabilityException.java`
+### Capabilities (FIN-022) — 19, every value of the canonical vocabulary
 
-**Created — tests** (`backend/src/test/java/com/templeregistry/connector/finance/`)
+| Availability | Capabilities |
+|---|---|
+| `AVAILABLE` (10) | `REVENUE`, `SEVA`, `DONATION`, `PRASADAM_SALE`, `CANCELLATION`, `PRECIOUS_METAL_COUNT`, `PRECIOUS_METAL_WEIGHT`, `IN_KIND_DONATION`, `NIRANTARA_SUBSCRIPTION`, `NIRANTARA_SCHEDULE` |
+| `PARTIALLY_AVAILABLE` (2) | `NIRANTARA_PAYMENT`, `PAYMENT_MODE` |
+| `NOT_AVAILABLE` (7) | `PRECIOUS_METAL_VALUE`, `NIRANTARA_EXECUTION`, `EXPENSE`, `EXPENSE_CATEGORY`, `GRANT`, `GRANT_UTILISATION`, `WORKS` |
 
-`TempleFinanceConnectorContractTest.java` (25) · `ConnectorContractPurityTest.java` (8)
+**The brief listed 18; the canonical vocabulary has 19.** The missing one was
+`IN_KIND_DONATION`, and Kollur genuinely has it — donated sarees recorded with a donor-stated
+value, 182,675 records from FY2016-17. Seeded `AVAILABLE`, with the reason recording that
+the value is **donor-declared, not appraised**, and that it **must not be summed with auction
+proceeds for the same articles** — the auction realises the value of the identical sarees, so
+adding both counts them twice.
 
-**Modified.** None. FIN-030 touched no existing file.
+Coverage windows: revenue `2019-04-01 → 2026-07-26`; precious metals
+`2015-04-01 → 2026-07-25` with FY2021-22 and FY2022-23 recorded as gaps; Nirantara payments
+`2017-04-01 → 2024-03-31`; Nirantara schedule `2019-05-01 → **2027**-07-26`. Capabilities
+with no reliable coverage — `NIRANTARA_SUBSCRIPTION` and all seven unavailable ones — carry
+no dates rather than invented ones.
 
----
+The reasons are user-facing copy, and the distinctions they preserve are the point:
 
-## Tests Added
+- **Expenditure** — "the source system does not record expenditure … it is not zero."
+- **Payment mode** — "no digital payment was recorded … **not** that the payment was made in
+  cash." A receipt where the operator left the card field blank cannot be distinguished from
+  a genuine cash sale.
+- **Metal value** — weight is measured and reported; a monetary value "cannot be derived
+  without an assumed rate, which would be an invention rather than a measurement."
+- **Nirantara execution** — the preparation flag "is also set on schedules dated into 2027 —
+  so it means that a schedule was generated, **not that a seva took place**."
 
-| Class | Count | Proves |
+### Source of truth (FIN-023)
+
+`REVENUE_AMOUNT` v1 → `DailySevaNew.Amount`, effective from `2019-04-01`, `effective_to`
+NULL (in force).
+
+Filter: `Deleteflag = 0 AND TempleCode = 43 AND ReceiptDate >= '2015-01-01' AND
+BillCancled = 0` for recognised revenue. The declaration also records that extraction
+*retains* cancelled rows so cancelled counts and amounts can be reported separately — net is
+gross minus cancelled. That resolves an apparent contradiction between ADR-008 and the
+extraction sketch in `FINANCE_DATA_INTEGRATION.md`: they operate at different levels, and
+the declaration now says so explicitly rather than leaving it latent.
+
+All three measured alternatives are recorded with their evidence:
+
+| Rejected | Measured | Why |
 |---|---:|---|
-| `TempleFinanceConnectorContractTest` | 25 | Identity, capability declaration, sync context, source totals, raw rows, schema fingerprint — via a stub connector built from in-memory data alone |
-| `ConnectorContractPurityTest` | 8 | No source-specific knowledge, no credential, no JPA, no transport, no reconciliation verdict |
+| `DailySevaNewOld` | 16,982,270 rows | Byte-exact duplicate of all six archives; including it doubles every historical year |
+| `DailySevaNewDetails.TotalAmount` | ₹53,77,53,226 | 41 % below the header total, with 1:1 row correspondence and zero orphans — internal inconsistency, not missing records |
+| `DailySevaNewDetails.Amount × Qty` | ₹56,31,07,228 | Disagrees with the header *and* with the detail table's own column |
 
-The stub connector is the substantive evidence: a complete implementation of the contract
-with **no database, no HTTP client, no file handle and no credential**. If the contract
-assumed a transport, that class could not exist.
+The rationale also carries the two correctness rules that are easiest to get wrong later:
+the **rate-card price is a list price and is never revenue**, and **receipt counts are
+receipts, not devotees**.
+
+### Mapping rules (FIN-024) — 9
+
+`SANNIDHI:DS → SEVA` · `SANNIDHI:SS → SPECIAL_SEVA` · `SANNIDHI:KN → DONATION` ·
+`SANNIDHI:PS → PRASADAM_SALE` · `SEVA_CODE:430 → HUNDI_DONATION` ·
+`STREAM:SAREE_DONATION → IN_KIND_DONATION` · `STREAM:SAREE_AUCTION → ASSET_REALISATION` ·
+`METAL_TYPE 2 → GOLD` · `METAL_TYPE 1 → SILVER`
+
+Source values are namespaced and **the more specific rule wins** (FIN-D-015). Without the
+`SEVA_CODE:430` override, donation-box collections — 13 records averaging over a crore each —
+would be reported as ordinary donations and would dominate any ranking of services devotees
+purchased.
+
+No `PAYMENT_MODE` rules are seeded: for this source, payment mode is inferred from the
+*absence* of card details, which is connector logic rather than a value mapping.
+
+No canonical value was invented; all nine come from the taxonomy already in
+`FINANCE_DATA_MODEL.md`, and a test enforces that.
 
 ---
 
-## Tests Executed
+## Tests
+
+**Added:** `backend/src/test/java/com/templeregistry/migration/KollurFinanceConfigurationMigrationTest.java`
+— 27 tests.
+
+It drives Flyway directly against a MySQL 8.0 Testcontainer and reads the seeded rows back
+over JDBC, deliberately **not** loading the Spring context: every full-context test in this
+project is red for two pre-existing reasons unrelated to finance (FIN-X-001, FIN-X-002), and
+configuration that could only be verified after someone else fixed those would not be
+verified at all. The side benefit is that it exercises the migration exactly as it will run
+in production.
 
 | Command | Result |
 |---|---|
-| `mvn -o compile -DskipTests` | BUILD SUCCESS |
-| `mvn -o test -Dtest=TempleFinanceConnectorContractTest` | 25/25 pass |
-| `mvn -o test -Dtest=ConnectorContractPurityTest` | 8/8 pass |
-| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*'` | **76/76 pass** |
-| `mvn -o test` (full suite) | **931 run · 0 failures · 18 errors** |
+| `mvn -o test -Dtest=KollurFinanceConfigurationMigrationTest` | **27/27 pass** |
+| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'` | **103/103 pass** |
+| `mvn -o test` (full suite) | **958 run · 0 failures · 18 errors** |
 
-**Mutation check.** A probe interface importing `java.sql.ResultSet`, declaring a `password`
-parameter and mentioning the first temple by name was added to the contract package; **3**
-purity tests failed with the intended messages; the probe was removed and all 8 passed again.
-A guard that cannot fail is not a guard.
+What is asserted, beyond row counts: the conditional guard (zero rows *before* the temple is
+created), `sync_enabled = 0`, that **every persisted value** in `fin_source_system` contains
+no endpoint or credential pattern, that the table has no credential column at all, that each
+of the 19 reasons is substantive rather than filler, that unavailable capabilities are not
+expressed as zero, the coverage windows and gaps, all three rejected alternatives with their
+measured figures, that no mapping value contains SQL or a source table name, and idempotency
+by re-applying the whole seed.
 
 ---
 
-## Any Failures
+## Failures
 
-**New failures: none.**
-
-**Pre-existing: 18**, unchanged in count, cause and location across the whole branch
-(866 → 888 → 898 → 931 tests, always the same 18 errors in the same 4 report files).
+**New: none.** Pre-existing: **18**, unchanged in count, cause and location across the entire
+branch (866 → 888 → 898 → 931 → 958 tests, always the same 18 errors in the same 4 report
+files).
 
 - **FIN-X-001** — `Schema-validation: missing column [field_names_json] in table
-  [declaration_clarifications]`. Mapped by `DeclarationClarification`; created by no
-  migration; present in running environments only because `ddl-auto: update` adds it.
-  Affects `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17). Confirmed
-  pre-existing by stashing all finance code and reproducing identically. Architecture risk
-  **R7**, observed. Fix is one additive `ALTER`, owned by the declaration module.
-- **FIN-X-002** — the `test` profile cannot boot a full context: `jwt-test.pub` is a
+  [declaration_clarifications]`. Mapped by the entity, created by no migration, present in
+  running environments only because `ddl-auto: update` adds it. Architecture risk **R7**,
+  observed. Fix is one additive `ALTER`, owned by the declaration module.
+- **FIN-X-002** — the `test` profile cannot boot a full context: the test JWT public key is a
   placeholder that fails to parse, and `application.yml` carries a TiDB-only
-  `connection-init-sql` H2 rejects. Finance tests override both locally.
+  `connection-init-sql` that H2 rejects.
 
 ---
 
 ## Architectural Decisions
 
-**FIN-D-011 — reuse the shared finance enums rather than duplicate them.** The contract
-imports `FinanceCapability`, `ConnectorType`, `SourceTechnology` and `SyncType` from
-`entity.finance.enums`. Duplicating them would create two vocabularies for one concept, and
-the first drift would mean a capability a connector declared no longer matched the capability
-stored against the temple. The package is named `entity`, but these are plain Java enums with
-**zero imports and zero annotations** — verified, not assumed, and a test now fails the build
-if any of them ever imports `jakarta.*`, `org.springframework.*` or `org.hibernate.*`.
-
-**FIN-D-012 — the framework owns the watermark; a connector cannot propose one.** Extends
-FIN-D-005 into the contract shape. Also separates two axes that are easy to conflate:
-`changedSince`/`changedUpTo` is the change axis, `businessDateRange` is the business-date
-axis. Filtering reconciliation by modification time would silently exclude older untouched
-records, and the total would look correct because both sides compared the same subset.
-
-**FIN-D-013 — extraction returns raw string values, streamed.** Strings because staging
-exists so a malformed value *lands and is rejected with a reason* rather than aborting a
-batch — the source is known to contain impossible dates. Money is unaffected: a decimal
-rendered as text and parsed back is exact. Streamed because a first historical load runs to
-tens of millions of records.
+- **FIN-D-014** — the seed is conditional on temple 300001 existing. Rejected seeding
+  unconditionally (orphan configuration in every fresh database) and creating the temple in
+  the migration (the finance platform does not own temple records).
+- **FIN-D-015** — mapping source values are namespaced and the more specific rule wins.
+  Rejected a rule per service code (164 rows the source already classifies for us) and a new
+  `MappingType` value (vocabulary change to solve a naming problem).
+- **FIN-D-016** — `connector_type` seeded provisionally rather than made nullable. Rejected
+  weakening the column for every temple to express uncertainty about one, and rejected an
+  `UNDECIDED` enum value that would add permanent vocabulary for a temporary state.
 
 ---
 
-## Remaining Risks
+## Known Limitations
 
-| Risk | State |
-|---|---|
-| A connector implementation leaks source vocabulary upward | Contract is clean and guarded, but `ConnectorContractPurityTest` scans only the contract package. When FIN-040 lands, the equivalent guard must cover *staging output*, not just the connector — the leak would come through field names in `RawRow`, which are legitimately source-specific |
-| `extract` and `sourceTotals` collapse into one shared query | Mitigated by different signatures and axes, and documented as binding. **Not structurally enforceable** — a connector implementation can still call one from the other. FIN-044 must be reviewed specifically for this |
-| **R12** — the profile split is collapsed | Mitigated by two runtime tests and the classpath guard |
-| **R9** — silent source schema change | Contract supports it via `fingerprintSchema`; nothing compares fingerprints yet — that is FIN-042 |
-| **R7** — `ddl-auto: update` masking missing migrations | Unchanged; observed twice |
-| Stream leak from `extract` | Contract documents that callers must close it. No implementation exists yet to leak one; the pipeline code in FIN-05x must use try-with-resources |
+1. **The seed is a no-op where temple 300001 does not yet exist** (FIN-D-014). This is
+   correct behaviour, but it means the live database is the only place the configuration
+   actually lands today, and only if the temple predates the migration. Onboarding
+   (FIN-140) is the durable answer.
+2. **`connector_type` is provisional** pending Q4.
+3. **`connector_bean = kollurFinanceConnector` names a bean that does not exist.** Harmless
+   while `sync_enabled = 0` and nothing resolves it; FIN-031 is what will resolve it, and it
+   must fail loudly rather than silently if a named connector is absent.
+4. **No source-of-truth declaration for `PRECIOUS_METAL_WEIGHT`.** Deliberately out of FIN-023
+   scope, but it is the natural defence against the discarded "assume 15 g and ₹12,000 per
+   item" approach returning. One row whenever wanted.
+5. **Capability rows carry `last_reviewed_at` set at migration time and no reviewer.** The
+   reasons are user-facing copy about a government temple's finances and would benefit from a
+   named business sign-off before the dashboard renders them.
 
 ---
 
 ## Q4 Status
 
-**UNRESOLVED, and still not assumed.** FIN-030 strengthened this rather than deferring it:
-the contract names no transport at all, so `PULL_JDBC`, `PUSH_AGENT`, `SOURCE_API` and
-`FILE_DROP` are equally implementable — proven by a test parameterized over every
-`ConnectorType` value.
+**UNRESOLVED, and not resolved by assumption.** The seed stores `PULL_JDBC` only because the
+column is `NOT NULL`, and says so in its own notes. Nothing in the configuration presumes the
+platform can reach Kollur: there is no endpoint, no host, no URL, and synchronization is
+disabled. `ConnectorType` still treats all four mechanisms as equals, and `SourceCredentials`
+carries an *optional* principal so a push agent's shared key fits the same shape as a
+database user.
 
-If inbound access to Kollur is refused, the change is a `connector_type` value and a
-different connector implementation. The canonical model, aggregation, Finance APIs and
-dashboard are untouched.
-
-One point for FIN-040 that Q4 will settle: the contract deliberately carries **no endpoint**
-— no host, URL or file path. A `PULL_JDBC` connector will need one, and it must come from
-worker configuration alongside the credential, not from `fin_source_system`. That keeps
-FIN-D-002 intact and is worth deciding explicitly rather than by accident.
+If the answer is `PUSH_AGENT`: one `UPDATE` to `connector_type`, and a different connector
+implementation. The canonical model, aggregation, APIs and dashboard are untouched.
 
 ## Q5 Status
 
-**UNRESOLVED, abstraction unchanged.** No temple credential exists in the repository, the
-database, or any configuration file. FIN-030 added no credential surface: the contract
-carries only `SourceSystemDescriptor.credentialRef()`, an alias, and a purity test fails the
-build if `SourceCredentials` or `SourceCredentialProvider` is ever referenced from the
-contract package.
+**UNRESOLVED, and no credential was introduced.** `credential_ref = 'kollur-readonly'` is an
+alias. No credential exists in Git, YAML, SQL, the migration, the tests, or
+`fin_source_system` — and a test scans **every persisted value** in that table for endpoint
+and credential patterns, so a future edit that smuggles one into a notes field fails the
+build.
 
 Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConfig`.
 
@@ -208,14 +258,14 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 ## How To Continue
 
 1. Read this file, then `IMPLEMENTATION_STATUS.md` and `IMPLEMENTATION_TASKS.md`.
-2. `git status` and `git log --oneline -8` on `feature/db-integration`.
+2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
-   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*'`
-   — expect **76 passing, 0 failures**.
-4. Implement FIN-021 … FIN-024 only. Do not start a connector implementation.
-5. Anything new that can reach a source system goes in `SyncWorkerConfig` as a `@Bean`, never
-   as a `@Component`.
-6. Run the suite, update the four tracking documents, commit as `FIN-021 ...`.
+   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'`
+   — expect **103 passing, 0 failures**. (Requires Docker for the migration test.)
+4. Implement FIN-031 only. Do not implement a connector.
+5. Anything that can reach a source system is registered in `SyncWorkerConfig` as a `@Bean`,
+   never as a `@Component` — `FinanceIntegrationBoundaryTest` fails the build otherwise.
+6. Run the suite, update the four tracking documents, commit as `FIN-031 ...`.
 
 Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
@@ -223,12 +273,13 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-021 … FIN-024**: a seed migration registering the Kollur source system
-(`temple_id=300001`, `system_code=KOLSOHAM`, `source_temple_code=43`,
-`connector_bean=kollurFinanceConnector`, `sync_enabled=0`, `credential_ref` alias only),
-its 19 capability rows with user-facing reasons, its `REVENUE_AMOUNT` source-of-truth
-declaration including the three measured rejected alternatives, and its mapping rules.
+Implement **FIN-031**: a connector registry that resolves
+`fin_source_system.connector_bean` to a `TempleFinanceConnector` instance within the
+sync-worker runtime.
 
-Configuration data only — no connector, no credential, no network access. The capability
-reasons are user-facing copy that the dashboard renders in place of a number, so write them
-to be read by a Deputy Commissioner, not by a developer.
+It must **fail loudly when a named connector is absent** — Kollur's row already names
+`kollurFinanceConnector`, which does not exist yet, and a registry that returned null or a
+no-op connector for a missing name would let a temple appear configured while silently
+producing nothing. Register it in `SyncWorkerConfig` as a `@Bean`, and add a registry-side
+check that a source system's declared `connector_type` matches the resolved connector's
+`ConnectorMetadata.connectorType()`.

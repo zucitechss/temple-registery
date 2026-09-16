@@ -64,10 +64,50 @@ locking, so a second process would have **delivered duplicate emails to real rec
 | ID | Description | Status | Depends on | Notes |
 |---|---|---|---|---|
 | FIN-020 | Credential resolution from environment/secret config, sync-worker only | NEEDS_REVIEW | FIN-016 | **Abstraction delivered** by FIN-016: `SourceCredentialProvider` with an environment-backed implementation, no committed credentials, no fallback. What remains is the **Q5 decision** on the permanent backing store; swapping it is one `@Bean` method in `SyncWorkerConfig`. |
-| FIN-021 | Register Kollur source system (seed migration) | NOT_STARTED | FIN-011 | `temple_id=300001`, `system_code=KOLSOHAM`, `source_temple_code=43`, `sync_enabled=0` |
-| FIN-022 | Declare Kollur capabilities with reasons | NOT_STARTED | FIN-021 | 19 rows; the `NOT_AVAILABLE` reasons are user-facing copy |
-| FIN-023 | Declare Kollur source of truth for `REVENUE_AMOUNT` | NOT_STARTED | FIN-021 | Includes the three measured rejected alternatives |
-| FIN-024 | Seed Kollur mapping rules (category, service, metal type) | NOT_STARTED | FIN-021 | |
+| FIN-021 | Register Kollur source system (seed migration) | **COMPLETE** | FIN-011 | 1 row: `temple_id=300001`, `system_code=KOLSOHAM`, `source_temple_code=43`, `sync_enabled=0`, `credential_ref` alias only |
+| FIN-022 | Declare Kollur capabilities with reasons | **COMPLETE** | FIN-021 | 19 rows — 10 AVAILABLE, 2 PARTIALLY_AVAILABLE, 7 NOT_AVAILABLE |
+| FIN-023 | Declare Kollur source of truth for `REVENUE_AMOUNT` | **COMPLETE** | FIN-021 | 1 row, with all three measured rejected alternatives |
+| FIN-024 | Seed Kollur mapping rules (category, metal type) | **COMPLETE** | FIN-021 | 9 rows |
+
+**Migration.** `V111__kollur_finance_configuration.sql` — configuration data only. Creates no
+table, alters no schema, enables no synchronization, stores no credential.
+
+**Capability count corrected during implementation.** The task brief listed 18 capabilities;
+the canonical `FinanceCapability` vocabulary has **19**. The missing one was
+`IN_KIND_DONATION`, and Kollur has it — donated sarees are recorded with a donor-stated
+value (182,675 records from FY2016-17). It is seeded `AVAILABLE`, with the reason recording
+that the value is donor-declared rather than appraised and **must not be summed with auction
+proceeds for the same articles**, since the auction realises the value of the identical
+sarees.
+
+**Capability breakdown as seeded**
+
+| Availability | Capabilities |
+|---|---|
+| `AVAILABLE` (10) | `REVENUE`, `SEVA`, `DONATION`, `PRASADAM_SALE`, `CANCELLATION`, `PRECIOUS_METAL_COUNT`, `PRECIOUS_METAL_WEIGHT`, `IN_KIND_DONATION`, `NIRANTARA_SUBSCRIPTION`, `NIRANTARA_SCHEDULE` |
+| `PARTIALLY_AVAILABLE` (2) | `NIRANTARA_PAYMENT`, `PAYMENT_MODE` |
+| `NOT_AVAILABLE` (7) | `PRECIOUS_METAL_VALUE`, `NIRANTARA_EXECUTION`, `EXPENSE`, `EXPENSE_CATEGORY`, `GRANT`, `GRANT_UTILISATION`, `WORKS` |
+
+**Coverage windows seeded:** revenue `2019-04-01 → 2026-07-26`; precious metals
+`2015-04-01 → 2026-07-25` with FY2021-22 and FY2022-23 recorded as gaps; Nirantara payments
+`2017-04-01 → 2024-03-31`; Nirantara schedule `2019-05-01 → 2027-07-26`, the future end date
+being exactly why a scheduled row must never be reported as a performed seva.
+`NIRANTARA_SUBSCRIPTION`, `EXPENSE` and the other unavailable capabilities carry **no**
+coverage dates rather than invented ones.
+
+**Mapping rules (9).** Four income buckets → `SEVA`, `SPECIAL_SEVA`, `DONATION`,
+`PRASADAM_SALE`; one override → `HUNDI_DONATION`; two streams → `IN_KIND_DONATION`,
+`ASSET_REALISATION`; two metal codes → `GOLD`, `SILVER`. No `PAYMENT_MODE` rules: for this
+source payment mode is inferred from the absence of card details, which is connector logic,
+not a value mapping.
+
+Decisions: FIN-D-014 (conditional seed), FIN-D-015 (namespaced source values and
+precedence), FIN-D-016 (provisional `connector_type`).
+
+**Tests.** `KollurFinanceConfigurationMigrationTest` — 27 tests against a real MySQL 8.0
+container with real Flyway, asserting database state rather than file contents. Verifies the
+conditional guard (zero rows before the temple exists), every seeded row, and idempotency by
+re-applying the seed.
 
 ---
 
@@ -278,13 +318,13 @@ There is no `FIN-017` in this numbering — Phase 1 ends at FIN-016. The next ta
 | ID | Description | Status | Why it is next |
 |---|---|---|---|
 | ~~FIN-030~~ | `TempleFinanceConnector` contract | **COMPLETE** | Delivered |
-| **FIN-021…024** | Seed Kollur source system, capabilities, source-of-truth, mappings | **RECOMMENDED NEXT** | Pure configuration data. Safe because `sync_enabled` defaults to `0` and only a credential *alias* is stored, so nothing is contacted. FIN-030 now defines what `connector_bean` refers to, so the configuration is meaningful |
-| FIN-031 | Connector registry resolving `connector_bean` to a bean | Available | Small; needs at least one connector to be useful, so it pairs naturally with FIN-040 |
+| ~~FIN-021…024~~ | Kollur configuration seed | **COMPLETE** | Delivered as `V111` |
+| **FIN-031** | Connector registry resolving `connector_bean` to a bean | **RECOMMENDED NEXT** | The configuration now names `kollurFinanceConnector`; the registry is what turns that string into a bean, and it is the last piece of framework that can be built before a connector exists |
 
-All are unblocked by Q4 and Q5.
+Unblocked by Q4 and Q5.
 
-**Why configuration before the registry.** FIN-022 forces the capability reasons to be
-written down, and those strings are what the dashboard renders in place of a number. They
-are user-facing copy about a government temple's finances, so they deserve review on their
-own rather than as an afterthought attached to connector code. FIN-031 is mechanical by
-comparison and has nothing to resolve until a connector exists.
+**One item deliberately deferred, and worth a decision.** A source-of-truth declaration for
+`PRECIOUS_METAL_WEIGHT` (`HKanikeItems.Qty`, grams) was **not** seeded, because FIN-023 was
+scoped to `REVENUE_AMOUNT`. It is the natural defence against the discarded
+"assume 15 g and ₹12,000 per item" approach returning, and is a one-row addition whenever the
+reviewer wants it.

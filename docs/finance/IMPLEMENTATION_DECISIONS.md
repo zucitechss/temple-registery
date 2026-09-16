@@ -351,3 +351,91 @@ a resource, so the contract documents that callers must close it.
 a driver-specific object (a `ResultSet` row, a vendor date type) up into staging, which is
 exactly the source-vocabulary leak the boundary exists to prevent. `List<RawRow>` — simpler,
 and impossible at Kollur volume.
+
+---
+
+## FIN-D-014 — The Kollur seed is conditional on the temple existing
+
+**Date:** 2026-09-16 · **Affects:** `V111__kollur_finance_configuration.sql`
+
+**Decision.** Every statement in V111 is guarded by
+`WHERE EXISTS (SELECT 1 FROM temples WHERE id = 300001 AND is_deleted = 0)`. In a database
+without that temple, the migration succeeds and seeds nothing.
+
+**Reason.** No migration in this repository creates temple 300001 — `V100` seeds temples with
+ids `100`... and 300001 exists only where it was created through the application. An
+unconditional seed would therefore create finance configuration pointing at a temple that
+does not exist in every fresh developer and CI database: a source system, nineteen capability
+declarations, a source-of-truth declaration and nine mapping rules, all orphaned.
+
+**Rejected.** Seeding unconditionally and treating the orphan rows as harmless. They are
+harmless at runtime — `sync_enabled = 0` means nothing acts on them — but configuration that
+describes a temple the registry has never heard of is misleading to the next person who
+opens the table, and finance configuration is precisely the place where misleading data
+must not accumulate.
+
+**Rejected.** Creating temple 300001 in the migration. The finance platform does not own
+temple records and must not invent one.
+
+**Operational consequence, which must not be forgotten.** A Flyway versioned migration runs
+once. In an environment where temple 300001 is created *after* V111 has run, the seed will
+never apply, and Kollur configuration must be applied through the onboarding path (FIN-140)
+or by re-running the statements manually. V111 is idempotent, so re-running it is safe.
+
+**Tested.** `KollurFinanceConfigurationMigrationTest` asserts zero rows after migration and
+before the temple is created, then applies the seed and asserts every row.
+
+---
+
+## FIN-D-015 — Mapping source values are namespaced, and the more specific rule wins
+
+**Date:** 2026-09-16 · **Affects:** `fin_mapping_rule` seed for Kollur
+
+**Decision.** Source values in `REVENUE_CATEGORY` rules carry a namespace prefix —
+`SANNIDHI:DS`, `SEVA_CODE:430`, `STREAM:SAREE_AUCTION`. Where both could match, the more
+specific (`SEVA_CODE`) takes precedence over the coarse bucket (`SANNIDHI`).
+
+**Reason.** Two different source vocabularies map to the same canonical concept. The source
+maintains a four-bucket income classification, which handles almost everything; but one
+service inside the donation bucket is not a donation in the reporting sense. Donation-box
+collections are booked as ordinary receipts — 13 records averaging over a crore each — and
+without an override they would be reported as ordinary donations and would dominate any
+ranking of services purchased by devotees.
+
+Without prefixes, `DS` and `430` would sit in one flat key space with nothing to say which
+kind of source value each was, and the precedence rule would have nowhere to live.
+
+**Rejected.** A rule per service code (164 rows of data that the source already classifies
+for us, and which would need maintaining every time the temple adds a seva). A new
+`MappingType` enum value (a vocabulary change to solve a naming problem).
+
+**Consequence.** The connector must apply the precedence rule; it is stated in the migration
+comment and in the `SANNIDHI:KN` rule's own notes, where someone editing the mapping will
+see it.
+
+---
+
+## FIN-D-016 — `connector_type` is seeded provisionally rather than made nullable
+
+**Date:** 2026-09-16 · **Affects:** `fin_source_system` Kollur row
+
+**Decision.** Kollur is seeded with `connector_type = 'PULL_JDBC'`, explicitly recorded as
+provisional in the row's own `notes`, pending the Q4 network decision.
+
+**Reason.** The column is `NOT NULL` and Q4 is unresolved, so something must be written. The
+value reflects how the source was analysed, not a finding that the platform may reach it.
+Nothing depends on it while `sync_enabled = 0`, and correcting it if the answer is
+`PUSH_AGENT` is a single `UPDATE` — the connector contract (FIN-030) treats all four
+mechanisms as equals precisely so that this stays a one-row change.
+
+**Rejected.** Making `connector_type` nullable until onboarding completes. It is defensible
+and is a one-line migration, but it weakens the column for every temple in order to express
+uncertainty about one, and the uncertainty is better expressed where it actually is — in the
+notes, and in `sync_enabled = 0`.
+
+**Rejected.** Inventing an `UNDECIDED` enum value. That adds permanent vocabulary to model a
+temporary state.
+
+**Guard.** The seed is worthless as a signal if someone later flips the switch without the
+prerequisites, so the test asserts `sync_enabled = 0` and no schedule. If a future change
+enables sync, that test must be consciously changed — which is the point.

@@ -20,7 +20,7 @@ proven by test. Next work is Phase 2 or Phase 3; both are unblocked.
 |---|---|---:|---|
 | Architecture | COMPLETE | 100 | 6 design docs + 11 ADRs, delivered previously |
 | Finance Foundation | **COMPLETE** | 100 | FIN-010…FIN-016, including the runtime boundary |
-| Source Configuration | IN_PROGRESS | 20 | FIN-020 abstraction delivered by FIN-016; Q5 decides the permanent store |
+| Source Configuration | **COMPLETE** | 100 | FIN-021..024 seeded; FIN-020 abstraction delivered, Q5 decides only the permanent store |
 | Connector Framework | IN_PROGRESS | 40 | FIN-030 contract COMPLETE; FIN-031 registry outstanding |
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
 | Staging | NOT_STARTED | 0 | |
@@ -126,25 +126,51 @@ via Testcontainers (Flyway reports "now at version v110").
 
 ---
 
-## Phase 2 — Source Configuration · IN_PROGRESS · 20%
+## Phase 2 — Source Configuration · COMPLETE · 100%
 
-**Completed.** The credential seam (FIN-020, abstraction half). `SourceCredentialProvider`
-resolves a `credential_ref` alias to real credentials; the interim implementation reads
-`trm.finance.source.<ref>.secret` from the worker process environment. It exists only in
-the worker runtime, never falls back to a default, never logs a secret, and validates the
-reference so a database row cannot read an unrelated property such as the registry
-database password.
+**Completed.** The credential seam (FIN-020) and the full Kollur configuration
+(FIN-021 … FIN-024), seeded by `V111__kollur_finance_configuration.sql`.
 
-**Remaining.** FIN-021 … FIN-024 — seeding Kollur configuration. Not blocked: registering a
-source system with `sync_enabled = 0` and a credential *alias* contacts nothing and stores
-no secret.
+`SourceCredentialProvider` resolves a `credential_ref` alias to real credentials; the
+interim implementation reads `trm.finance.source.<ref>.secret` from the worker process
+environment, exists only in the worker runtime, never falls back to a default, never logs a
+secret, and validates the reference so a database row cannot read an unrelated property such
+as the registry database password.
+
+**Kollur configuration seeded:** 1 source system, 19 capability declarations, 1
+source-of-truth declaration, 9 mapping rules. No credential, no endpoint, no schema change,
+and `sync_enabled = 0`.
+
+Three things about this seed are worth knowing before touching it:
+
+1. **It declares every capability, including the seven that are unavailable.** Availability
+   is data, and "not declared" must never have to be guessed at. Each carries a *measured*
+   reason written for a Deputy Commissioner, because that text is rendered where a figure
+   would otherwise be — expenditure says the source records none and that the figure is
+   unknown *rather than zero*; payment mode says no digital payment was recorded rather than
+   claiming cash; metal value says a monetary figure would require an assumed rate and would
+   be an invention.
+2. **A capability count discrepancy was found and resolved.** The task brief listed 18
+   capabilities; the canonical vocabulary has 19. The missing one, `IN_KIND_DONATION`, is
+   genuinely available at Kollur (donated sarees with a donor-stated value), and is seeded
+   with the warning that it must not be summed with auction proceeds for the same articles.
+3. **The seed is conditional on temple 300001 existing** (FIN-D-014). No migration creates
+   that temple, so in a fresh database V111 correctly seeds nothing rather than leaving
+   orphan configuration.
+
+**Remaining.** None.
 
 **Blockers.** **Q5** decides the permanent credential store, not whether work can continue.
 There is no secrets manager in this deployment, and `application.yml` carries committed
 fallback database credentials — which is exactly the arrangement temple credentials must
 not join, and why the provider declares its properties in no YAML at all. Replacing the
-environment-backed implementation with a vault-backed one is a change to one `@Bean`
-method.
+environment-backed implementation with a vault-backed one is a change to one `@Bean` method.
+
+**Tests.** `KollurFinanceConfigurationMigrationTest` — 27 tests against a real MySQL 8.0
+container with real Flyway, asserting database state rather than file contents, including
+the conditional guard and idempotency.
+
+**Decisions.** FIN-D-014 … FIN-D-016.
 
 ---
 
@@ -205,7 +231,7 @@ connector implementation.
 
 ## Known Defects Outside Finance Scope
 
-The full suite reports **931 tests, 0 failures, 18 errors**. All 18 are in
+The full suite reports **958 tests, 0 failures, 18 errors**. All 18 are in
 `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17), and all share one
 root cause: `ddl-auto: validate` rejecting
 `missing column [field_names_json] in table [declaration_clarifications]`.
