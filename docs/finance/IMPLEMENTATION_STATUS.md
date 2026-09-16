@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-16 (FIN-031)
+**Updated:** 2026-09-16 (FIN-051, FIN-052)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -8,12 +8,16 @@
 
 ## Current Phase
 
-**Phase 3 — Connector Framework · IN_PROGRESS.** Phases 0–2 are complete: the foundation,
-the registry / sync-worker runtime boundary, the credential seam and the full Kollur
-configuration. The connector contract (FIN-030) and the registry that resolves
-`connector_bean` to an implementation (FIN-031) are done; no connector implementation
-exists, and resolving one now fails explicitly rather than silently. Next work is the
-canonical model (Phase 5), which needs neither Q4 nor a connector.
+**Phase 5 — Revenue Pipeline · IN_PROGRESS.** Phases 0–2 are complete, Phase 3 is complete
+apart from onboarding wiring (FIN-032), and the canonical revenue model now exists:
+`fin_revenue_category`, `fin_service_dim` and `fin_revenue_fact` at daily grain, with the
+grain enforced by the database. The reporting boundary is therefore in place — every
+catalogued revenue report can be answered from these three tables without any access to a
+temple source system.
+
+What remains between here and a real figure is the pipeline that fills them: staging,
+validation, mapping, normalization and the idempotent load (FIN-050, FIN-053…FIN-056), and a
+connector to produce rows at all.
 
 ---
 
@@ -27,8 +31,8 @@ canonical model (Phase 5), which needs neither Q4 nor a connector.
 | Connector Framework | IN_PROGRESS | 70 | FIN-030 contract and FIN-031 registry COMPLETE; FIN-032 outstanding |
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
 | Staging | NOT_STARTED | 0 | |
-| Canonical Finance Data | NOT_STARTED | 0 | |
-| Revenue Pipeline | NOT_STARTED | 0 | |
+| Canonical Finance Data | **COMPLETE** | 100 | FIN-051, FIN-052 — revenue dimensions and the daily-grain fact; other canonical facts arrive with their phases |
+| Revenue Pipeline | IN_PROGRESS | 35 | Canonical target exists; staging, validation, mapping, normalization and load outstanding |
 | Reconciliation | NOT_STARTED | 0 | Tables exist; service does not |
 | Aggregation | NOT_STARTED | 0 | |
 | Finance APIs | NOT_STARTED | 0 | Contract written, no code |
@@ -239,12 +243,69 @@ missing-connector throw with `return null` failed 4 registry tests, including th
 
 ---
 
-## Phases 4–17 · NOT_STARTED · 0%
+## Phase 5 — Canonical Revenue Model · IN_PROGRESS · 35%
+
+**Completed.** FIN-051 and FIN-052 — `V112__finance_canonical_revenue.sql`, three tables,
+three entities, two enums. This is the reporting boundary: from here upwards, every revenue
+figure the platform publishes comes from these tables and from nothing else, which is what
+ADR-001 means in practice rather than in principle.
+
+*Dimensions.* `fin_revenue_category` is the platform-wide income taxonomy, seeded with twelve
+codes and carrying **no `temple_id` column** — a taxonomy each temple invents for itself
+cannot produce a district total. `fin_service_dim` is per temple, because service catalogues
+genuinely differ; every service still resolves to a platform-wide category, which is what
+makes two temples comparable without pretending their seva lists are the same.
+
+*Fact.* `fin_revenue_fact` at daily grain: one row per
+`(temple, transaction_date, service, category, payment mode, counter, operator)` rather than
+one row per receipt. On the first onboarded source that is 22.3 M receipts becoming ~121 k
+rows, and it means no devotee name, address, mobile number or email address is copied into
+the central platform at all.
+
+**Three things here are load-bearing, and two of them correct the design documents:**
+
+1. **The documented unique key does not enforce the documented grain.** Three grain columns
+   are legitimately nullable — a donation-box collection has no service, counter or operator —
+   and MySQL and TiDB treat NULLs in a unique index as distinct. Written literally, ADR-003's
+   key accepts the same hundi fact twice and doubles ₹13.40 Cr a year. Generated key columns
+   close it (FIN-D-018), **verified by mutation**: with the literal key, the duplicate insert
+   succeeds silently.
+2. **`operator_ref` was added to the grain** (FIN-D-019). R27 reports revenue by counter *and
+   operator* from this table, which the six-column key cannot answer — and worse, a connector
+   grouping by operator would emit colliding rows, so the loader would lose revenue or
+   overwrite it. Whatever a connector groups by must be a subset of the key.
+3. **Cancellation is three states, not two.** `cancelled_amount = 150.00` is measured and
+   deducted, `0` is measured and none, `NULL` is not recorded. `net_amount` is computed by the
+   database (FIN-D-020) and is NULL in the third case, because reporting gross as net would
+   assert that nothing was cancelled.
+
+**Remaining.** FIN-050 (staging), FIN-053 (validation), FIN-054 (mapping), FIN-055
+(normalization), FIN-056 (the idempotent load that writes through `uk_frf_grain`). The
+canonical tables have no writer yet, and no row of temple financial data exists in them.
+
+**Blockers.** None for the pipeline stages. FIN-050 is written against `FIN-043` in the task
+list because staging was scoped around a working extract; it can be built ahead of one.
+
+**Tests.** `FinanceCanonicalRevenueMigrationTest` — 19 tests against a real MySQL 8.0
+container with real Flyway, asserting database behaviour rather than DDL text: grain rejection
+including the all-NULL case, six distinct dimensions coexisting on one date, upsert
+convergence, multi-temple isolation, business date surviving restatement, the three
+cancellation states, mandatory provenance, exact decimal round-trips, and two purity scans.
+One further test compares every `@Column` on the three entities against
+`information_schema` — the defect class behind FIN-X-001, which this project otherwise has no
+working check for.
+
+**Decisions.** FIN-D-018 … FIN-D-020.
+
+---
+
+## Remaining Phases · NOT_STARTED
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
-FIN-051 / FIN-052 (canonical dimensions and the daily-grain revenue fact) are unblocked and
-recommended next: they depend on neither Q4 nor a connector, and every later stage writes
-into them.
+FIN-050 (`fin_stg_revenue`, the immutable raw landing table) is unblocked and recommended
+next: it is the other end of the pipeline, needs neither Q4 nor a connector, and once both
+ends exist the stages between them (FIN-053…FIN-056) can be built and tested with fabricated
+staging rows rather than waiting on a temple.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
 Kollur database, and the connector cannot be tested without one. This is exactly the

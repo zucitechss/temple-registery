@@ -486,3 +486,99 @@ connector class drift into the registry runtime by nothing more than being on th
 **Consequence.** The worker starts with an empty registry and stays healthy; the failure
 surfaces when a source system is actually synchronized, naming the connector, the system
 code, the source system id and the temple.
+
+---
+
+## FIN-D-018 — The grain is enforced through generated key columns, because NULL is not equal to NULL
+
+**Date:** 2026-09-16 · **Affects:** `fin_revenue_fact.uk_frf_grain`
+
+**Decision.** Three of the grain columns — `service_id`, `counter_ref`, `operator_ref` — stay
+nullable, and `uk_frf_grain` is declared over stored generated columns that substitute a
+concrete value for each NULL (`0`, `'~NONE~'`, `'~NONE~'`).
+
+**Reason.** MySQL and TiDB both treat NULLs in a unique index as distinct from one another,
+so the unique key documented in ADR-003, written literally, does not enforce the grain for
+any fact whose service, counter or operator is unknown. That is not an edge case: a
+donation-box collection has none of the three, and Kollur's hundi stream is ₹13.40 Cr a year.
+Two syncs of the same day would have produced two rows and reported the money twice.
+
+This was **verified by mutation**, not reasoned about: replacing the generated columns with
+the documented key made `should_rejectDuplicate_when_nullableGrainColumnsAreNull` fail with
+the duplicate silently accepted.
+
+**Rejected.** Making the three columns `NOT NULL` with sentinel values. It enforces the grain
+just as well and reads more simply, but it destroys information every consumer then has to
+reconstruct: "no service was involved" and "service 0" are different statements, and a report
+counting distinct services would count the sentinel.
+
+**Rejected.** Enforcing uniqueness in the loader. The constraint exists precisely for the
+case where application code is wrong; an invariant that holds only while the code is correct
+is not an invariant. It also fails to protect against two workers, a manual correction, or a
+replay.
+
+**Consequence.** The generated columns are storage mechanism only. Nothing reads them —
+reports read the nullable columns, where NULL keeps its meaning — and the sentinel strings
+are chosen to be implausible as real counter or operator identifiers.
+
+---
+
+## FIN-D-019 — `operator_ref` belongs in the grain
+
+**Date:** 2026-09-16 · **Affects:** `fin_revenue_fact.uk_frf_grain`, ADR-003
+
+**Decision.** The canonical grain is
+`(temple, transaction_date, service, category, payment_mode, counter_ref, operator_ref)` —
+ADR-003's six columns plus the operator.
+
+**Reason.** Two independent problems with the documented six:
+
+1. **A catalogued report needs it.** R27 reports revenue *by counter and operator*, and names
+   `fin_revenue_fact.operator_ref` as its source. With the operator outside the key, a day's
+   takings at one counter across three operators must collapse to one row, and the operator
+   column can hold only one of them or none — so the report is unanswerable from the table
+   documented to answer it.
+2. **It is a correctness hazard, not just a missing feature.** A connector grouping its
+   extract by operator — the natural thing to do when the column exists — emits rows that
+   collide on a key that omits it. The loader then either loses revenue or overwrites one
+   operator's takings with another's, and both losses are silent. Whatever a connector groups
+   by must be a subset of the key.
+
+**Cost.** More rows than ADR-003's measured 121,242, which was counted at date × service ×
+counter. Operators work at counters, so the multiplier is small, and the measured 184×
+reduction from 22.3 M receipts is not materially affected. The figure in ADR-003 is left
+as-is rather than restated, because it was measured and this estimate is not.
+
+**Rejected.** Dropping `operator_ref` from the fact entirely and serving R27 from a separate
+aggregate. That defers the same decision, and an operator column sitting unused in the fact
+would eventually be populated by someone who did not know it was not in the key.
+
+**Consequence.** ADR-003's "Consequences" section names the six-column key and is now
+superseded on that one point by this decision. A temple whose source records no operator is
+unaffected: the column is NULL and the generated key collapses it (FIN-D-018).
+
+---
+
+## FIN-D-020 — `net_amount` is computed by the database and is NULL when cancellations are unknown
+
+**Date:** 2026-09-16 · **Affects:** `fin_revenue_fact.net_amount`
+
+**Decision.** `net_amount` is a stored generated column, `gross_amount - cancelled_amount`.
+Where `cancelled_amount` is NULL — the source does not record cancellations at all — net
+revenue is NULL.
+
+**Reason.** Every catalogued revenue report sums `net_amount`, so it is the number that
+reaches a Deputy Commissioner. Computing it in the loader means each future pipeline stage,
+restatement path and manual correction must reproduce the same arithmetic, and the first one
+that does not produces a figure that disagrees with its own components. The database can only
+have one answer.
+
+The NULL propagation is the deliberate part. For a source that does not record cancellations,
+writing `net = gross` asserts that nothing was cancelled, which is exactly the "absence
+becomes zero" failure ADR-007 exists to prevent. Three states stay distinguishable:
+`cancelled_amount = 150.00` (measured, deducted), `= 0` (measured, none), `= NULL` (unknown,
+and net is unknown with it).
+
+**Consequence.** A temple lacking the `CANCELLATION` capability is reported from
+`gross_amount` with its capability caveat attached — never by substituting gross for net. The
+aggregation layer (FIN-070) must handle this explicitly rather than summing NULLs into zero.

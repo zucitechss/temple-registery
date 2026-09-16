@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-16 (FIN-031)
+**Updated:** 2026-09-16 (FIN-051, FIN-052)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,35 +12,132 @@
 
 | Task | Status |
 |---|---|
-| FIN-031 — Connector registry | **COMPLETE** (this session) |
-| FIN-021…024 — Kollur configuration | **COMPLETE** |
+| FIN-051 — Canonical dimensions | **COMPLETE** (this session) |
+| FIN-052 — `fin_revenue_fact`, daily grain | **COMPLETE** (this session) |
+| FIN-031 — Connector registry | **COMPLETE** |
 | FIN-030 — Connector contract | **COMPLETE** |
+| FIN-021…024 — Kollur configuration | **COMPLETE** |
 | FIN-016 — Registry / sync-worker split | **COMPLETE** |
 | FIN-010…015 — Finance foundation | **COMPLETE** |
 
-The missing-connector path is explicitly tested and mutation-verified: FIN-031 is complete
-because the failure it exists to produce was observed, not because the code compiles.
+Both tasks are complete because the invariants they exist to create were observed holding
+against a real database — and, for the grain, observed failing when the constraint is written
+the way the design document specifies it.
 
 ---
 
 ## Current State
 
 **What works.** The finance foundation (FIN-010…015), the registry / sync-worker runtime
-boundary (FIN-016), the generic connector contract (FIN-030), the complete Kollur
-configuration (FIN-021…024), and now connector resolution (FIN-031).
+boundary (FIN-016), the generic connector contract (FIN-030), connector resolution (FIN-031),
+the complete Kollur configuration (FIN-021…024), and now the canonical revenue model
+(FIN-051, FIN-052).
 
-The platform can now say, for one real temple, what it can and cannot report, which source
-field is authoritative for revenue, and how that source's vocabulary translates into
-canonical terms — without holding a credential, knowing an endpoint, or being able to reach
-anything.
+Both ends of the architecture now exist and neither knows anything about the other. The
+platform can say, for one real temple, what it can and cannot report and which source field
+is authoritative; and it has a generic place to put the answer, shaped so that every
+catalogued revenue report is answerable without touching a source system. What it cannot do
+is move data from one end to the other.
 
-**What does not work yet.** No connector implementation, no extraction, no canonical fact
-table, no API. The dashboard is still the static HTML file. No row of temple financial data
-has been read and no credential exists anywhere.
+**What does not work yet.** No connector implementation, no staging table, no extraction, no
+validation, no mapping stage, no loader, no aggregation, no API. The dashboard is still the
+static HTML file. No row of temple financial data has been read, `fin_revenue_fact` is empty
+and has no writer, and no credential exists anywhere.
 
 ---
 
-## FIN-031 — Connector Registry (this session)
+## FIN-051 / FIN-052 — Canonical Revenue Model (this session)
+
+### Files
+
+| File | Change |
+|---|---|
+| `backend/src/main/resources/db/migration/V112__finance_canonical_revenue.sql` | new — 3 tables, 12 seeded category rows |
+| `backend/src/main/java/com/templeregistry/entity/finance/FinRevenueCategory.java` | new |
+| `backend/src/main/java/com/templeregistry/entity/finance/FinServiceDim.java` | new |
+| `backend/src/main/java/com/templeregistry/entity/finance/FinRevenueFact.java` | new |
+| `backend/src/main/java/com/templeregistry/entity/finance/enums/PaymentMode.java` | new |
+| `backend/src/main/java/com/templeregistry/entity/finance/enums/PaymentModeConfidence.java` | new |
+| `backend/src/test/java/com/templeregistry/migration/FinanceCanonicalRevenueMigrationTest.java` | new — 19 tests |
+
+**Migration number:** `V112` — the repository's highest was `V111`. No existing table is
+altered. No connector, staging table, service, repository, API or frontend file is touched,
+and no dependency was added.
+
+### The canonical grain
+
+```
+(temple_id, transaction_date, service_id, category_id, payment_mode, counter_ref, operator_ref)
+```
+
+Enforced by `uk_frf_grain`. One row per day per service per category per payment mode per
+counter per operator — **not** one row per receipt (ADR-003): 22.3 M receipts on the first
+source become ~121 k rows, and no devotee name, address, mobile or email is copied centrally
+at all.
+
+**Two corrections to the documented key, both found by building it:**
+
+1. **It did not enforce the grain.** `service_id`, `counter_ref` and `operator_ref` are
+   legitimately nullable — a donation-box collection has none of them — and MySQL and TiDB
+   treat NULLs in a unique index as distinct. The documented key, written literally, accepts
+   the same hundi fact twice. Stored generated columns (`grain_service_key`,
+   `grain_counter_key`, `grain_operator_key`) substitute concrete values so the constraint
+   bites (FIN-D-018). **Mutation-verified:** with the literal key, the duplicate insert
+   succeeds and nothing complains.
+2. **`operator_ref` joined the key** (FIN-D-019). R27 reports revenue by counter *and*
+   operator from this table, which the six-column key cannot answer — and a connector
+   grouping by operator would emit colliding rows, so the loader would lose or overwrite one
+   operator's takings. Whatever a connector groups by must be a subset of the key. ADR-003's
+   "Consequences" section is superseded on that one point.
+
+### Semantics worth knowing before writing the loader
+
+- **Business date is `transaction_date`, and nothing else.** A source editing a two-year-old
+  receipt corrects an old financial day; it does not move money into today. The load axis is
+  `created_at` / `updated_at` plus the batch (FIN-D-012).
+- **Cancellation has three states.** `cancelled_amount = 150.00` measured and deducted, `0`
+  measured and none, `NULL` not recorded by this source. `net_amount` is a stored generated
+  column, `gross − cancelled`, and is therefore NULL in the third case (FIN-D-020) — gross
+  reported as net would assert that nothing was cancelled.
+- **Every measure is nullable** (ADR-007). There is no sentinel zero anywhere in the table.
+- **`UNMAPPED` is a seeded category.** FIN-054 routes unmappable source values there, never
+  into `OTHER_INCOME`, whose own description forbids that use.
+- **Provenance is mandatory.** `source_system_id` and `sync_batch_id` are `NOT NULL`: a
+  published figure must always name the run that produced it.
+
+### Tests
+
+`FinanceCanonicalRevenueMigrationTest` — **19**, against a real MySQL 8.0 container with real
+Flyway, asserting database behaviour rather than DDL text. Grain rejection including the
+all-NULL case; six distinct dimensions coexisting on one date; upsert convergence (one row,
+figure replaced, provenance following); two temples holding the identical grain
+independently; business date surviving restatement; the three cancellation states; mandatory
+and retained provenance; payment-mode confidence; exact decimal round-trips with no floating
+point anywhere; and two purity scans over the committed DDL and the live schema.
+
+One test compares every `@Column` on the three entities against `information_schema` — the
+defect class behind FIN-X-001, for which this project otherwise has no working check.
+
+### Architectural review
+
+| Question | Answer |
+|---|---|
+| Is the revenue fact generic across temples? | **YES** |
+| Is source schema copied into it? | **NO** |
+| Is source transport represented? | **NO** |
+| Are credentials represented? | **NO** |
+| Is business date separate from sync time? | **YES** |
+| Is cancellation distinguishable? | **YES** — and from zero as well as from unknown |
+| Is provenance retained? | **YES** — and mandatory |
+| Is the canonical grain explicit? | **YES** |
+| Is the grain database-enforced? | **YES** — mutation-verified |
+| Can two temples coexist? | **YES** |
+| Can future connectors write without schema changes? | **YES** |
+| Can the dashboard eventually operate without source DB access? | **YES** |
+
+---
+
+## FIN-031 — Connector Registry (previous session)
 
 ### Files
 
@@ -245,10 +342,11 @@ in production.
 
 | Command | Result |
 |---|---|
+| `mvn -o test -Dtest=FinanceCanonicalRevenueMigrationTest` | **19/19 pass** (FIN-051/052) |
 | `mvn -o test -Dtest=ConnectorRegistryTest` | **13/13 pass** (FIN-031, no Docker needed) |
 | `mvn -o test -Dtest=KollurFinanceConfigurationMigrationTest` | **27/27 pass** |
-| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'` | **116/116 pass** |
-| `mvn -o test` (full suite) | **971 run · 0 failures · 18 errors** |
+| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'` | **135/135 pass** |
+| `mvn -o test` (full suite) | **990 run · 0 failures · 18 errors** |
 
 What is asserted, beyond row counts: the conditional guard (zero rows *before* the temple is
 created), `sync_enabled = 0`, that **every persisted value** in `fin_source_system` contains
@@ -263,8 +361,8 @@ by re-applying the whole seed.
 ## Failures
 
 **New: none.** Pre-existing: **18**, unchanged in count, cause and location across the entire
-branch (866 → 888 → 898 → 931 → 958 → 971 tests, always the same 18 errors in the same 4
-report files).
+branch (866 → 888 → 898 → 931 → 958 → 971 → 990 tests, always the same 18 errors in the
+same 4 report files).
 
 - **FIN-X-001** — `Schema-validation: missing column [field_names_json] in table
   [declaration_clarifications]`. Mapped by the entity, created by no migration, present in
@@ -292,6 +390,17 @@ report files).
   opposite: it moves the decision to every caller and the failure it invites is silent), a
   no-op connector for unregistered names, and classpath discovery of connector
   implementations, which would have removed the `@Bean` registration FIN-D-008 depends on.
+- **FIN-D-018** — the grain is enforced through generated key columns, because NULL is not
+  equal to NULL. Rejected making the three columns `NOT NULL` with sentinels (it destroys the
+  distinction between "no service was involved" and "service 0") and enforcing uniqueness in
+  the loader (an invariant that holds only while the code is correct is not an invariant).
+- **FIN-D-019** — `operator_ref` belongs in the grain, extending ADR-003's six-column key.
+  Rejected serving R27 from a separate aggregate, which defers the same decision and leaves an
+  operator column in the fact that somebody will eventually populate without knowing it is
+  outside the key.
+- **FIN-D-020** — `net_amount` is computed by the database and is NULL when cancellations are
+  unknown. Rejected computing it in the loader (every future stage would have to reproduce the
+  same arithmetic) and defaulting net to gross (which asserts that nothing was cancelled).
 
 ---
 
@@ -318,7 +427,23 @@ report files).
    that orchestrator must let the exception fail the batch — recording it against
    `fin_sync_batch` / `fin_sync_error` — and must not catch it into a "skipped" outcome, which
    would restore precisely the silence FIN-D-017 exists to prevent.
-7. **The registry is built once at worker startup.** A connector bean added at runtime would
+7. **`fin_revenue_fact` has no writer.** The constraint that makes loading idempotent is
+   proven, but the loader that relies on it is FIN-056. Until then the canonical tables are
+   empty by design, and the upsert shape the test demonstrates
+   (`INSERT … ON DUPLICATE KEY UPDATE`) is the intended write path, not a guess.
+8. **`financial_year` is stored, not derived by the database.** It is functionally dependent
+   on `transaction_date`, so a loader that computes it wrongly — or with the wrong financial
+   year start — will produce facts that disagree with their own dates. FIN-055 owns that
+   computation and should have a test that a date in early April lands in the new year.
+9. **The generated grain columns are verified on MySQL 8.0, not on TiDB.** TiDB supports
+   stored generated columns and indexes over them, and no other syntax in V112 is unusual,
+   but the deployment target has not run this migration. Worth confirming on the first
+   deployment rather than assuming.
+10. **No `fin_cancellation` detail table yet.** The fact carries `cancelled_count` and
+   `cancelled_amount`, which satisfies every catalogued cancellation report;
+   `FINANCE_DATA_MODEL.md` §6.2 also specifies a full-detail table (465 rows across the first
+   temple's entire history) that no task in the plan currently owns.
+11. **The registry is built once at worker startup.** A connector bean added at runtime would
    not appear, which is correct for an artifact whose connectors are compiled in, and worth
    knowing before anyone attempts dynamic connector loading.
 
@@ -354,7 +479,7 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
    `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'`
-   — expect **116 passing, 0 failures**. (Requires Docker for the migration test.)
+   — expect **135 passing, 0 failures**. (Requires Docker for the migration test.)
 4. Implement one task. Do not implement a connector, and do not implement Kollur-specific
    anything outside a connector.
 5. Anything that can reach a source system is registered in `SyncWorkerConfig` as a `@Bean`,
@@ -367,20 +492,25 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-051 and FIN-052**: the canonical revenue dimensions
-(`fin_revenue_category`, `fin_service_dim`) and `fin_revenue_fact` at daily grain.
+Implement **FIN-050**: `fin_stg_revenue`, the immutable staging table and its entity.
 
-This is the substantial work that depends on neither Q4 nor a connector — FIN-051 depends on
-FIN-011 alone — and every later stage writes into these tables, so their shape should be
-settled before a connector starts producing rows. The grain and its unique constraint are
-what make loading idempotent (FIN-056) and what let a restatement replace a day rather than
-add to it; getting that constraint wrong is the difference between a re-run correcting a
-figure and doubling it.
+It is the other end of the same pipeline and needs neither Q4 nor a connector. The task list
+records it as depending on FIN-043 (revenue extraction), but that dependency was written when
+staging was imagined alongside a working extract; the table itself depends on nothing but the
+foundation. Once both ends exist, the stages between them (FIN-053 validation, FIN-054
+mapping, FIN-055 normalization, FIN-056 load) can be built and tested end to end with
+fabricated staging rows, which is the only way any of it can be tested until the network
+question is answered.
 
-Two things the model must carry rather than assume: an `UNMAPPED` destination, so a source
-value nobody has classified is visible rather than dropped or bucketed into "other"; and a
-representation of availability that survives aggregation, so a temple with no expenditure
-data yields no expenditure row instead of a zero.
+Shape it per `FINANCE_DATA_MODEL.md` §4: `raw_json` rather than typed columns, so a source
+schema change lands in staging and is caught by validation instead of breaking extraction,
+with `validation_status` and `rejection_reason` so a rejected row is visible rather than
+missing. Rejections belong in `fin_sync_error` (FIN-053), and a batch that rejects rows must
+not be able to look like a batch that loaded them.
+
+Then **FIN-056** is the piece that matters most for correctness: the loader writing through
+`uk_frf_grain` with `INSERT … ON DUPLICATE KEY UPDATE`, replacing a restated day rather than
+adding to it. The shape is demonstrated in `should_convergeOnOneRow_when_upsertRepeated`.
 
 Alternative if a smaller task is wanted: **FIN-032** — probe and capability declaration
 wiring into onboarding. It can only be exercised against fake connectors until FIN-040.

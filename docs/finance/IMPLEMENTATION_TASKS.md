@@ -212,13 +212,60 @@ including the Kollur one.
 | ID | Description | Status | Depends on |
 |---|---|---|---|
 | FIN-050 | `fin_stg_revenue` staging table and entity | NOT_STARTED | FIN-043 |
-| FIN-051 | Dimensions: `fin_revenue_category`, `fin_service_dim` | NOT_STARTED | FIN-011 |
-| FIN-052 | `fin_revenue_fact` (daily grain) | NOT_STARTED | FIN-051 |
+| FIN-051 | Dimensions: `fin_revenue_category`, `fin_service_dim` | **COMPLETE** | FIN-011 |
+| FIN-052 | `fin_revenue_fact` (daily grain) | **COMPLETE** | FIN-051 |
 | FIN-053 | Validation stage, rejections to `fin_sync_error` | NOT_STARTED | FIN-050 |
 | FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | NOT_STARTED | FIN-024, FIN-053 |
 | FIN-055 | Normalization to daily grain | NOT_STARTED | FIN-054 |
 | FIN-056 | Idempotent load keyed on the grain unique constraint | NOT_STARTED | FIN-052, FIN-055 |
 
+
+**FIN-051 / FIN-052 delivered** — `V112__finance_canonical_revenue.sql`: two dimensions, one
+fact, twelve seeded category rows, three entities, two enums. No connector, no staging, no
+transport, no service, no repository.
+
+| Table | Shape |
+|---|---|
+| `fin_revenue_category` | Platform-wide taxonomy. **No `temple_id` column** — a taxonomy each temple invents for itself cannot produce a district total |
+| `fin_service_dim` | Per temple (`uk_fsd_temple_service`), because service catalogues genuinely differ; every service still resolves to a platform-wide category |
+| `fin_revenue_fact` | Daily grain, seven-column unique key, every measure nullable |
+
+**Canonical grain, and one correction to ADR-003.** The documented key is
+`(temple, date, service, category, payment mode, counter)`. Two problems were found and both
+are corrected in `uk_frf_grain`:
+
+1. **NULL semantics.** Three grain columns are legitimately nullable — a hundi collection has
+   no service, no counter and no operator — and MySQL and TiDB treat NULLs in a unique index
+   as distinct. Written literally, the documented key accepts the same hundi fact twice.
+   Generated key columns collapse those NULLs to concrete values (FIN-D-018), **verified by
+   mutation**: with the literal key, the duplicate is silently accepted.
+2. **`operator_ref` added to the key.** R27 reports revenue by counter *and operator* from
+   this table, which the documented key cannot support; worse, a connector grouping by
+   operator would emit rows that collide, so the loader would lose revenue or overwrite it.
+   Whatever a connector groups by must be a subset of the key (FIN-D-019).
+
+**Cancellation is three states, not two.** `cancelled_amount` NULL means the source does not
+record cancellations; `0` means it does and there were none. `net_amount` is a stored
+generated column (`gross − cancelled`) so no loader can disagree with it, and it is NULL when
+cancellations are unknown — reporting gross as net would assert that nothing was cancelled.
+
+**`UNMAPPED` is a seeded category.** FIN-054 routes unmapped source values there rather than
+into `OTHER_INCOME`, whose own description forbids that use: unmapped revenue is real money
+whose kind nobody has established, and it must stay visible until a mapping rule resolves it.
+
+| Review question | Answer | Evidence |
+|---|---|---|
+| Generic across temples? | YES | `should_isolateTemples_when_grainsMatch`, `should_scopeServicesPerTemple_when_codesRepeat` |
+| Source schema copied in? | NO | `should_containNoSourceVocabulary_when_migrationScanned`, `should_containNoSourceColumns_when_schemaInspected` |
+| Transport or credentials represented? | NO | same scan |
+| Business date separate from sync time? | YES | `should_keepBusinessDateSeparate_when_factIsRestated` |
+| Cancellation distinguishable from zero and unknown? | YES | `should_distinguishCancellationStates_when_stored` |
+| Provenance retained and mandatory? | YES | `should_requireProvenance_when_factInserted`, `should_retainProvenance_when_stored` |
+| Grain explicit and database-enforced? | YES | `uk_frf_grain`, mutation-verified |
+| Future connectors write without schema change? | YES | no temple-specific column exists |
+| Dashboard can operate without source access? | YES | every catalogued revenue report resolves from these three tables |
+
+---
 ---
 
 ## Phase 6 — Reconciliation
