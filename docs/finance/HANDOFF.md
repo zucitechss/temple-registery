@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-16
+**Updated:** 2026-09-16 (FIN-031)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,20 +12,22 @@
 
 | Task | Status |
 |---|---|
-| FIN-021 — Kollur source system | **COMPLETE** |
-| FIN-022 — Kollur capabilities | **COMPLETE** |
-| FIN-023 — Revenue source of truth | **COMPLETE** |
-| FIN-024 — Mapping rules | **COMPLETE** |
+| FIN-031 — Connector registry | **COMPLETE** (this session) |
+| FIN-021…024 — Kollur configuration | **COMPLETE** |
+| FIN-030 — Connector contract | **COMPLETE** |
+| FIN-016 — Registry / sync-worker split | **COMPLETE** |
+| FIN-010…015 — Finance foundation | **COMPLETE** |
 
-Verified against a real MySQL database, not against the migration file. 27 tests.
+The missing-connector path is explicitly tested and mutation-verified: FIN-031 is complete
+because the failure it exists to produce was observed, not because the code compiles.
 
 ---
 
 ## Current State
 
 **What works.** The finance foundation (FIN-010…015), the registry / sync-worker runtime
-boundary (FIN-016), the generic connector contract (FIN-030), and now the complete Kollur
-configuration (FIN-021…024).
+boundary (FIN-016), the generic connector contract (FIN-030), the complete Kollur
+configuration (FIN-021…024), and now connector resolution (FIN-031).
 
 The platform can now say, for one real temple, what it can and cannot report, which source
 field is authoritative for revenue, and how that source's vocabulary translates into
@@ -38,7 +40,82 @@ has been read and no credential exists anywhere.
 
 ---
 
-## Migration Files
+## FIN-031 — Connector Registry (this session)
+
+### Files
+
+| File | Change |
+|---|---|
+| `backend/src/main/java/com/templeregistry/connector/finance/ConnectorRegistry.java` | new — 100 lines, plain Java, no Spring import |
+| `backend/src/main/java/com/templeregistry/connector/finance/ConnectorConfigurationException.java` | new |
+| `backend/src/main/java/com/templeregistry/service/finance/sync/SyncWorkerConfig.java` | `connectorRegistry` bean added |
+| `backend/src/test/java/com/templeregistry/connector/finance/ConnectorRegistryTest.java` | new — 13 tests |
+| `backend/src/test/java/com/templeregistry/service/finance/sync/RegistryRuntimeContextTest.java` | asserts the registry runtime holds no registry and no connector |
+
+No migration, no schema change, no entity, no repository, no API, no frontend, no
+dependency added to `pom.xml`.
+
+### What it does, and what it deliberately does not
+
+Resolution is one map lookup on the configured identifier — no branch, no switch, no
+knowledge of any temple — so onboarding the tenth source system adds a connector bean and a
+configuration row and changes nothing here. The registry creates no connector, resolves no
+credential, opens nothing, selects no transport and runs no synchronization.
+
+It is built in `SyncWorkerConfig` from `getBeansOfType(TempleFinanceConnector.class)`, so a
+connector reaches the registry by being declared as a worker `@Bean` and by no other route.
+Nothing is scanned: a discovery mechanism would have removed the registration FIN-D-008
+depends on and let a connector class drift into the registry runtime by nothing more than
+being on the classpath.
+
+### The missing-connector behaviour
+
+`resolve` returns a `TempleFinanceConnector` or throws `ConnectorConfigurationException`.
+There is no `Optional`, no nullable return, no default connector and no "skip this source"
+branch (FIN-D-017). Four distinguishable failures, each naming the connector identifier and
+the source system identity and none naming a credential reference or value:
+
+| Condition | Result |
+|---|---|
+| Configured connector not registered | throws, listing what *is* registered |
+| Source system names no connector | throws |
+| Connector implements a different `ConnectorType` than the source declares | throws |
+| Connector registered under a name it does not declare as its `connectorId` | throws at worker startup |
+
+**Kollur is the live case.** It is completely configured — source system, 19 capabilities,
+source of truth, 9 mapping rules — and names `kollurFinanceConnector`, which does not exist.
+Resolving it throws today, and the test asserts exactly that, reading the connector name out
+of `V111` rather than hardcoding it. No placeholder connector was created to make anything
+pass; the absence is the verification.
+
+### Tests
+
+`ConnectorRegistryTest` — **13**, no database and no Docker required. Successful resolution
+by identity; missing connector; empty registry; unnamed connector; no API that can express
+absence; three connectors across three integration mechanisms resolved generically; type
+contradiction; name/metadata contradiction; the Kollur name read from the seed; the assembled
+sync worker registering a registry and zero connectors; the registry runtime registering
+neither; and a source scan proving the registry holds no source-specific branch, transport,
+persistence or credential.
+
+**Mutation-verified.** Replacing the missing-connector throw with `return null` failed 4
+tests, including the Kollur one. Restored afterwards.
+
+| Check | Result |
+|---|---|
+| Missing connector → explicit failure | YES |
+| Null / no-op / `Optional` fallback | NO |
+| Source-specific code in the registry | NO |
+| Credential resolution | NO |
+| Transport, filesystem or database access | NO |
+| Reachable from the registry runtime | NO |
+| Worker-only infrastructure | YES |
+
+---
+
+## Kollur configuration (FIN-021…024, previous session)
+
+### Migration file
 
 `backend/src/main/resources/db/migration/V111__kollur_finance_configuration.sql`
 
@@ -168,9 +245,10 @@ in production.
 
 | Command | Result |
 |---|---|
+| `mvn -o test -Dtest=ConnectorRegistryTest` | **13/13 pass** (FIN-031, no Docker needed) |
 | `mvn -o test -Dtest=KollurFinanceConfigurationMigrationTest` | **27/27 pass** |
-| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'` | **103/103 pass** |
-| `mvn -o test` (full suite) | **958 run · 0 failures · 18 errors** |
+| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'` | **116/116 pass** |
+| `mvn -o test` (full suite) | **971 run · 0 failures · 18 errors** |
 
 What is asserted, beyond row counts: the conditional guard (zero rows *before* the temple is
 created), `sync_enabled = 0`, that **every persisted value** in `fin_source_system` contains
@@ -185,8 +263,8 @@ by re-applying the whole seed.
 ## Failures
 
 **New: none.** Pre-existing: **18**, unchanged in count, cause and location across the entire
-branch (866 → 888 → 898 → 931 → 958 tests, always the same 18 errors in the same 4 report
-files).
+branch (866 → 888 → 898 → 931 → 958 → 971 tests, always the same 18 errors in the same 4
+report files).
 
 - **FIN-X-001** — `Schema-validation: missing column [field_names_json] in table
   [declaration_clarifications]`. Mapped by the entity, created by no migration, present in
@@ -209,6 +287,11 @@ files).
 - **FIN-D-016** — `connector_type` seeded provisionally rather than made nullable. Rejected
   weakening the column for every temple to express uncertainty about one, and rejected an
   `UNDECIDED` enum value that would add permanent vocabulary for a temporary state.
+- **FIN-D-017** — a configured connector that is not registered is a failure, not an absence.
+  Rejected `Optional<TempleFinanceConnector> find(...)` (it reads as the safer API and is the
+  opposite: it moves the decision to every caller and the failure it invites is silent), a
+  no-op connector for unregistered names, and classpath discovery of connector
+  implementations, which would have removed the `@Bean` registration FIN-D-008 depends on.
 
 ---
 
@@ -219,15 +302,25 @@ files).
    actually lands today, and only if the temple predates the migration. Onboarding
    (FIN-140) is the durable answer.
 2. **`connector_type` is provisional** pending Q4.
-3. **`connector_bean = kollurFinanceConnector` names a bean that does not exist.** Harmless
-   while `sync_enabled = 0` and nothing resolves it; FIN-031 is what will resolve it, and it
-   must fail loudly rather than silently if a named connector is absent.
+3. **`connector_bean = kollurFinanceConnector` names a bean that does not exist.** Since
+   FIN-031 this is a *detected* condition rather than a latent one: resolving it throws,
+   naming the connector and the source system. Nothing resolves it yet in production because
+   nothing synchronizes, so the failure will first be seen by whoever wires the sync
+   orchestration — which is the intended moment.
 4. **No source-of-truth declaration for `PRECIOUS_METAL_WEIGHT`.** Deliberately out of FIN-023
    scope, but it is the natural defence against the discarded "assume 15 g and ₹12,000 per
    item" approach returning. One row whenever wanted.
 5. **Capability rows carry `last_reviewed_at` set at migration time and no reviewer.** The
    reasons are user-facing copy about a government temple's finances and would benefit from a
    named business sign-off before the dashboard renders them.
+6. **Nothing calls the registry yet** (FIN-031). It resolves correctly and fails correctly,
+   but until a sync orchestrator exists the failure path runs only under test. Whoever builds
+   that orchestrator must let the exception fail the batch — recording it against
+   `fin_sync_batch` / `fin_sync_error` — and must not catch it into a "skipped" outcome, which
+   would restore precisely the silence FIN-D-017 exists to prevent.
+7. **The registry is built once at worker startup.** A connector bean added at runtime would
+   not appear, which is correct for an artifact whose connectors are compiled in, and worth
+   knowing before anyone attempts dynamic connector loading.
 
 ---
 
@@ -261,11 +354,12 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
    `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'`
-   — expect **103 passing, 0 failures**. (Requires Docker for the migration test.)
-4. Implement FIN-031 only. Do not implement a connector.
+   — expect **116 passing, 0 failures**. (Requires Docker for the migration test.)
+4. Implement one task. Do not implement a connector, and do not implement Kollur-specific
+   anything outside a connector.
 5. Anything that can reach a source system is registered in `SyncWorkerConfig` as a `@Bean`,
    never as a `@Component` — `FinanceIntegrationBoundaryTest` fails the build otherwise.
-6. Run the suite, update the four tracking documents, commit as `FIN-031 ...`.
+6. Run the suite, update the four tracking documents, commit as `FIN-0xx ...`.
 
 Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
@@ -273,13 +367,20 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-031**: a connector registry that resolves
-`fin_source_system.connector_bean` to a `TempleFinanceConnector` instance within the
-sync-worker runtime.
+Implement **FIN-051 and FIN-052**: the canonical revenue dimensions
+(`fin_revenue_category`, `fin_service_dim`) and `fin_revenue_fact` at daily grain.
 
-It must **fail loudly when a named connector is absent** — Kollur's row already names
-`kollurFinanceConnector`, which does not exist yet, and a registry that returned null or a
-no-op connector for a missing name would let a temple appear configured while silently
-producing nothing. Register it in `SyncWorkerConfig` as a `@Bean`, and add a registry-side
-check that a source system's declared `connector_type` matches the resolved connector's
-`ConnectorMetadata.connectorType()`.
+This is the substantial work that depends on neither Q4 nor a connector — FIN-051 depends on
+FIN-011 alone — and every later stage writes into these tables, so their shape should be
+settled before a connector starts producing rows. The grain and its unique constraint are
+what make loading idempotent (FIN-056) and what let a restatement replace a day rather than
+add to it; getting that constraint wrong is the difference between a re-run correcting a
+figure and doubling it.
+
+Two things the model must carry rather than assume: an `UNMAPPED` destination, so a source
+value nobody has classified is visible rather than dropped or bucketed into "other"; and a
+representation of availability that survives aggregation, so a temple with no expenditure
+data yields no expenditure row instead of a zero.
+
+Alternative if a smaller task is wanted: **FIN-032** — probe and capability declaration
+wiring into onboarding. It can only be exercised against fake connectors until FIN-040.

@@ -116,7 +116,7 @@ re-applying the seed.
 | ID | Description | Status | Depends on | Files | Tests |
 |---|---|---|---|---|---|
 | FIN-030 | `TempleFinanceConnector` contract and supporting types | **COMPLETE** | FIN-016 | `connector/finance/*.java` (11 types) | 33/33 pass |
-| FIN-031 | Connector registry resolving `connector_bean` | NOT_STARTED | FIN-030 | | |
+| FIN-031 | Connector registry resolving `connector_bean` | **COMPLETE** | FIN-030 | `connector/finance/ConnectorRegistry.java`, `ConnectorConfigurationException.java`, a bean method in `SyncWorkerConfig` | 13/13 pass |
 | FIN-032 | Probe and capability declaration wiring into onboarding | NOT_STARTED | FIN-030, FIN-031 | | |
 
 Capabilities are declared per connector. No connector implements a capability its temple
@@ -157,6 +157,38 @@ watermark; two axes), FIN-D-013 (raw strings, streamed).
 
 The purity guard was verified by mutation: a probe interface importing `java.sql.ResultSet`,
 naming a password parameter and mentioning the first temple made **3** tests fail.
+
+**FIN-031 delivered** — the step from *configured* to *registered*. Two types, one bean
+method, no schema change, no credential, no transport.
+
+| Type | Purpose |
+|---|---|
+| `ConnectorRegistry` | A name lookup: the identifier in `connector_bean` to the connector registered under it. Immutable, plain Java, no Spring import |
+| `ConnectorConfigurationException` | The four ways configuration and code can disagree: not registered, no connector named, mechanism mismatch, name/metadata disagreement |
+
+Registered as `connectorRegistry` in `SyncWorkerConfig`, built from
+`getBeansOfType(TempleFinanceConnector.class)` — so a connector enters the registry by being
+declared as a worker bean and by no other route. Nothing is component-scanned (FIN-D-008).
+
+**The behaviour that matters is the failure.** Resolution returns a connector or throws;
+there is no `Optional`, no null and no default implementation, because a caller handling
+"absent" by skipping the source would produce a batch that succeeded having read nothing
+(FIN-D-017). Kollur exercises this path today: it is fully configured, names
+`kollurFinanceConnector`, and that bean does not exist.
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Missing connector fails explicitly? | YES | `should_fail_when_configuredConnectorIsNotRegistered` |
+| Returns null / `Optional` / no-op? | NO | `should_offerNoAbsentResult_when_apiInspected` |
+| Kollur resolves to something? | NO — it throws | `should_fail_when_resolvingTheConfiguredKollurConnector` |
+| Source-specific branch in the registry? | NO | `should_stayGeneric_when_sourcesScanned` |
+| Resolves a credential? | NO | `should_resolve_when_sourceCarriesNoCredentialReference` |
+| Any transport or persistence? | NO | `should_stayGeneric_when_sourcesScanned`, `ConnectorContractPurityTest` |
+| Present in the registry runtime? | NO | `RegistryRuntimeContextTest`, `should_registerNoConnectorRegistry_when_syncWorkerProfileInactive` |
+| Declared `connector_type` verified? | YES | `should_fail_when_connectorTypeContradictsConfiguration` |
+
+Mutation-verified: replacing the missing-connector throw with `return null` fails 4 tests,
+including the Kollur one.
 
 ---
 
@@ -319,7 +351,9 @@ There is no `FIN-017` in this numbering — Phase 1 ends at FIN-016. The next ta
 |---|---|---|---|
 | ~~FIN-030~~ | `TempleFinanceConnector` contract | **COMPLETE** | Delivered |
 | ~~FIN-021…024~~ | Kollur configuration seed | **COMPLETE** | Delivered as `V111` |
-| **FIN-031** | Connector registry resolving `connector_bean` to a bean | **RECOMMENDED NEXT** | The configuration now names `kollurFinanceConnector`; the registry is what turns that string into a bean, and it is the last piece of framework that can be built before a connector exists |
+| ~~FIN-031~~ | Connector registry resolving `connector_bean` to a bean | **COMPLETE** | Delivered; Kollur's configured connector now fails resolution explicitly |
+| **FIN-051 / FIN-052** | Canonical dimensions and `fin_revenue_fact` at daily grain | **RECOMMENDED NEXT** | The only substantial work needing neither Q4 nor a connector: FIN-051 depends on FIN-011 alone, and the fact table's grain and unique constraint are what make loading idempotent. Every later stage — validation, mapping, aggregation, reconciliation — writes into these tables, so their shape should be settled before a connector starts producing rows |
+| FIN-032 | Probe and capability wiring into onboarding | AVAILABLE | Smaller, but it validates configuration against connectors that do not exist yet, so it can only be exercised against fakes until FIN-040 |
 
 Unblocked by Q4 and Q5.
 

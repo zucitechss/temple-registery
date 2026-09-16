@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-16
+**Updated:** 2026-09-16 (FIN-031)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -8,9 +8,12 @@
 
 ## Current Phase
 
-**Phase 1 — Finance Foundation · COMPLETE.** Configuration and operational spine
-implemented and tested, and the registry / sync-worker runtime boundary is in place and
-proven by test. Next work is Phase 2 or Phase 3; both are unblocked.
+**Phase 3 — Connector Framework · IN_PROGRESS.** Phases 0–2 are complete: the foundation,
+the registry / sync-worker runtime boundary, the credential seam and the full Kollur
+configuration. The connector contract (FIN-030) and the registry that resolves
+`connector_bean` to an implementation (FIN-031) are done; no connector implementation
+exists, and resolving one now fails explicitly rather than silently. Next work is the
+canonical model (Phase 5), which needs neither Q4 nor a connector.
 
 ---
 
@@ -21,7 +24,7 @@ proven by test. Next work is Phase 2 or Phase 3; both are unblocked.
 | Architecture | COMPLETE | 100 | 6 design docs + 11 ADRs, delivered previously |
 | Finance Foundation | **COMPLETE** | 100 | FIN-010…FIN-016, including the runtime boundary |
 | Source Configuration | **COMPLETE** | 100 | FIN-021..024 seeded; FIN-020 abstraction delivered, Q5 decides only the permanent store |
-| Connector Framework | IN_PROGRESS | 40 | FIN-030 contract COMPLETE; FIN-031 registry outstanding |
+| Connector Framework | IN_PROGRESS | 70 | FIN-030 contract and FIN-031 registry COMPLETE; FIN-032 outstanding |
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
 | Staging | NOT_STARTED | 0 | |
 | Canonical Finance Data | NOT_STARTED | 0 | |
@@ -200,23 +203,48 @@ earlier:
    tolerance, or decides to publish. A connector judging its own output would be marking its
    own homework.
 
-**Remaining.** FIN-031 (connector registry resolving `connector_bean`), FIN-032.
+**FIN-031 — the registry.** `ConnectorRegistry` resolves the identifier held in
+`fin_source_system.connector_bean` to the connector registered under that name, and does
+nothing else: it creates no connector, resolves no credential, opens nothing and runs no
+synchronization. It is registered as a `@Bean` in `SyncWorkerConfig` from the connector beans
+declared there, so nothing is component-scanned and FIN-D-008 stays intact, and it is absent
+from the registry runtime entirely.
+
+The part worth knowing is what happens when configuration is wrong. **A configured connector
+that is not registered is a failure, not an absence** (FIN-D-017): resolution returns a
+connector or throws, with no `Optional`, no null and no default implementation anywhere in
+the path. Had absence been expressible, the natural handling — skip the source, log,
+continue — would produce a batch that succeeded having read nothing, and a temple would
+report figures meaning "nobody ran anything" while reading as "nothing happened".
+
+This is the live case, not a hypothetical. Kollur is completely configured and names
+`kollurFinanceConnector`, which does not exist, so the missing-connector path is the one the
+platform takes today. Two smaller rules fail closed alongside it: a connector must be
+registered under the name it declares as its `connectorId` (configuration has one field), and
+resolution rejects a connector whose `connectorType` contradicts the source system's declared
+integration mechanism, because that column is what firewall approval and the onboarding
+record were based on.
+
+**Remaining.** FIN-032 — probe and capability declaration wiring into onboarding.
 
 **Blockers.** None.
 
-**Tests.** 33 across 2 classes: `TempleFinanceConnectorContractTest` (25) and
-`ConnectorContractPurityTest` (8). The purity guard was verified by mutation — a probe
-importing `java.sql.ResultSet`, naming a password parameter and mentioning the first temple
-made 3 tests fail.
+**Tests.** 46 across 3 classes: `TempleFinanceConnectorContractTest` (25),
+`ConnectorContractPurityTest` (8) and `ConnectorRegistryTest` (13). Both guards were verified
+by mutation — a probe importing `java.sql.ResultSet`, naming a password parameter and
+mentioning the first temple made 3 purity tests fail; replacing the registry's
+missing-connector throw with `return null` failed 4 registry tests, including the Kollur one.
 
-**Decisions.** FIN-D-011 … FIN-D-013.
+**Decisions.** FIN-D-011 … FIN-D-013, FIN-D-017.
 
 ---
 
 ## Phases 4–17 · NOT_STARTED · 0%
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
-FIN-021 … FIN-024 (Kollur configuration seed) are unblocked and recommended next.
+FIN-051 / FIN-052 (canonical dimensions and the daily-grain revenue fact) are unblocked and
+recommended next: they depend on neither Q4 nor a connector, and every later stage writes
+into them.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
 Kollur database, and the connector cannot be tested without one. This is exactly the

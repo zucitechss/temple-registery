@@ -439,3 +439,50 @@ temporary state.
 **Guard.** The seed is worthless as a signal if someone later flips the switch without the
 prerequisites, so the test asserts `sync_enabled = 0` and no schedule. If a future change
 enables sync, that test must be consciously changed — which is the point.
+
+---
+
+## FIN-D-017 — A configured connector that is not registered is a failure, not an absence
+
+**Date:** 2026-09-16 · **Affects:** `ConnectorRegistry`, `ConnectorConfigurationException`
+
+**Decision.** `ConnectorRegistry.resolve` returns a `TempleFinanceConnector` or throws. There
+is no `Optional`, no nullable return, no default implementation and no "unconfigured" branch
+anywhere in the resolution path.
+
+**Reason.** `fin_source_system.connector_bean` is a statement of intent made by whoever
+onboarded a temple; whether that code exists is decided at build time by someone else, and
+the two can disagree. If resolution could express absence, the caller's easiest handling of
+it — skip the source, log, continue — would produce a batch that succeeds having read
+nothing. A temple would then be fully configured, visibly enabled, and reporting figures
+that mean "nobody ran anything" while reading as "nothing happened". That is the exact
+failure the availability model (`NOT_AVAILABLE` with a reason, never zero) exists to
+prevent, and it must not be reintroduced by the plumbing underneath it.
+
+This is not hypothetical. Kollur is completely configured today and its connector does not
+exist, so the missing-connector path is the one the registry actually takes.
+
+**Rejected.** `Optional<TempleFinanceConnector> find(...)`. It reads as the safer API and is
+the opposite: it moves the decision to every caller, and the failure it invites is silent.
+
+**Rejected.** A no-op connector for unregistered names. It makes the system startable at the
+cost of making it dishonest.
+
+**Rejected.** Discovering connectors by scanning the classpath for implementations of the
+contract. It would remove the `@Bean` registration that FIN-D-008 depends on and let a
+connector class drift into the registry runtime by nothing more than being on the classpath.
+
+**Also decided.** Two smaller rules, both fail-closed:
+
+- A connector must be registered under the same name it declares as its
+  `ConnectorMetadata.connectorId()`. Configuration has one field; two names would let a
+  source system name something that resolves to nothing. Violations fail at worker startup,
+  not at the first sync.
+- Resolution verifies that the registered connector's `connectorType()` matches the
+  `connector_type` the source system declares. That column is what firewall approvals and
+  the onboarding record are based on, so a source approved as a delivered extract must not
+  quietly be read by a connector that reaches into the temple instead.
+
+**Consequence.** The worker starts with an empty registry and stays healthy; the failure
+surfaces when a source system is actually synchronized, naming the connector, the system
+code, the source system id and the temple.
