@@ -35,11 +35,27 @@ implemented as `source_timezone`. No contract conflicts remain.
 | FIN-013 | Operational entities (sync batch, sync error, reconciliation result) | COMPLETE | FIN-011 | `entity/finance/Fin{SyncBatch,SyncError,ReconciliationResult}.java` | FIN-015 |
 | FIN-014 | Repositories for all seven | COMPLETE | FIN-012, FIN-013 | `repository/finance/*.java` | FIN-015 |
 | FIN-015 | Foundation repository test | COMPLETE | FIN-014 | `src/test/java/com/templeregistry/repository/finance/FinanceFoundationRepositoryTest.java` | 11/11 pass |
-| FIN-016 | Sync-worker profile split (`@Profile("sync-worker")` / `@Profile("!sync-worker")`) | NOT_STARTED | FIN-014 | `config/`, `TempleRegistryApplication` | context test per profile |
+| FIN-016 | Sync-worker profile split (`@Profile("sync-worker")` / `@Profile("!sync-worker")`) | COMPLETE | FIN-014 | `config/FinanceProfiles`, `config/SchedulingConfig`, `TempleRegistryApplication`, `service/finance/sync/*`, `application-sync-worker.yml` | 32/32 pass across 5 classes |
 
-**FIN-016 is not optional and must not slip.** It is the mechanism that makes ADR-001
-structural rather than a convention (risk R12). It belongs in Phase 1, before any
-connector exists to be wired into the wrong process.
+**FIN-016 was the mechanism that makes ADR-001 structural rather than a convention (risk
+R12), which is why it came before any connector existed to be wired into the wrong
+process.** Delivered:
+
+- `FinanceProfiles` — profile constants, so a mistyped `@Profile` is a compile error rather
+  than a bean silently loading in the registry runtime.
+- `SchedulingConfig` — `@EnableScheduling` moved off the application class and restricted to
+  `!sync-worker` (FIN-D-007).
+- `SyncWorkerConfig` — the single place the ingestion runtime is assembled; worker beans are
+  explicit `@Bean` methods, never component-scanned (FIN-D-008).
+- `SourceCredentialProvider` + environment-backed implementation — the Q5 seam, with no
+  committed credentials and no fallback (FIN-D-009).
+- `SyncWorkerBoundaryGuard` + `application-sync-worker.yml` — worker runs non-web, refuses to
+  start otherwise, owns no schema (FIN-D-010).
+
+**A hazard found and closed while doing this.** `@EnableScheduling` on the application class
+would have started a second copy of every background job in the worker.
+`EmailDeliveryService.processQueue()` claims outbox rows every ten seconds with no row
+locking, so a second process would have **delivered duplicate emails to real recipients**.
 
 ---
 
@@ -47,7 +63,7 @@ connector exists to be wired into the wrong process.
 
 | ID | Description | Status | Depends on | Notes |
 |---|---|---|---|---|
-| FIN-020 | Credential resolution from environment/secret config, sync-worker only | BLOCKED | FIN-016 | Blocked on open question **Q5** — no secrets manager exists, and `application.yml` currently carries committed fallback DB credentials. Temple credentials must not join that arrangement. |
+| FIN-020 | Credential resolution from environment/secret config, sync-worker only | NEEDS_REVIEW | FIN-016 | **Abstraction delivered** by FIN-016: `SourceCredentialProvider` with an environment-backed implementation, no committed credentials, no fallback. What remains is the **Q5 decision** on the permanent backing store; swapping it is one `@Bean` method in `SyncWorkerConfig`. |
 | FIN-021 | Register Kollur source system (seed migration) | NOT_STARTED | FIN-011 | `temple_id=300001`, `system_code=KOLSOHAM`, `source_temple_code=43`, `sync_enabled=0` |
 | FIN-022 | Declare Kollur capabilities with reasons | NOT_STARTED | FIN-021 | 19 rows; the `NOT_AVAILABLE` reasons are user-facing copy |
 | FIN-023 | Declare Kollur source of truth for `REVENUE_AMOUNT` | NOT_STARTED | FIN-021 | Includes the three measured rejected alternatives |
@@ -162,10 +178,18 @@ dashboard (metal weight *is* recorded; monthly revenue *is* available).
 
 | ID | Blocked by | Needed from |
 |---|---|---|
-| FIN-020 | Q5 — credential storage with no secrets manager | Business / infra decision |
+| FIN-020 | Q5 — permanent credential store (abstraction already delivered) | Business / infra decision |
 | FIN-041 | Q4 — network path to the Kollur database | Infra / temple IT |
 
-Neither blocks Phase 1 completion. FIN-016 can and should proceed.
+Phase 1 is complete. Neither blocker stops FIN-021…FIN-024 (Kollur configuration seed) or
+FIN-030 (connector framework contract), which are the next available work.
+
+**Q4 costs no rework whichever way it resolves.** `ConnectorType` already models
+`PULL_JDBC`, `PUSH_AGENT`, `SOURCE_API` and `FILE_DROP` as equals, and `SourceCredentials`
+carries an optional principal precisely so a token- or shared-key mechanism fits the same
+shape as a database user. If inbound JDBC to Kollur is refused, the answer is a
+`connector_type` value and a different connector implementation — the canonical model,
+aggregation, APIs and dashboard are untouched.
 
 ---
 
@@ -189,3 +213,35 @@ Confirmed pre-existing by stashing all finance code and reproducing the identica
 Not fixed here: it belongs to the declaration module, and whether deployed databases
 already carry the column determines whether the corrective `ALTER` is a no-op or a real
 change. Recommended fix is a one-line additive migration, owned by that module.
+
+**FIN-X-002 — the `test` profile cannot boot a full application context.**
+Two independent, pre-existing causes, both unrelated to finance:
+
+1. `src/test/resources/application-test.properties` sets
+   `app.jwt.public-key-path=classpath:jwt-test.pub`, and that file is a placeholder
+   (`...Qw1Qw1Qw1...`) rather than a real RSA key. It fails to parse, so `ScopeHelper`
+   cannot be constructed.
+2. `application.yml` sets `spring.datasource.hikari.connection-init-sql` to the TiDB-only
+   `SET tidb_enable_noop_functions=1`, which H2 rejects. `ApplicationContextIntegrationTest`
+   already works around this for plain MySQL.
+
+Neither is caused by finance work, and neither was visible before because every existing
+full-context test fails earlier on FIN-X-001. `SyncWorkerRuntimeContextTest` and
+`RegistryRuntimeContextTest` override both locally via `@TestPropertySource`, introducing no
+new key material and changing nothing in production configuration.
+
+Worth fixing centrally, because the project currently has **no** working full-context test
+on the `test` profile, and the finance boundary tests are the first to need one.
+
+---
+
+## Next Available Work
+
+There is no `FIN-017` in this numbering — Phase 1 ends at FIN-016. The next tasks are:
+
+| ID | Description | Status | Why it is next |
+|---|---|---|---|
+| **FIN-030** | `TempleFinanceConnector` contract and supporting types | **RECOMMENDED NEXT** | The worker now has a place for connectors and nothing to put in it. The contract is self-contained, needs no credentials and no network, and gives `fin_source_system.connector_bean` something real to name |
+| FIN-021…024 | Seed Kollur source system, capabilities, source-of-truth, mappings | Available | Pure configuration data; safe because `sync_enabled` defaults to `0`. More meaningful once FIN-030 defines what a connector is |
+
+Both are unblocked by Q4 and Q5.

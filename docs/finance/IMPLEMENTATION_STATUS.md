@@ -8,8 +8,9 @@
 
 ## Current Phase
 
-**Phase 1 — Finance Foundation.** Configuration and operational spine implemented and
-tested. One Phase 1 task remains: the sync-worker profile split (FIN-016).
+**Phase 1 — Finance Foundation · COMPLETE.** Configuration and operational spine
+implemented and tested, and the registry / sync-worker runtime boundary is in place and
+proven by test. Next work is Phase 2 or Phase 3; both are unblocked.
 
 ---
 
@@ -18,8 +19,8 @@ tested. One Phase 1 task remains: the sync-worker profile split (FIN-016).
 | Phase | Status | % | Notes |
 |---|---|---:|---|
 | Architecture | COMPLETE | 100 | 6 design docs + 11 ADRs, delivered previously |
-| Finance Foundation | IN_PROGRESS | 85 | FIN-010…FIN-015 complete; FIN-016 (profile split) outstanding |
-| Source Configuration | NOT_STARTED | 0 | FIN-020 blocked on Q5 |
+| Finance Foundation | **COMPLETE** | 100 | FIN-010…FIN-016, including the runtime boundary |
+| Source Configuration | IN_PROGRESS | 20 | FIN-020 abstraction delivered by FIN-016; Q5 decides the permanent store |
 | Connector Framework | NOT_STARTED | 0 | |
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
 | Staging | NOT_STARTED | 0 | |
@@ -55,7 +56,7 @@ Architecture contracts checked for contradictions before writing code. None mate
 
 ---
 
-## Phase 1 — Finance Foundation · IN_PROGRESS · 85%
+## Phase 1 — Finance Foundation · COMPLETE · 100%
 
 **Completed.**
 
@@ -81,51 +82,91 @@ Three design points are load-bearing and were verified by test rather than asser
    successful one must not advance the watermark, or the pipeline would skip a window it
    never loaded.
 
-**Remaining.** FIN-016 — sync-worker profile split.
+**FIN-016 — the runtime boundary.** The registry and the finance sync worker are now two
+runtimes built from one artifact, separated where a real constraint sits: credentials and
+network reach.
 
-**Blockers.** None for FIN-016.
+The registry runtime contains **no** bean that can resolve a temple credential or reach a
+temple source system, and that is asserted against the fully assembled application, not
+just against the configuration classes. The worker runs non-web and refuses to start if it
+ever comes up serving HTTP.
 
-**Tests.** `FinanceFoundationRepositoryTest` — 11 tests, all passing.
+Two things were done differently from the obvious approach, both because the obvious
+approach fails open:
+
+1. **Worker beans are explicit `@Bean` registrations, not `@Component` + `@Profile`**
+   (FIN-D-008). A forgotten profile annotation on a component would place a connector in
+   the registry runtime silently. A classpath guard test enforces this and was verified by
+   mutation — adding a `@Component` to the worker package makes it fail.
+2. **`@EnableScheduling` moved to a registry-only configuration** (FIN-D-007) rather than
+   annotating individual schedulers, because several scheduler beans expose methods other
+   services call.
+
+**A hazard closed in passing.** Had the worker kept `@EnableScheduling`, it would have run a
+second copy of every background job. `EmailDeliveryService.processQueue()` claims outbox
+rows every ten seconds with no row locking, so a second process would have **delivered
+duplicate emails to real recipients**.
+
+**Remaining.** None.
+
+**Blockers.** None.
+
+**Tests.** 43 finance tests across 6 classes, all passing:
+`FinanceFoundationRepositoryTest` (11), `SyncWorkerProfileBoundaryTest` (7),
+`FinanceIntegrationBoundaryTest` (6), `EnvironmentSourceCredentialProviderTest` (9),
+`SyncWorkerRuntimeContextTest` (5), `RegistryRuntimeContextTest` (5).
 
 **Migrations.** `V110__finance_foundation.sql` — verified to apply cleanly to MySQL 8.0
 via Testcontainers (Flyway reports "now at version v110").
 
 **Files changed.** See [HANDOFF.md](HANDOFF.md).
 
-**Decisions.** FIN-D-001 … FIN-D-006, recorded in
+**Decisions.** FIN-D-001 … FIN-D-010, recorded in
 [IMPLEMENTATION_DECISIONS.md](IMPLEMENTATION_DECISIONS.md).
 
 ---
 
-## Phase 2 — Source Configuration · NOT_STARTED · 0%
+## Phase 2 — Source Configuration · IN_PROGRESS · 20%
 
-**Remaining.** FIN-020 … FIN-024.
+**Completed.** The credential seam (FIN-020, abstraction half). `SourceCredentialProvider`
+resolves a `credential_ref` alias to real credentials; the interim implementation reads
+`trm.finance.source.<ref>.secret` from the worker process environment. It exists only in
+the worker runtime, never falls back to a default, never logs a secret, and validates the
+reference so a database row cannot read an unrelated property such as the registry
+database password.
 
-**Blockers.** FIN-020 is blocked on **Q5**. There is no secrets manager in this
-deployment, and `application.yml` currently carries committed fallback database
-credentials. Temple source credentials must not be stored the same way, so the storage
-mechanism needs a decision before the code that reads it is written.
+**Remaining.** FIN-021 … FIN-024 — seeding Kollur configuration. Not blocked: registering a
+source system with `sync_enabled = 0` and a credential *alias* contacts nothing and stores
+no secret.
 
-FIN-021 … FIN-024 (seeding Kollur configuration) are not blocked and can proceed
-independently, because registering a source system with `sync_enabled = 0` contacts
-nothing.
+**Blockers.** **Q5** decides the permanent credential store, not whether work can continue.
+There is no secrets manager in this deployment, and `application.yml` carries committed
+fallback database credentials — which is exactly the arrangement temple credentials must
+not join, and why the provider declares its properties in no YAML at all. Replacing the
+environment-backed implementation with a vault-backed one is a change to one `@Bean`
+method.
 
 ---
 
 ## Phases 3–17 · NOT_STARTED · 0%
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
+FIN-030 (connector contract) is unblocked and is the recommended next task.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
-Kollur database, and the connector cannot be tested without one. Note that this is exactly
-the situation where `PUSH_AGENT` rather than `PULL_JDBC` may be the answer; the connector
-model already supports both, so the decision does not require rework.
+Kollur database, and the connector cannot be tested without one. This is exactly the
+situation where `PUSH_AGENT` rather than `PULL_JDBC` may be the answer, and the design
+already treats the two as equals: `ConnectorType` models all four mechanisms, and
+`SourceCredentials` carries an *optional* principal so a token or shared key fits the same
+shape as a database user. Whichever way Q4 resolves, the canonical model, aggregation,
+APIs and dashboard are untouched — the difference is a `connector_type` value and a
+connector implementation.
 
 ---
 
-## Known Defect Outside Finance Scope
+## Known Defects Outside Finance Scope
 
-The full suite reports **866 tests, 0 failures, 18 errors**. All 18 are in
+The full suite reports **898 tests, 0 failures, 18 errors**. All 18 are in
 `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17), and all share one
 root cause: `ddl-auto: validate` rejecting
 `missing column [field_names_json] in table [declaration_clarifications]`.
@@ -139,3 +180,14 @@ This matters to the finance platform for one reason: that test is the only autom
 that migrations agree with the entity model, and every future finance migration would
 benefit from it. Detail in [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) under
 FIN-X-001.
+
+**FIN-X-002 — the `test` profile cannot boot a full application context.** Discovered while
+building the FIN-016 boundary tests. Two independent pre-existing causes: the test JWT
+public key (`jwt-test.pub`) is a placeholder that fails to parse, and `application.yml`
+carries a TiDB-only `connection-init-sql` that H2 rejects. Neither is caused by finance
+work; both were invisible previously because every full-context test fails earlier on
+FIN-X-001.
+
+The finance boundary tests work around both with local `@TestPropertySource` overrides,
+introducing no key material and changing no production configuration. Worth fixing
+centrally: the project currently has no working full-context test on the `test` profile.

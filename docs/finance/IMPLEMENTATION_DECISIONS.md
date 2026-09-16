@@ -144,3 +144,124 @@ are repeated here because implementation code must reference them, not to reopen
 | 11 | Payment mode is inferred, not recorded | `payment_mode_confidence = INFERRED` |
 | 12 | Missing data is `NOT_AVAILABLE`, never zero | Enforced by nullable amounts throughout |
 | 13 | Receipt counts are not devotee counts | Field named `transaction_count`; UI copy must match |
+
+---
+
+## FIN-D-007 — Scheduling is gated centrally, not per scheduler bean
+
+**Date:** 2026-09-16 · **Affects:** `TempleRegistryApplication`, `SchedulingConfig`
+
+**Decision.** `@EnableScheduling` moved off the application class into
+`SchedulingConfig`, annotated `@Profile("!sync-worker")`. The sync worker therefore runs no
+`@Scheduled` method at all and schedules its own jobs explicitly against the
+`financeSyncScheduler` `TaskScheduler`.
+
+**Reason.** The worker is the same artifact started with a different profile, and
+`@EnableScheduling` is global. Left on the application class, every existing background job
+would start a second copy in the worker process. This is not hypothetical:
+`EmailDeliveryService.processQueue()` runs every ten seconds and claims rows with
+`findPendingBatch(50)` — a plain `SELECT ... LIMIT` with no row locking, followed by a
+save. Two processes running it would both claim the same `PENDING` rows and **deliver
+duplicate emails to real recipients**. `NotificationRouter.dispatchPending()` (five
+seconds), `EmailRetryScheduler`, `NoticeExpiryScheduler` and `OverdueWorkflowScheduler`
+have the same exposure.
+
+**Rejected.** Annotating each scheduler bean `@Profile("!sync-worker")`. Several of those
+beans also expose non-scheduled methods that other services call — notably
+`EmailDeliveryService.enqueue()` — so removing the beans from the worker context would
+cascade through the notification subsystem. Withholding the scheduling *infrastructure*
+leaves every bean present and injectable while making its `@Scheduled` methods inert. It is
+also a one-line change rather than a five-class refactor.
+
+**Consequence.** The worker must never deliver email directly. It writes to `email_outbox`
+and the registry runtime delivers — which is what the outbox pattern is for.
+
+**Tested.** `SyncWorkerRuntimeContextTest.should_notScheduleRegistryJobs_when_syncWorkerProfileActive`
+and `should_keepSchedulerBeansInjectable_when_schedulingDisabled`;
+`RegistryRuntimeContextTest.should_keepSchedulingEnabled_when_registryProfileActive`.
+
+---
+
+## FIN-D-008 — Worker beans are registered explicitly, never component-scanned
+
+**Date:** 2026-09-16 · **Affects:** `SyncWorkerConfig` and everything under it
+
+**Decision.** Only `SyncWorkerConfig` carries a stereotype annotation
+(`@Configuration @Profile("sync-worker")`). Every other class capable of reaching a temple
+source system is a plain class registered by an explicit `@Bean` method inside it.
+
+**Reason.** A `@Component` is visible to the application-wide scan, so its absence from the
+registry runtime would depend on every future author remembering `@Profile`. A mistyped or
+forgotten annotation **fails open** — the bean loads in the registry runtime, which is
+exactly the outcome the boundary exists to prevent. A plain class cannot be picked up by
+accident, and the worker's whole bean inventory is auditable in one file.
+
+This is the same reasoning as FIN-D-002: prefer a structure that cannot be misused over a
+rule that must be remembered.
+
+**Rejected.** `@Component` + `@Profile` on each class (fails open on omission). Excluding
+the package from the main component scan with a filter (adding `@ComponentScan` alongside
+`@SpringBootApplication` replaces Boot's own filters, including `TypeExcludeFilter`, which
+would affect the 94 existing test classes).
+
+**Enforcement.** `FinanceIntegrationBoundaryTest` scans the compiled classpath and fails if
+any class in `service.finance.sync` or `connector` is component-scannable under the normal
+profile. Verified by mutation: adding a `@Component` to the package makes two tests fail.
+
+---
+
+## FIN-D-009 — Credentials resolve through an interface, from the environment, failing loudly
+
+**Date:** 2026-09-16 · **Affects:** `SourceCredentialProvider`, Q5
+
+**Decision.** `SourceCredentialProvider` is the seam. The interim implementation reads
+`trm.finance.source.<ref>.principal` / `.secret` from the worker process environment. No
+credential is committed, stored in the database, or given a fallback. A missing credential
+throws `CredentialNotConfiguredException`.
+
+**Reason.** Q5 is unresolved — there is no secrets manager — but the abstraction can be
+committed now and the backing store chosen later; swapping it is one `@Bean` method. Three
+properties are non-negotiable regardless of store:
+
+- **No fallback.** A provider that substituted a default or an empty password would turn a
+  configuration mistake into either a failure blamed on the temple, or a successful
+  connection to something nobody intended.
+- **No committed defaults.** A placeholder default in `application.yml` is precisely how
+  the existing `DB_USERNAME` / `DB_PASSWORD` fallbacks reached version control. Temple
+  credentials must not repeat that, so the properties are declared in no YAML at all.
+- **Redacted rendering.** `SourceCredentials.toString()` hides the secret, because the usual
+  way a credential reaches a log file is an exception or debug line interpolating an object
+  that happens to contain one.
+
+**Also decided.** `credentialRef` is validated against `[a-z0-9][a-z0-9_-]*[a-z0-9]`. The
+value arrives from a database row, and without validation a row containing
+`..spring.datasource` would let configuration read an unrelated property — including the
+registry database password.
+
+**Tested.** `EnvironmentSourceCredentialProviderTest`, 9 tests.
+
+---
+
+## FIN-D-010 — The sync worker is a non-web process, asserted at startup
+
+**Date:** 2026-09-16 · **Affects:** `application-sync-worker.yml`, `SyncWorkerBoundaryGuard`
+
+**Decision.** The worker profile sets `spring.main.web-application-type: none`, and
+`SyncWorkerBoundaryGuard` fails startup if the context is a `WebApplicationContext`.
+The profile also disables Flyway and sets `ddl-auto: none`.
+
+**Reason.** If the worker served HTTP, every controller in the artifact would be reachable
+from a process that can open a connection to a temple database — reassembling the coupling
+ADR-001 forbids without anyone writing code that connects the two. The YAML property alone
+is easy to lose to a deployment override, so the invariant is asserted in code as well.
+
+Failing closed is deliberate: a worker that will not start is a loud, obvious problem; a
+worker quietly serving HTTP while holding temple credentials is an invisible one.
+
+Flyway and DDL are disabled because the registry runtime owns the schema. Two processes
+performing DDL against one database is a race with no upside, and the worker only writes
+rows.
+
+**Tested.** `SyncWorkerProfileBoundaryTest.should_failStartup_when_syncWorkerRunsAsWebApplication`
+(via `WebApplicationContextRunner`) and
+`SyncWorkerRuntimeContextTest.should_startWithoutWebLayer_when_syncWorkerProfileActive`.
