@@ -1,6 +1,8 @@
 package com.templeregistry.service.finance.sync;
 
 import com.templeregistry.config.FinanceProfiles;
+import com.templeregistry.connector.finance.ConnectorRegistry;
+import com.templeregistry.connector.finance.TempleFinanceConnector;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -34,10 +36,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
  * second copy of every registry background job. Sync jobs are scheduled explicitly against
  * {@link #financeSyncScheduler()}, which runs only what it is given.
  *
- * <p><b>Connectors are not registered yet.</b> FIN-016 establishes the boundary; the
- * connector framework (FIN-030) and the Kollur connector (FIN-040) arrive later and will
- * be registered as {@code @Bean} methods here. The bean name is what
- * {@code fin_source_system.connector_bean} refers to, which is why explicit naming matters.
+ * <p><b>No connector is registered yet.</b> FIN-016 established the boundary, FIN-030 the
+ * contract and FIN-031 the registry; the first connector implementation (FIN-040) arrives
+ * later and will be registered as a {@code @Bean} method here. The bean name <em>is</em> the
+ * value {@code fin_source_system.connector_bean} refers to, which is why explicit naming
+ * matters -- and why {@link #connectorRegistry} fails loudly for a name nobody registered.
  */
 @Configuration
 @Profile(FinanceProfiles.SYNC_WORKER)
@@ -62,6 +65,19 @@ public class SyncWorkerConfig {
     public SyncWorkerBoundaryGuard syncWorkerBoundaryGuard(ApplicationContext applicationContext,
                                                            SyncWorkerProperties properties) {
         return new SyncWorkerBoundaryGuard(applicationContext, properties);
+    }
+
+    /**
+     * Resolves the {@code connector_bean} recorded against a source system.
+     *
+     * <p>Built from the connector beans declared in this class, so a connector reaches the
+     * registry by being registered here and by no other route. The map is empty today --
+     * no connector implementation exists yet -- so every configured source currently fails
+     * resolution explicitly rather than appearing to synchronize nothing.
+     */
+    @Bean
+    public ConnectorRegistry connectorRegistry(ApplicationContext applicationContext) {
+        return new ConnectorRegistry(applicationContext.getBeansOfType(TempleFinanceConnector.class));
     }
 
     /**

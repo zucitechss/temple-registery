@@ -1,6 +1,8 @@
 package com.templeregistry.service.finance.sync;
 
 import com.templeregistry.TempleRegistryApplication;
+import com.templeregistry.connector.finance.ConnectorRegistry;
+import com.templeregistry.connector.finance.TempleFinanceConnector;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +59,12 @@ class RegistryRuntimeContextTest {
         assertThat(context.getBeanNamesForType(SyncWorkerBoundaryGuard.class)).isEmpty();
         assertThat(context.getBeanNamesForType(SyncWorkerProperties.class)).isEmpty();
         assertThat(context.containsBean("financeSyncScheduler")).isFalse();
+
+        // FIN-031. Connector resolution is worker infrastructure: if the registry runtime could
+        // resolve a connector, an HTTP request would have a path to one.
+        assertThat(context.getBeanNamesForType(ConnectorRegistry.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(TempleFinanceConnector.class)).isEmpty();
+        assertThat(context.containsBean("connectorRegistry")).isFalse();
     }
 
     /**
