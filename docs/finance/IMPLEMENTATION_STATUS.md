@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-17 (FIN-050)
+**Updated:** 2026-09-17 (FIN-053-fix)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -300,11 +300,56 @@ the same record twice inside one batch is refused. This needs no NULL workaround
 FIN-D-018 — `RawRow.sourceRecordRef` is mandatory by contract, so every key column is
 `NOT NULL` and the plain constraint means what it says.
 
-**Remaining.** FIN-053 (validation), FIN-054 (mapping), FIN-055 (normalization), FIN-056 (the
-idempotent load that writes through `uk_frf_grain`). Neither canonical nor staging tables have
-a writer yet, and no row of temple financial data exists in either.
+**FIN-053 — validation, the first stage that decides something.** `RevenueStagingValidator`
+reads a batch's `RECEIVED` rows, judges each, and records the judgement: `VALID`, or `REJECTED`
+with a reason and one coded `fin_sync_error` at stage `VALIDATE`.
 
-**Blockers.** None. With both ends of the pipeline built, the four remaining stages can be
+Six rules, and the test for whether a rule belongs here is whether it can be stated without
+knowing any source system (FIN-D-022): a blank locator, provenance disagreeing with the batch,
+and four payload-shape rules. **Dates and amounts are deliberately not validated** — they sit
+inside `raw_json` under the connector's own field names, so checking them would mean teaching
+this stage one temple's vocabulary. FIN-055 reads them against the source-of-truth declaration
+instead. A rule that cannot be stated generically is deferred, not approximated.
+
+Three properties are load-bearing and each was verified by removing it:
+
+1. **A rejection cannot be lost.** The status change and the error row commit in one
+   transaction per row, so "rejected but not recorded" and "recorded but still `RECEIVED`" are
+   both impossible (FIN-D-024).
+2. **`rows_rejected` is derived from the error rows**, never incremented (FIN-D-023), so a
+   re-run or a second worker cannot inflate it and every unit it counts is a row an operator
+   can open.
+3. **The status transition is a conditional claim**, which is what makes `REJECTED` and
+   `LOADED` terminal and what makes two concurrent validators safe — tested with two threads
+   over 40 rows.
+
+**The validator shipped with a defect, and this section previously denied it.** The chunked
+read asked repeatedly for the *first page* of `RECEIVED` rows, so it ended only if every row it
+read left that state. A row that did not — the ordinary result of losing a claim race to a
+second validator — was handed back for ever, and `validateBatch` could not return. It is now
+read through an advancing id cursor, so each row is offered once and the query is guaranteed to
+run out (FIN-D-026).
+
+The failure is worth naming precisely, because none of the safeguards above catch it: no
+exception, no failed batch, no `fin_sync_error` — just a worker holding a database connection
+while the batch stays `RUNNING`, `rows_rejected` is never written, and the dashboard shows
+figures that are only old. Everything FIN-053 does to make a lost judgement impossible is
+bypassed by a run that never reaches its own final statement.
+
+Two earlier claims in this file were wrong and are withdrawn: that the loop "stops when a pass
+claims nothing" (no such guard existed in any source file), and that five validator mutations
+had been recorded (one had been measured; the harness was reporting a stale report as a result
+— FIN-D-027).
+
+The fix also removed a quadratic re-scan: the class runs in **74.8 s** where it previously took
+**221.4 s**.
+
+**Remaining.** FIN-054 (mapping), FIN-055 (normalization), FIN-056 (the idempotent load that
+writes through `uk_frf_grain`). Nothing writes to staging yet, so validation runs today only
+against rows a test or an operator puts there, and no row of temple financial data exists
+anywhere.
+
+**Blockers.** None. With both ends of the pipeline built, the remaining stages can be
 developed and tested against synthetic staging rows — no connector, no credential, and no
 answer to Q4 required.
 
@@ -325,20 +370,35 @@ extraction time, an undeclared date staying NULL, an impossible source value sur
 verbatim, no typed money column, two purity scans, the index set, and a regression check that
 V112's canonical grain still holds after V113.
 
-Both constraints were verified by mutation: removing `uk_frf_grain`'s generated columns fails
-4 tests, and removing `uk_fsr_batch_record` fails 2.
+`RevenueStagingValidatorTest` — 25 tests, `@DataJpaTest` against the same real database with
+the real migrations, test methods non-transactional so that what is asserted is what committed:
+the happy path and each rejection rule, aggregation of several failures into one error, the
+error's batch/record/stage and its deliberately null payload copy, the derived batch counter,
+terminal `REJECTED` and `LOADED`, idempotent re-runs, temple and source isolation, two threads
+over one batch, and a source scan for source vocabulary, transport and credentials.
 
-**Decisions.** FIN-D-018 … FIN-D-021.
+Two of the 25 cover termination, and they are the reason the defect above is now closed rather
+than merely described. `should_terminate_when_noRowCanBeClaimed` hands the validator a
+repository whose rows never leave `RECEIVED`; `should_processClaimableRows_when_othersCannotBeClaimed`
+is the half-way case a careless fix gets wrong — two claimable rows and two contended ones,
+interleaved, where every claimable row must still be judged and the run must still end.
+
+Constraints in this phase were verified by removing them: `uk_frf_grain`'s generated columns
+(4 tests fail) and `uk_fsr_batch_record` (2). The five validator mutations are recorded with
+their exact outcomes — including which were previously reported without having run — in
+[HANDOFF.md](HANDOFF.md), under a harness rebuilt to prove each report is fresh (FIN-D-027).
+
+**Decisions.** FIN-D-018 … FIN-D-027.
 
 ---
 
 ## Remaining Phases · NOT_STARTED
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
-FIN-053 (validation, with rejections recorded in `fin_sync_error`) is recommended next: it is
-the first stage that can now run end to end against synthetic staging rows, and it is where
-the rule that a rejected row is recorded rather than dropped becomes code rather than
-intention.
+FIN-054 (mapping, with unmapped source values routed to the seeded `UNMAPPED` category) is
+recommended next: it is the only stage whose inputs all exist — nine seeded mapping rules, the
+seeded canonical taxonomy, and validation now producing `VALID` rows to feed it — and it needs
+no connector, no credential and no answer to Q4.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
 Kollur database, and the connector cannot be tested without one. This is exactly the

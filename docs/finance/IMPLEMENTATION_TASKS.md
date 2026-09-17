@@ -1,6 +1,6 @@
 # Finance Implementation Tasks
 
-**Updated:** 2026-09-17 (FIN-050)
+**Updated:** 2026-09-17 (FIN-053-fix)
 **Branch:** `feature/db-integration`
 
 Statuses: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `COMPLETE` · `NEEDS_REVIEW`
@@ -214,7 +214,7 @@ including the Kollur one.
 | FIN-050 | `fin_stg_revenue` staging table and entity | **COMPLETE** | FIN-011 (dependency on FIN-043 was not real: the table needs no extract) |
 | FIN-051 | Dimensions: `fin_revenue_category`, `fin_service_dim` | **COMPLETE** | FIN-011 |
 | FIN-052 | `fin_revenue_fact` (daily grain) | **COMPLETE** | FIN-051 |
-| FIN-053 | Validation stage, rejections to `fin_sync_error` | NOT_STARTED | FIN-050 |
+| FIN-053 | Validation stage, rejections to `fin_sync_error` | **COMPLETE** | FIN-050 |
 | FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | NOT_STARTED | FIN-024, FIN-053 |
 | FIN-055 | Normalization to daily grain | NOT_STARTED | FIN-054 |
 | FIN-056 | Idempotent load keyed on the grain unique constraint | NOT_STARTED | FIN-052, FIN-055 |
@@ -320,6 +320,64 @@ whose kind nobody has established, and it must stay visible until a mapping rule
 | Future connectors write without schema change? | YES | no temple-specific column exists |
 | Dashboard can operate without source access? | YES | every catalogued revenue report resolves from these three tables |
 
+
+**FIN-053 delivered** — `RevenueStagingValidator`, `FinStgRevenueRepository`, one bean method.
+No migration, no schema change, no connector, no transport, no credential, no loader.
+
+**Validation boundary.** Six rules, all statable without knowing any source system
+(FIN-D-022): `BLANK_RECORD_REF`, `PROVENANCE_MISMATCH`, `MISSING_PAYLOAD`,
+`MALFORMED_PAYLOAD`, `PAYLOAD_NOT_OBJECT`, `EMPTY_PAYLOAD`, `NON_SCALAR_FIELD`.
+
+Dates and amounts are **not** validated here: they live in `raw_json` under connector-specific
+field names, and FIN-055 reads them against the source-of-truth declaration. Checking them at
+this stage would require teaching a shared pipeline stage one temple's vocabulary.
+
+`PROVENANCE_MISMATCH` is the rule the database cannot enforce and the one that matters most —
+a staged row whose temple disagrees with its batch would attribute one temple's money to
+another with nothing downstream noticing.
+
+**Rejection.** One `fin_sync_error` per rejected row at stage `VALIDATE` (FIN-D-023), so
+`rows_rejected = 143` is 143 openable rows. Several failures on one row produce one error
+naming all of them, coded by the first rule in a fixed order. `rows_rejected` is **derived**
+from the error count rather than incremented, so retries cannot inflate it. The error's
+`raw_payload_json` stays null — staging already holds the payload, and a second copy would
+spread whatever personal data a temple's records contain.
+
+**Transactions.** One per row (`REQUIRES_NEW`), status change and error insert committing
+together, with the status change written as a conditional claim (FIN-D-024). That single
+mechanism gives atomic rejection, terminal `REJECTED`/`LOADED`, and safety under two
+concurrent validators. A persistence failure aborts the run rather than skipping rows.
+
+**Termination (FIN-D-026, repaired after the task was first marked complete).** The chunked
+read was keyed on offset, always asking for the first page of `RECEIVED` rows, so the loop
+ended only if every row it read left that state — and a row that did not, the ordinary result
+of losing a claim race, came back for ever. It is now keyed on an advancing id cursor, so each
+row is offered once and the query is guaranteed to run out. A quadratic re-scan went with it:
+the test class runs in 74.8 s against 221.4 s.
+
+| Review question | Answer | Evidence |
+|---|---|---|
+| Source vocabulary, transport or credentials? | NO | `should_stayGeneric_when_sourceScanned` |
+| Payload rewritten? | NO | `should_preservePayload_when_validated` |
+| Missing turned into zero? | NO | `should_distinguishMissingFromZero_when_validating` |
+| Rejection without a record, or vice versa? | NO | M1 (12 failures) and M2 (14), both freshly measured |
+| Terminal rows reprocessed? | NO | `should_notReprocess_when_rowAlreadyRejected`, `should_notRevalidate_when_rowAlreadyLoaded` |
+| Two validators double-count? | NO | `should_processEachRowOnce_when_twoValidatorsRunTogether`; M3 kills on this test alone |
+| Batch counter explainable? | YES | `should_keepBatchCounterExplainable_when_validated` |
+| Anything normalized or loaded here? | NO | `should_leaveRowInStaging_when_validated` |
+| Can the run fail to terminate? | NO | `should_terminate_when_noRowCanBeClaimed`, `should_processClaimableRows_when_othersCannotBeClaimed`; M5 kills on both |
+
+**What was wrong when this task was first marked COMPLETE**, recorded because the tracking
+documents asserted all of it:
+
+| Claim previously made | Actual state |
+|---|---|
+| `should_terminate_when_noRowCanBeClaimed` passes | Failed on a 20 s timeout; the guard it tested was in no source file |
+| Four mutations verified the rejection guarantees | M1 measured; M2 carried M1's report verbatim; M3–M5 never ran (FIN-D-027) |
+| Finance suite 155 passing, 0 failures | 155 run, 3 failures, 2 errors — the new bean broke two worker-context tests |
+| The suite covered FIN-053 | The documented filter matched none of its 25 tests |
+
+Corrected baseline: **180 tests, 0 failures, 0 errors**, filter extended with `*RevenueStaging*`.
 ---
 ---
 

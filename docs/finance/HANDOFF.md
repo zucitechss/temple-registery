@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-17 (FIN-050)
+**Updated:** 2026-09-17 (FIN-053-fix)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,7 +12,8 @@
 
 | Task | Status |
 |---|---|
-| FIN-050 — `fin_stg_revenue` staging | **COMPLETE** (this session) |
+| FIN-053 — Staging validation | **COMPLETE** (repaired; see FIN-D-026 and FIN-D-027) |
+| FIN-050 — `fin_stg_revenue` staging | **COMPLETE** |
 | FIN-051 — Canonical dimensions | **COMPLETE** |
 | FIN-052 — `fin_revenue_fact`, daily grain | **COMPLETE** |
 | FIN-031 — Connector registry | **COMPLETE** |
@@ -24,6 +25,13 @@
 Each is complete because the invariants it exists to create were observed holding against a
 real database, and observed failing when the constraint that creates them is removed.
 
+**FIN-053 was marked complete once before it was.** An audit found that its loop could not
+terminate, that the test written to prove otherwise was failing, and that three of its four
+claimed mutation results had never been produced. Both defects are fixed and all five mutations
+are now measured — but the more useful lesson is in FIN-D-027: the harness had been reporting a
+leftover report as a result, so the documentation was confident, specific and wrong. Treat a
+mutation table as evidence only if the run that produced it can be shown to have happened.
+
 ---
 
 ## Current State
@@ -31,22 +39,184 @@ real database, and observed failing when the constraint that creates them is rem
 **What works.** The finance foundation (FIN-010…015), the registry / sync-worker runtime
 boundary (FIN-016), the generic connector contract (FIN-030), connector resolution (FIN-031),
 the complete Kollur configuration (FIN-021…024), the canonical revenue model (FIN-051,
-FIN-052), and now the staging table that feeds it (FIN-050).
+FIN-052), the staging table that feeds it (FIN-050), and now the first pipeline stage that
+actually decides something: validation (FIN-053).
 
-**Both ends of the pipeline now exist**: raw records land in `fin_stg_revenue` exactly as a
-connector delivered them, finished figures live in `fin_revenue_fact` at daily grain, and both
-grains are enforced by the database rather than by the code that will write them. The middle —
-validation, mapping, normalization, load — is missing, and can now be built and tested against
-synthetic staging rows without a connector and without an answer to Q4.
+Both ends of the pipeline exist and the first stage between them runs. A staged record is now
+judged, and the judgement is recorded in a way that cannot be lost — rejected rows keep their
+payload and gain one coded `fin_sync_error` each, so `rows_rejected` is explainable row by row.
 
-**What does not work yet.** No connector implementation, no extraction, no validation, no
-mapping stage, no loader, no aggregation, no API. The dashboard is still the static HTML file.
-Both tables are empty and neither has a writer; no row of temple financial data has been read,
-and no credential exists anywhere.
+**What does not work yet.** No connector implementation, no extraction, no mapping stage, no
+normalization, no loader, no aggregation, no API. The dashboard is still the static HTML file.
+Nothing writes to staging yet, so validation currently runs only against rows a test or an
+operator puts there; no row of temple financial data has been read, `fin_revenue_fact` is
+empty, and no credential exists anywhere.
 
 ---
 
-## FIN-050 — Revenue Staging (this session)
+## FIN-053 — Staging Validation
+
+### Files
+
+| File | Change |
+|---|---|
+| `backend/src/main/java/com/templeregistry/service/finance/pipeline/RevenueStagingValidator.java` | new — the validator; terminates through an id cursor (FIN-D-026) |
+| `backend/src/main/java/com/templeregistry/repository/finance/FinStgRevenueRepository.java` | new — cursor-keyed chunked reads and the guarded `transition` |
+| `backend/src/main/java/com/templeregistry/service/finance/sync/SyncWorkerConfig.java` | `revenueStagingValidator` bean |
+| `backend/src/test/java/com/templeregistry/service/finance/pipeline/RevenueStagingValidatorTest.java` | new — 25 tests |
+| `backend/src/test/java/com/templeregistry/service/finance/sync/FinanceIntegrationBoundaryTest.java` | guards the new `pipeline` package too |
+| `backend/src/test/java/com/templeregistry/service/finance/sync/SyncWorkerProfileBoundaryTest.java` | worker runner supplies the pipeline's persistence collaborators |
+| `backend/src/test/java/com/templeregistry/connector/finance/ConnectorRegistryTest.java` | same, for its worker-assembly test |
+
+**The two test-side changes were a regression, not housekeeping.** Registering a
+repository-dependent bean in `SyncWorkerConfig` broke every `ApplicationContextRunner` that
+assembles the worker without a database: `SyncWorkerProfileBoundaryTest$SyncWorkerRuntime`
+(2 failures, 2 errors) and `ConnectorRegistryTest` (1 failure). The finance suite's true state
+before this fix was **155 run / 3 failures / 2 errors**, not the "155 passing, 0 failures" the
+next section used to promise.
+
+**No migration.** No schema change, no entity change, no connector, no transport, no
+credential, no API, no frontend, no dependency added.
+
+### The validation boundary
+
+Six rules, and the test for whether a rule belongs here is whether it can be stated without
+knowing anything about any particular source system (FIN-D-022):
+
+| Code | Rule |
+|---|---|
+| `BLANK_RECORD_REF` | the locator is blank, so the original cannot be found in the source |
+| `PROVENANCE_MISMATCH` | the row's `temple_id` or `source_system_id` disagrees with its batch |
+| `MISSING_PAYLOAD` / `MALFORMED_PAYLOAD` | `raw_json` absent or unparseable |
+| `PAYLOAD_NOT_OBJECT` | not an object of source fields |
+| `EMPTY_PAYLOAD` | an object carrying no fields |
+| `NON_SCALAR_FIELD` | a field holds a nested structure the connector contract does not deliver |
+
+**Dates and amounts are deliberately not validated.** They live inside `raw_json` under the
+connector's own field names, so checking them here would mean teaching this class one temple's
+source vocabulary — the exact knowledge that stops at the connector. FIN-055 reads them against
+the source-of-truth declaration, which is where the platform learns which field is
+authoritative for whom.
+
+**`PROVENANCE_MISMATCH` is the rule that matters most.** The database cannot enforce it, and a
+staged row whose temple disagrees with its batch would attribute one temple's money to another
+with nothing downstream noticing.
+
+**What VALID does not mean:** not mapped, not resolved, not authoritative, not reconciled, not
+reportable, not loaded. It means the six rules passed.
+
+### Rejection semantics
+
+One `fin_sync_error` per rejected row at stage `VALIDATE` (FIN-D-023), so
+`rows_rejected = 143` means 143 error rows an operator can open. Several failures on one row
+produce one error whose message names them all and whose `error_code` is the first rule in a
+fixed order — one defect, one code, so counting by code is meaningful.
+
+The staged row keeps its payload and gains a `rejection_reason`. The error's
+`raw_payload_json` is left **null**: a second copy would spread whatever personal information a
+temple's records contain, and the batch plus `source_record_ref` locate the original. Messages
+never quote payload content — a malformed-JSON message carries the parse position, not the text.
+
+`fin_sync_batch.rows_rejected` is **set** to the batch's error count, never incremented, so a
+re-run, an interrupted run or two workers cannot inflate it.
+
+### Transactions, concurrency and failure
+
+One transaction per row (`REQUIRES_NEW`), inside which the status change and the error insert
+commit together (FIN-D-024). The status change is a **conditional claim** — it matches only a
+row still `RECEIVED` — so:
+
+- a rejection can never be recorded without its status change, or the reverse;
+- two validators on one batch each process a row at most once (tested with two threads over 40
+  rows: exactly 40 processed, exactly 20 errors);
+- `REJECTED` and `LOADED` are terminal, because neither matches the expected `RECEIVED`.
+
+A persistence failure **aborts the run** and leaves the remaining rows `RECEIVED` for the next
+one. Catching and continuing would turn a database problem into silently skipped records.
+
+Transactions are driven by an explicit `TransactionTemplate` rather than `@Transactional`,
+because the per-row call is a self-invocation and the annotation would have been silently
+ignored.
+
+**The loop could not terminate, and this section previously claimed a fix that did not exist.**
+The chunked read asked repeatedly for the *first page* of `RECEIVED` rows, so it ended only if
+every row it read left that state. A row that did not — the ordinary result of losing a claim
+race to a second validator — was handed back for ever. `validateBatch` never returned.
+
+It is now read through an advancing id cursor (`id > :afterId`), so each row is offered exactly
+once and the query is guaranteed to run out whatever this validator manages to claim. Safe
+because the status axis is monotonic: nothing returns a row to `RECEIVED`, so a row passed over
+cannot reappear behind the cursor. Recorded as **FIN-D-026**, with the rejected alternatives —
+a per-pass progress counter, and a fixed iteration cap — and why each is worse.
+
+Why this mattered more than an ordinary bug: the failure is not an exception, not a failed
+batch and not a `fin_sync_error`. It is a worker holding a database connection for ever while
+the batch stays `RUNNING`, `rows_rejected` is never written, and the dashboard shows figures
+that are merely old. Everything else in FIN-053 exists to make a lost judgement impossible, and
+all of it is bypassed by a run that never reaches its own final statement.
+
+Two claims previously in this file are withdrawn. There was no guard that "stops when a pass
+claims nothing" in any source file. And four mutations were listed as verification when one had
+been measured — see FIN-D-027.
+
+**A quadratic scan went with it.** Asking for page 0 each time re-read the batch from the start
+on every chunk. The test class now runs in **74.8 s** against **221.4 s** before.
+
+### Tests
+
+`RevenueStagingValidatorTest` — **25**, `@DataJpaTest` against a real MySQL 8.0 container with
+the real migrations, test methods non-transactional so that what is asserted is what committed.
+
+Two cover termination. `should_terminate_when_noRowCanBeClaimed` hands the validator a
+repository whose rows never leave `RECEIVED`. `should_processClaimableRows_when_othersCannotBeClaimed`
+is the half-way case a careless fix gets wrong: two claimable rows and two contended ones,
+interleaved so the contended ones are neither first nor last, where every claimable row must
+still be judged and the run must still end.
+
+**Mutation results — all five measured, each against a freshly generated report** (FIN-D-027).
+Command in every case:
+`mvn -o -Dtest=RevenueStagingValidatorTest -DfailIfNoTests=false test`
+
+| # | Mutation | Applied | Fresh report | Tests run | Failures | Verdict |
+|---|---|---|---|---:|---:|---|
+| M1 | `fin_sync_error` creation removed | YES | YES | 25 | 12 | **KILLED** |
+| M2 | rejection becomes a silent skip | YES | YES | 25 | 14 | **KILLED** |
+| M3 | transition no longer a conditional claim | YES | YES | 25 | 1 | **KILLED** |
+| M4 | blank-locator rule removed | YES | YES | 25 | 2 | **KILLED** |
+| M5 | loop cursor never advances | YES | YES | 25 | 2 | **KILLED** |
+
+Evidence: `log-M1.txt` … `log-M5.txt` alongside the harness. No run timed out; sources were
+restored after each and checked against a checksum taken before the first patch.
+
+**M2 is the one that shows the fix works.** This is the mutation that previously hung the build
+for 26 minutes and produced no report at all. It now fails in normal time with 14 tests red,
+`should_terminate_when_noRowCanBeClaimed` among them.
+
+**M3 is the weak spot, and is worth knowing before touching the concurrency test.** Removing
+the conditional claim fails exactly **one** test —
+`should_processEachRowOnce_when_twoValidatorsRunTogether` — a single timing-dependent
+two-thread test. The terminal-state tests do not catch it, because the chunk query already
+filters on `validation_status = 'RECEIVED'` and a terminal row never reaches `transition`. If
+that one test is ever disabled or quarantined as flaky, nothing else notices that the claim has
+gone.
+
+### Architectural review
+
+| Question | Answer |
+|---|---|
+| Generic across temples, free of source vocabulary? | **YES** — asserted by a source scan |
+| Reads a temple database, or any transport? | **NO** — it reads the registry's own staging table |
+| Credentials anywhere? | **NO** |
+| Raw payload rewritten? | **NO** — content preserved exactly (FIN-D-025) |
+| Missing data converted to zero? | **NO** — nulls and empty strings pass through untouched |
+| Rejected row preserved and explainable? | **YES** — row, reason, and one coded error |
+| Rejection possible without a record? | **NO** — they commit together |
+| Terminal states respected? | **YES** — `REJECTED` and `LOADED` are never reprocessed |
+| Concurrency safe? | **YES** — claimed, and tested with two threads |
+| Batch counter explainable? | **YES** — derived from error rows |
+| Anything loaded or normalized here? | **NO** |
+
+## FIN-050 — Revenue Staging (previous session)
 
 ### Files
 
@@ -107,6 +277,14 @@ NULL-distinct index semantics had to be worked around; here the plain constraint
 what it says. Same database behaviour, opposite consequence — each was decided, not copied.
 
 **Mutation-verified:** removing the constraint fails 2 tests.
+
+> **Correction from FIN-053 (FIN-D-025).** This section originally said the payload is stored
+> "exactly as delivered". That is true of its *content* and not of its bytes: `raw_json` is a
+> `JSON` column, so MySQL and TiDB store a parsed representation and re-emit it with their own
+> key order and spacing. Every field name, value and null survives — including empty strings
+> and JSON nulls, which is what evidence requires — but a check of a staged payload must
+> compare parsed content, not text. `V113` itself is not edited, because changing an applied
+> migration's text changes its Flyway checksum.
 
 ### Status lifecycle, and who owns each transition
 
@@ -561,10 +739,10 @@ the same 4 report files).
    TTL, purge job or partitioning, so it grows without bound — at the first temple's volumes,
    fast. Deleting financial provenance on a schedule nobody has agreed is not a default worth
    choosing quietly, so it waits for an answer.
-11. **`fin_stg_revenue` has no writer and no reader.** The table, its grain and its constraint
-   exist; the extraction path that fills it and the validation that drains it are FIN-043 and
-   FIN-053. A constraint violation while staging must fail the batch with a `fin_sync_error`
-   at stage `EXTRACT`, not be caught and skipped.
+11. **`fin_stg_revenue` has a reader but still no writer.** FIN-053 drains it; the extraction
+   path that fills it is FIN-043 and does not exist, so every row in the table today was put
+   there by a test. A constraint violation while staging must fail the batch with a
+   `fin_sync_error` at stage `EXTRACT`, not be caught and skipped.
 12. **`source_business_date` is advisory and currently never populated.** Nothing writes it
    yet, and normalization must derive the authoritative date from `raw_json` regardless. If a
    future reader ever treats this column as authoritative, the advisory comment in V113 is the
@@ -573,9 +751,43 @@ the same 4 report files).
    `cancelled_amount`, which satisfies every catalogued cancellation report;
    `FINANCE_DATA_MODEL.md` §6.2 also specifies a full-detail table (465 rows across the first
    temple's entire history) that no task in the plan currently owns.
-14. **The registry is built once at worker startup.** A connector bean added at runtime would
+14. **Nothing calls the validator yet.** `revenueStagingValidator` is a worker bean with no
+   caller: the orchestrator that would run extraction, then validation, then the rest is not
+   built. Until it exists, validation runs only from tests or a manual invocation.
+15. **Two validation rules cannot fire** (FIN-D-022). `MISSING_PAYLOAD` and
+   `MALFORMED_PAYLOAD` are unreachable while `raw_json` is a `JSON` column, because MySQL and
+   TiDB reject a malformed document at insert. They remain because parsing throws a checked
+   exception that must be handled anyway, but they are untestable through the database.
+16. **Validation has no view of configuration.** It does not check that the batch's capability
+   is `REVENUE`, nor that the temple has that capability declared, nor that the payload
+   contains the field the source-of-truth declaration names as authoritative. The last would be
+   a genuinely generic and valuable rule — it would catch a connector that stopped emitting the
+   revenue field — but it needs a decision about whether declaration field references and
+   connector field names share a vocabulary. Recorded for FIN-055.
+17. **`rows_extracted` and `rows_loaded` have no owner.** FIN-053 sets only `rows_rejected`,
+   derived. Whoever writes staging (FIN-043) and the loader (FIN-056) must decide theirs, and
+   should follow the same derived-not-incremented rule.
+18. **Validation performance is untested at scale.** Rows are processed one transaction each,
+   in chunks of 500 read through an id cursor. The quadratic re-scan that the earlier offset
+   form caused is gone (FIN-D-026), and the test class dropped from 221.4 s to 74.8 s as a
+   side effect — but that is a few dozen rows, not a first historical load of millions. One
+   transaction per row remains the right shape for isolation and an open question for bulk,
+   and batching the status updates is the obvious lever if it turns out to matter.
+19. **The registry is built once at worker startup.** A connector bean added at runtime would
    not appear, which is correct for an artifact whose connectors are compiled in, and worth
    knowing before anyone attempts dynamic connector loading.
+20. **`SyncWorkerProfileBoundaryTest` now supplies mock persistence beans.** The worker runner
+   builds a context from `SyncWorkerConfig` alone, so every pipeline stage that gains a
+   repository dependency must be added to that mock list or the boundary test goes red for a
+   reason that has nothing to do with the boundary. FIN-054 will hit this. The alternative —
+   making the test load a real persistence context — would couple a profile-wiring check to a
+   database and to FIN-X-001.
+21. **Nothing verifies that the two runtimes agree with the real bean graph.** The boundary
+   tests use `ApplicationContextRunner` with a hand-listed set of configurations, and
+   `RegistryRuntimeContextTest` / `SyncWorkerRuntimeContextTest` use `@SpringBootTest` with
+   local property overrides. Neither is the deployed startup path. Until FIN-X-002 is fixed and
+   the `test` profile can boot a full context, "the worker starts" is inferred rather than
+   observed.
 
 ---
 
@@ -608,8 +820,14 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 1. Read this file, then `IMPLEMENTATION_STATUS.md` and `IMPLEMENTATION_TASKS.md`.
 2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
-   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'`
-   — expect **155 passing, 0 failures**. (Requires Docker for the migration test.)
+   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*,*RevenueStaging*'`
+   — expect **180 passing, 0 failures, 0 errors** (8 m 29 s; requires Docker).
+
+   **The last pattern was added because it was missing.** Without `*RevenueStaging*` the filter
+   matches none of FIN-053's 25 tests, so the documented "155 passing" was a real number for a
+   suite that silently excluded the code it was meant to cover — which is how a failing
+   termination test survived being recorded as green. Any new pipeline stage needs its class to
+   match this filter, or it is not in the baseline.
 4. Implement one task. Do not implement a connector, and do not implement Kollur-specific
    anything outside a connector.
 5. Anything that can reach a source system is registered in `SyncWorkerConfig` as a `@Bean`,
@@ -622,33 +840,42 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-053**: the validation stage — read `RECEIVED` rows for a batch, decide
-`VALID` or `REJECTED`, and record every rejection in `fin_sync_error`.
+Implement **FIN-054**: the mapping stage — translate each `VALID` staged record's source
+vocabulary into canonical terms using `fin_mapping_rule`, routing anything unmapped to the
+seeded `UNMAPPED` category rather than dropping it or guessing.
 
-It is next because it is the first stage that can now run end to end: both ends of the
-pipeline exist, so validation can be written and tested entirely against synthetic staging
-rows, with no connector, no credential and no answer to Q4. It is also the first *behaviour*
-in this phase rather than a table — the four preceding sessions built structure, and this is
-where the rules become code.
+It is next because it is the only stage whose inputs all exist: Kollur's nine mapping rules
+are seeded (FIN-024), the canonical taxonomy is seeded (FIN-051), and validation now produces
+`VALID` rows to feed it. It needs no connector, no credential and no answer to Q4.
 
 What it owns, and what must not slip:
 
-- **A rejected row is recorded, never dropped.** `fin_sync_batch.rows_rejected = 143` has to be
-  explainable down to the individual row, which is what `fin_sync_error` (stage `VALIDATE`,
-  a coded `error_code`, the payload) is for. The staged row keeps its `rejection_reason` and
-  its payload too; the two are complementary, not duplicates.
-- **A batch with rejections must not look like a clean batch.** Counts belong on the batch, and
-  reconciliation later depends on them being honest.
-- **Validation decides structural usability only** — a date that parses, an amount that is a
-  number, a required field present. Whether the figure is *right* is reconciliation's question
-  (FIN-060), and whether its category is known is mapping's (FIN-054). Keep those out.
-- Transitions are monotonic and `REJECTED` is terminal; re-processing means a new batch.
+- **Precedence is part of the rule set** (FIN-D-015). Source values are namespaced
+  (`SANNIDHI:KN`, `SEVA_CODE:430`) and the more specific rule wins. Without the `SEVA_CODE:430`
+  override, Kollur's donation-box collections — 13 records averaging over a crore each — are
+  reported as ordinary donations and dominate any ranking of purchased services.
+- **`UNMAPPED` is a destination, not a failure.** An unmapped value is real revenue whose kind
+  nobody has established; it must stay visible and must never be absorbed into `OTHER_INCOME`,
+  whose own seeded description forbids that use. Whether an unmapped row is also a
+  `fin_sync_error` at stage `MAP` is a decision for that task — visible either way.
+- **No source table or column name may appear in the mapping stage.** It reads configuration
+  rows, not a temple's schema; that is what makes it the same code for every temple.
+- Mapping does not derive dates, parse amounts, or write facts. Those are FIN-055 and FIN-056.
 
-After that, **FIN-054** (mapping, with unmapped values routed to the seeded `UNMAPPED`
-category), **FIN-055** (normalization to daily grain, which owns the `financial_year`
-computation — early April must land in the new year) and **FIN-056** (the load writing through
-`uk_frf_grain` with `INSERT … ON DUPLICATE KEY UPDATE`; the shape is demonstrated in
-`should_convergeOnOneRow_when_upsertRepeated`).
+Where it fits: staged rows are `VALID` today and there is no status between `VALID` and
+`LOADED`. FIN-054 should decide whether mapping needs its own state or is part of the
+normalization pass that produces canonical rows — and say so, rather than adding a status
+because it looks symmetrical.
+
+After that, **FIN-055** (normalization to daily grain, which owns the `financial_year`
+computation — early April must land in the new financial year) and **FIN-056** (the load
+writing through `uk_frf_grain` with `INSERT … ON DUPLICATE KEY UPDATE`; the shape is
+demonstrated in `should_convergeOnOneRow_when_upsertRepeated`).
+
+**An alternative worth considering first:** the orchestrator that ties extraction → validation
+→ mapping → load together, and updates `fin_sync_batch` as it goes. Nothing calls the
+validator today, and each new stage adds another component with no caller. It is not in the
+task list under its own number, which is itself worth noticing.
 
 Alternative if a smaller task is wanted: **FIN-032** — probe and capability declaration
 wiring into onboarding. It can only be exercised against fake connectors until FIN-040.

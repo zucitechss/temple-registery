@@ -635,3 +635,230 @@ whose references are not unique within a batch has a bug that must surface.
 
 **Open.** Retention (Q7, 30–90 days proposed) is undecided, so no TTL, purge job or
 partitioning exists. Staging will grow without bound until it is answered.
+
+---
+
+## FIN-D-022 — Validation checks what can be stated without knowing any source system
+
+**Date:** 2026-09-17 · **Affects:** `RevenueStagingValidator`
+
+**Decision.** FIN-053 validates six things, and deliberately not dates or amounts:
+
+| Code | Rule |
+|---|---|
+| `BLANK_RECORD_REF` | the locator is blank, so the original cannot be found in the source |
+| `PROVENANCE_MISMATCH` | the row's `temple_id` or `source_system_id` disagrees with its batch |
+| `MISSING_PAYLOAD` | `raw_json` absent |
+| `MALFORMED_PAYLOAD` | `raw_json` unparseable |
+| `PAYLOAD_NOT_OBJECT` | the payload is not an object of source fields |
+| `EMPTY_PAYLOAD` | the object carries no fields |
+| `NON_SCALAR_FIELD` | a field holds a nested structure, which the connector contract does not deliver |
+
+**Reason for what is absent.** Dates and amounts live inside `raw_json` under the connector's
+own field names. Checking them here would mean teaching this class the field names of one
+temple's source system — the exact knowledge that stops at the connector, and the reason this
+platform is not a Kollur dashboard. Normalization (FIN-055) reads them against the
+source-of-truth declaration, which is where the platform learns which field is authoritative
+for whom. **A rule that cannot be stated generically is deferred, not approximated.**
+
+`PROVENANCE_MISMATCH` is the one rule the database cannot enforce and the one that matters
+most: a staged row whose temple disagrees with its batch would attribute one temple's money to
+another, and nothing downstream would notice.
+
+**VALID means structure only.** Not that the category is mapped, the service resolved, the
+amount authoritative, the figure reconciled, or the row reportable. Those are FIN-054,
+FIN-055, FIN-056 and FIN-060, and the status name must not be read as having settled them.
+
+**Consequence.** Two rules (`MISSING_PAYLOAD`, `MALFORMED_PAYLOAD`) cannot fire while
+`raw_json` is a `JSON` column, because MySQL and TiDB reject a malformed document at insert.
+They remain because parsing throws a checked exception that must be handled regardless, and
+because the column type is a schema decision that could change. This is recorded rather than
+hidden: they are untestable through the database today.
+
+---
+
+## FIN-D-023 — One error per rejected row, and the batch counter is derived from them
+
+**Date:** 2026-09-17 · **Affects:** `RevenueStagingValidator`, `fin_sync_error`, `fin_sync_batch.rows_rejected`
+
+**Decision.** A rejected row produces exactly one `fin_sync_error` at stage `VALIDATE`. Where
+several rules fail, the message names all of them and `error_code` names the first in a fixed
+order. After a run, `fin_sync_batch.rows_rejected` is **set** to the batch's error count, never
+incremented.
+
+**Reason.** `rows_rejected = 143` has to mean 143 error rows an operator can open, one per
+record. One error per failed *rule* would break that correspondence — a row failing three
+rules would count three times — and the fixed order means one defect always produces one code,
+so counting by `error_code` is meaningful rather than order-dependent.
+
+Deriving the counter rather than incrementing it removes a whole class of bug: a re-run, an
+interrupted run, or two workers cannot inflate it, because it is recomputed from rows that
+exist.
+
+**Rejected.** Incrementing per rejection. It is the obvious implementation and it drifts the
+first time anything is retried, which on a finance figure means an unexplainable number in an
+audit.
+
+**Rejected.** Copying the payload into `fin_sync_error.raw_payload_json`. The staged row still
+holds it, and duplicating source records into a second table would spread whatever personal
+information a temple's records contain. The batch and `source_record_ref` locate the original.
+**Open:** if staging retention (Q7) is ever set, this needs revisiting — purging staging would
+leave errors without the evidence they explain.
+
+---
+
+## FIN-D-024 — Each row commits on its own, and its status transition is a claim
+
+**Date:** 2026-09-17 · **Affects:** `RevenueStagingValidator`, `FinStgRevenueRepository.transition`
+
+**Decision.** One transaction per staged row (`REQUIRES_NEW`), inside which the status change
+and the error insert commit together. The status change is a conditional update — it matches
+only a row still in the state the validator expected — and the error is written only if that
+update claimed the row.
+
+**Reason.** Three failure modes, one mechanism:
+
+1. **A rejection recorded with no status change, or a status change with no record.** Both
+   would break the guarantee that a rejected row is explainable. Committing them together
+   makes the pair atomic; if the insert fails, the status rolls back and the row is validated
+   again on the next run.
+2. **Two validators on one batch.** Without the conditional claim, both would reject the same
+   row and `rows_rejected` would exceed the rows actually rejected. Tested with two threads
+   over 40 rows: each row is processed exactly once.
+3. **A terminal row revived.** `REJECTED` and `LOADED` never match the expected `RECEIVED`, so
+   a re-run cannot overwrite a recorded judgement.
+
+**How much of this the tests actually prove (measured, 2026-09-17).** Removing the conditional
+predicate fails exactly **one** test: `should_processEachRowOnce_when_twoValidatorsRunTogether`.
+Reason 3 above is true of the method but is not what the terminal-state tests demonstrate —
+the chunk query already filters on `validation_status = 'RECEIVED'`, so a `REJECTED` or
+`LOADED` row is never offered to `transition` in the first place. The claim is a second line of
+defence there, and the first line is the query.
+
+Two consequences worth knowing before touching either. Reason 2 rests on a single
+timing-dependent two-thread test; if it is ever disabled, quarantined as flaky, or weakened,
+nothing else in the suite notices that the claim has gone. And anyone "simplifying" the query
+filter should understand they would be removing the mechanism that the terminal-state tests are
+really exercising.
+
+**A persistence failure aborts the run rather than continuing.** The remaining rows stay
+`RECEIVED` and are picked up by the next run. Catching and continuing would convert a database
+problem into silently skipped records, which is the one outcome worse than failing.
+
+**Rejected.** One transaction per batch. A failure at row 39,000 would roll back 38,999 correct
+judgements, and a long-running write transaction over a first historical load is its own
+operational problem.
+
+**Rejected.** `@Transactional` on a per-row method. The loop is in the same class, so
+self-invocation would bypass the proxy and the annotation would do nothing — silently. An
+explicit `TransactionTemplate` cannot fail that way.
+
+---
+
+## FIN-D-025 — A JSON column preserves the payload's content, not its bytes
+
+**Date:** 2026-09-17 · **Affects:** `fin_stg_revenue.raw_json`, and the FIN-050 record of it
+
+**Decision.** `raw_json` stays a `JSON` column. The FIN-050 documentation claim that the
+payload is stored "exactly as delivered" is corrected here: MySQL and TiDB store a parsed
+representation and re-emit it with their own key order and spacing.
+
+**Reason it was found.** A FIN-053 test asserted the stored payload was byte-identical to what
+was written and failed: `{"gross":"9061629360.05","mode":"","note":null}` came back as
+`{"mode": "", "note": null, "gross": "9061629360.05"}`. Every field name, value and null
+survived; the formatting did not.
+
+**Why the column type stays.** What staging must preserve is evidence — which fields the
+source supplied and what each contained — and that is preserved exactly, including empty
+strings and JSON nulls, which must never become `0` or `""` later. In exchange the database
+guarantees that nothing unreadable can be staged at all, and `JSON_EXTRACT` makes investigation
+possible without parsing in application code. Byte-level fidelity would buy nothing an
+investigator needs.
+
+**Consequence.** Any future check of a staged payload must compare parsed content, not text.
+The claim in the FIN-050 handoff section is corrected in place; `V113` itself is **not** edited,
+because changing an applied migration's text changes its Flyway checksum and would fail
+validation on any database that has already run it.
+
+---
+
+## FIN-D-026 — Validation terminates by construction, through an advancing cursor
+
+**Date:** 2026-09-17 · **Affects:** `RevenueStagingValidator.validateBatch`, `FinStgRevenueRepository`
+
+**Decision.** The chunked read is keyed on the last id seen — `id > :afterId` — rather than
+repeatedly requesting the first page of `RECEIVED` rows. Each staged row is offered to the
+validator exactly once per run.
+
+**Reason.** The offset form made termination conditional on something the loop does not
+control. It exited only when the `RECEIVED` set emptied, which assumed every row it read would
+leave that state; a row that did not — the ordinary result of losing a claim race to a second
+validator — was handed back on the next pass indefinitely. The method could not finish.
+
+The severity is in how that failure presents. Not an exception, not a failed batch, not a
+`fin_sync_error`: a worker thread consuming a database connection for ever while the batch
+stays `RUNNING`, `rows_rejected` is never written, and the dashboard shows figures that are
+merely old. Everything the rest of FIN-053 does to make a lost judgement impossible is
+bypassed by a run that never reaches its own final statement. **A hang is harder to notice
+than a crash**, so termination must not depend on a condition being remembered.
+
+Ids strictly increase and the cursor only moves forward, so the query is guaranteed to run
+out. This is safe because the status axis is monotonic: `RECEIVED` is the state rows are
+created in and nothing returns them to it, so a row passed over cannot reappear behind the
+cursor.
+
+**Rejected — a per-pass progress counter** (`claimedInPass`, break when a pass claims
+nothing). It terminates, and it was the original intent, but it is a detector bolted onto a
+loop that is still shaped wrongly: the loop re-reads rows it has already judged unclaimable,
+so `alreadyClaimed` counts observations rather than rows, and a batch where one row is
+contended still costs a full extra scan. It also leaves the O(n²) behaviour below intact.
+
+**Rejected — a fixed iteration cap.** It substitutes an arbitrary number for an argument about
+why the loop ends, and on a large batch it would stop the run early while reporting success.
+
+**A performance defect went with it.** Asking for page 0 each time re-scanned the batch from
+the beginning per chunk: quadratic in the number of staged rows, on the table that receives a
+first historical load. The cursor makes it one pass. Measured on the test batch, the class
+dropped from 221.4 s to 74.8 s.
+
+**Consequence for counters.** `Result.alreadyClaimed` is now a count of rows, not of attempts,
+and `validated + rejected + alreadyClaimed` is the number of rows the run looked at. Only
+`processed()` — validated plus rejected — is a claim about work this run actually did.
+
+**How it was missed.** The guard this record replaces was described in this document and in
+the handoff, and the test written to prove it (`should_terminate_when_noRowCanBeClaimed`)
+existed — but the guard itself was in no source file, and the suite was recorded as green
+without the failing test ever being observed. See FIN-D-027: the harness that was supposed to
+catch this reported a stale result.
+
+---
+
+## FIN-D-027 — A mutation result counts only against a freshly produced report
+
+**Date:** 2026-09-17 · **Affects:** the FIN-053 mutation harness, and any future use of it
+
+**Decision.** A mutation run is recorded as measured only when all of the following hold: the
+patch changed the file, the Surefire report was deleted before the run, a report exists
+afterwards, and its modification time is later than the moment the run began. Timeout, missing
+report, stale report and compilation failure are four distinct recorded outcomes, none of them
+a test result.
+
+**Reason.** The previous harness read whatever report was on disk. When a mutated run hung, no
+new report was written and the script recorded the *previous* mutation's numbers — which is
+how M2 came to carry M1's result, down to the same six failing test names. Three mutations were
+then reported in the tracking documents as evidence when two had never run and one had never
+been executed at all.
+
+This is worse than having no mutation testing. A mutation score is used to justify the claim
+that a guarantee is enforced rather than merely coded; a harness that manufactures agreement
+between runs produces confident, specific, false evidence. The unbounded loop in FIN-D-026 is
+exactly what this was supposed to catch, and the stale report is why it did not.
+
+**Also required.** The harness restores the source after every mutation including the timeout
+path, verifies the restoration against a checksum taken before the first patch, and refuses to
+continue if it does not match. A hang is cleaned up by killing only the JVMs that appeared
+after the run started, so an unrelated process on the machine is not taken down with it.
+
+**Consequence.** Mutation numbers in the tracking documents are only those a fresh report
+supports. Where a mutation could not be executed, it is recorded as not executed, with the
+reason — never omitted and never inferred from a neighbouring run.
