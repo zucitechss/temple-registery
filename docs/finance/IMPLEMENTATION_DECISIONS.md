@@ -582,3 +582,56 @@ and net is unknown with it).
 **Consequence.** A temple lacking the `CANCELLATION` capability is reported from
 `gross_amount` with its capability caveat attached — never by substituting gross for net. The
 aggregation layer (FIN-070) must handle this explicitly rather than summing NULLs into zero.
+
+---
+
+## FIN-D-021 — Staging is keyed on one source record per batch, and replay is a new batch
+
+**Date:** 2026-09-17 · **Affects:** `fin_stg_revenue.uk_fsr_batch_record`
+
+**Decision.** The staging grain is **one row per record a connector delivered within one sync
+batch** — one `RawRow`, exactly as `extract()` produced it — and uniqueness is
+`(sync_batch_id, source_record_ref)`. Staging never merges, splits or reinterprets what it
+was given.
+
+**Reason.** Three different units were candidates, and the choice decides what can be
+investigated later:
+
+- *One canonical candidate fact.* Collapsing to the daily grain at extraction would make
+  staging a second copy of `fin_revenue_fact` with none of its guarantees, and would destroy
+  the mapping from source records to the figure they produced — exactly the trace somebody
+  needs when a temple disputes a total.
+- *One source receipt.* Not available to us: connectors group at the source (ADR-003) so 22 M
+  rows never cross the wire. Requiring receipt grain would undo that decision.
+- *One delivered record.* What the connector actually produced, stored without
+  interpretation. Several staged rows may contribute to one canonical fact; that collapse
+  happens in normalization (FIN-055), where it is visible and testable.
+
+**Uniqueness follows from the grain.** A replay stages the same source records again under a
+*new* batch, which is legitimate and necessary — comparing two extractions of one window is
+how a restatement is explained. What the constraint forbids is the same record twice inside
+one batch, which is either a connector defect or a reference that does not identify what it
+claims to. Either way it silently double-counts downstream if it lands.
+
+This is safe only because `RawRow.sourceRecordRef` is mandatory and non-blank by contract
+(FIN-030), so no staged row can be missing its key. **Note the deliberate contrast with
+FIN-D-018:** in `fin_revenue_fact`, NULL-distinct index semantics had to be worked around with
+generated columns; here every key column is `NOT NULL`, so the plain constraint means exactly
+what it says. The same database behaviour is a hazard in one table and correct in the other,
+which is why each was decided rather than copied.
+
+**Rejected.** Uniqueness on `(source_system_id, source_record_ref)` without the batch. It
+sounds stronger and is wrong: it makes re-extraction impossible, so a corrected source record
+could never be staged and no restatement could ever be investigated.
+
+**Rejected.** No constraint, with duplicates detected in validation. The duplicate would then
+be a row somebody has to notice, and the first pipeline bug that skipped the check would
+double a temple's revenue with nothing in the way.
+
+**Consequence for FIN-053 and the writer.** A constraint violation while staging is a
+*batch-level defect*, not a row to drop: the writer must record it against `fin_sync_error`
+with stage `EXTRACT` and fail the batch, rather than catching it and continuing. A connector
+whose references are not unique within a batch has a bug that must surface.
+
+**Open.** Retention (Q7, 30–90 days proposed) is undecided, so no TTL, purge job or
+partitioning exists. Staging will grow without bound until it is answered.

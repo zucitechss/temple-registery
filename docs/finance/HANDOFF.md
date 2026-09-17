@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-16 (FIN-051, FIN-052)
+**Updated:** 2026-09-17 (FIN-050)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,17 +12,17 @@
 
 | Task | Status |
 |---|---|
-| FIN-051 — Canonical dimensions | **COMPLETE** (this session) |
-| FIN-052 — `fin_revenue_fact`, daily grain | **COMPLETE** (this session) |
+| FIN-050 — `fin_stg_revenue` staging | **COMPLETE** (this session) |
+| FIN-051 — Canonical dimensions | **COMPLETE** |
+| FIN-052 — `fin_revenue_fact`, daily grain | **COMPLETE** |
 | FIN-031 — Connector registry | **COMPLETE** |
 | FIN-030 — Connector contract | **COMPLETE** |
 | FIN-021…024 — Kollur configuration | **COMPLETE** |
 | FIN-016 — Registry / sync-worker split | **COMPLETE** |
 | FIN-010…015 — Finance foundation | **COMPLETE** |
 
-Both tasks are complete because the invariants they exist to create were observed holding
-against a real database — and, for the grain, observed failing when the constraint is written
-the way the design document specifies it.
+Each is complete because the invariants it exists to create were observed holding against a
+real database, and observed failing when the constraint that creates them is removed.
 
 ---
 
@@ -30,23 +30,135 @@ the way the design document specifies it.
 
 **What works.** The finance foundation (FIN-010…015), the registry / sync-worker runtime
 boundary (FIN-016), the generic connector contract (FIN-030), connector resolution (FIN-031),
-the complete Kollur configuration (FIN-021…024), and now the canonical revenue model
-(FIN-051, FIN-052).
+the complete Kollur configuration (FIN-021…024), the canonical revenue model (FIN-051,
+FIN-052), and now the staging table that feeds it (FIN-050).
 
-Both ends of the architecture now exist and neither knows anything about the other. The
-platform can say, for one real temple, what it can and cannot report and which source field
-is authoritative; and it has a generic place to put the answer, shaped so that every
-catalogued revenue report is answerable without touching a source system. What it cannot do
-is move data from one end to the other.
+**Both ends of the pipeline now exist**: raw records land in `fin_stg_revenue` exactly as a
+connector delivered them, finished figures live in `fin_revenue_fact` at daily grain, and both
+grains are enforced by the database rather than by the code that will write them. The middle —
+validation, mapping, normalization, load — is missing, and can now be built and tested against
+synthetic staging rows without a connector and without an answer to Q4.
 
-**What does not work yet.** No connector implementation, no staging table, no extraction, no
-validation, no mapping stage, no loader, no aggregation, no API. The dashboard is still the
-static HTML file. No row of temple financial data has been read, `fin_revenue_fact` is empty
-and has no writer, and no credential exists anywhere.
+**What does not work yet.** No connector implementation, no extraction, no validation, no
+mapping stage, no loader, no aggregation, no API. The dashboard is still the static HTML file.
+Both tables are empty and neither has a writer; no row of temple financial data has been read,
+and no credential exists anywhere.
 
 ---
 
-## FIN-051 / FIN-052 — Canonical Revenue Model (this session)
+## FIN-050 — Revenue Staging (this session)
+
+### Files
+
+| File | Change |
+|---|---|
+| `backend/src/main/resources/db/migration/V113__finance_revenue_staging.sql` | new — 1 table, 4 indexes |
+| `backend/src/main/java/com/templeregistry/entity/finance/FinStgRevenue.java` | new |
+| `backend/src/main/java/com/templeregistry/entity/finance/enums/StagingStatus.java` | new |
+| `backend/src/test/java/com/templeregistry/migration/FinanceRevenueStagingMigrationTest.java` | new — 20 tests |
+
+**Migration number:** `V113` — the repository's highest was `V112`. No existing table altered,
+`V112` untouched, no dependency added, no repository, service, reader or writer created.
+
+### Grain, and why not the alternatives
+
+**One row per record a connector delivered, within one sync batch** — one `RawRow`, exactly as
+`extract()` produced it (FIN-D-021). Staging never merges, splits or reinterprets.
+
+Two other grains were possible and both lose something:
+
+- *One canonical candidate fact* — collapsing to the daily grain during extraction would make
+  staging a worse copy of `fin_revenue_fact` and destroy the mapping from source records to
+  the figure they produced, which is the exact trace needed when a temple disputes a total.
+- *One source receipt* — not available: connectors group at the source (ADR-003) precisely so
+  22 M rows never cross the wire.
+
+Several staged rows may therefore contribute to one canonical daily fact. That collapse is
+FIN-055's, where it is visible and testable.
+
+### Columns and nullability
+
+| Column | Null | Purpose |
+|---|---|---|
+| `temple_id`, `source_system_id`, `sync_batch_id`, `source_record_ref` | NOT NULL | Provenance. A staged figure whose origin is unknown cannot be investigated, which is the only reason to keep it |
+| `raw_json` | NOT NULL | The record as delivered: connector field names, values as raw strings. Source vocabulary stops at this column |
+| `source_business_date` | NULL | Connector-declared, **advisory**. NULL means "not declared at extraction", never "no date"; normalization derives the authoritative date |
+| `validation_status` | NOT NULL, default `RECEIVED` | See lifecycle below |
+| `rejection_reason` | NULL | Human-readable; the coded, queryable form stays in `fin_sync_error` |
+| `extracted_at` / `created_at` / `updated_at` | NOT NULL | When the connector read it / when we stored it / when its state last changed. None is a business date |
+
+**No typed amount column, deliberately.** Amounts live inside `raw_json` as strings until
+normalization; a typed column would force parsing during extraction, and one malformed value
+would cost a batch of forty thousand good rows. A test asserts the table has no `DECIMAL`,
+`FLOAT`, `DOUBLE` or `REAL` column at all — exact decimal money is `fin_revenue_fact`'s job.
+
+### Idempotency
+
+`uk_fsr_batch_record (sync_batch_id, source_record_ref)`.
+
+A replay stages the same records again under a **new** batch — legitimate and necessary, since
+comparing two extractions of one window is how a restatement is explained. The same record
+twice inside **one** batch is refused: that is either a connector defect or a reference that
+does not identify what it claims to, and both silently double-count downstream.
+
+Safe because `RawRow.sourceRecordRef` is mandatory and non-blank by contract (FIN-030), so
+every key column is `NOT NULL`. Note the contrast with FIN-D-018: in `fin_revenue_fact` the
+NULL-distinct index semantics had to be worked around; here the plain constraint means exactly
+what it says. Same database behaviour, opposite consequence — each was decided, not copied.
+
+**Mutation-verified:** removing the constraint fails 2 tests.
+
+### Status lifecycle, and who owns each transition
+
+```
+RECEIVED --validation (FIN-053)--> VALID --load (FIN-056)--> LOADED
+RECEIVED --validation (FIN-053)--> REJECTED   (terminal, with a reason)
+```
+
+Monotonic: nothing returns to `RECEIVED`, and re-processing means a new batch rather than a
+state reset, so the record of what was rejected and why survives the retry. **FIN-050
+implements none of these transitions** — every row lands `RECEIVED` and stays there until
+FIN-053 exists. There is no `DUPLICATE` state: within a batch the constraint refuses one, and
+across batches it is a restatement.
+
+A rejected row is never deleted. It keeps its reason and its payload, and FIN-053 will add the
+coded `fin_sync_error` row that makes "rows_rejected = 143" explainable.
+
+### Tests
+
+`FinanceRevenueStagingMigrationTest` — **20**, real MySQL 8.0 container, real Flyway: migration
+applies; entity columns all exist; provenance cannot be omitted (five columns, each tried);
+two temples and two source systems isolated; one record traced across batches; duplicate in a
+batch refused; replay under a new batch allowed; many distinct records in one batch; default
+`RECEIVED` with the four documented states storable and the column comment documenting them;
+a rejected row keeping reason and payload; business date separate from extraction time by
+column and by type; an undeclared date staying NULL; an impossible source value (`0000-00-00`,
+an empty string, a paisa-exact decimal) surviving verbatim; no typed money; two purity scans;
+the four indexes; and V112's canonical grain still holding after V113.
+
+### Architectural review
+
+| Question | Answer |
+|---|---|
+| Generic across all temples? | **YES** |
+| Supports all four integration mechanisms? | **YES** — staging does not know how data was obtained |
+| Avoids Kollur-specific schema and source table names? | **YES** |
+| Preserves source provenance? | **YES**, and mandatory |
+| Business date separate from extraction/sync time? | **YES** |
+| Staging grain explicitly defined? | **YES** (FIN-D-021) |
+| Compatible with the canonical daily grain? | **YES** — many staged rows to one fact, collapsed in FIN-055 |
+| Duplicate and replay behaviour documented and enforced? | **YES**, mutation-verified |
+| Missing distinguishable from measured zero? | **YES** — payload verbatim, advisory date nullable, no defaults invented |
+| Monetary values exact? | **YES** — as strings here, as `DECIMAL` in the fact; no float anywhere |
+| Tenant and source isolation enforced? | **YES** |
+| Constraints enforced by the database? | **YES** |
+| Free of credentials and transport detail? | **YES** — scan covers password, credential, jdbc, host, port, endpoint, driver |
+| Future loaders consume it without per-temple schema changes? | **YES** |
+| Rejected records investigable? | **YES** — row, reason and payload all retained |
+| Anything outside FIN-050 scope? | **NO** — no transition implemented, no reader, no writer |
+| Pipeline testable with synthetic rows, no temple database? | **YES** |
+
+## FIN-051 / FIN-052 — Canonical Revenue Model (previous session)
 
 ### Files
 
@@ -342,11 +454,12 @@ in production.
 
 | Command | Result |
 |---|---|
+| `mvn -o test -Dtest=FinanceRevenueStagingMigrationTest` | **20/20 pass** (FIN-050) |
 | `mvn -o test -Dtest=FinanceCanonicalRevenueMigrationTest` | **19/19 pass** (FIN-051/052) |
 | `mvn -o test -Dtest=ConnectorRegistryTest` | **13/13 pass** (FIN-031, no Docker needed) |
 | `mvn -o test -Dtest=KollurFinanceConfigurationMigrationTest` | **27/27 pass** |
-| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'` | **135/135 pass** |
-| `mvn -o test` (full suite) | **990 run · 0 failures · 18 errors** |
+| `mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'` | **155/155 pass** |
+| `mvn -o test` (full suite) | **1010 run · 0 failures · 18 errors** |
 
 What is asserted, beyond row counts: the conditional guard (zero rows *before* the temple is
 created), `sync_enabled = 0`, that **every persisted value** in `fin_source_system` contains
@@ -361,8 +474,8 @@ by re-applying the whole seed.
 ## Failures
 
 **New: none.** Pre-existing: **18**, unchanged in count, cause and location across the entire
-branch (866 → 888 → 898 → 931 → 958 → 971 → 990 tests, always the same 18 errors in the
-same 4 report files).
+branch (866 → 888 → 898 → 931 → 958 → 971 → 990 → 1010 tests, always the same 18 errors in
+the same 4 report files).
 
 - **FIN-X-001** — `Schema-validation: missing column [field_names_json] in table
   [declaration_clarifications]`. Mapped by the entity, created by no migration, present in
@@ -401,6 +514,11 @@ same 4 report files).
 - **FIN-D-020** — `net_amount` is computed by the database and is NULL when cancellations are
   unknown. Rejected computing it in the loader (every future stage would have to reproduce the
   same arithmetic) and defaulting net to gross (which asserts that nothing was cancelled).
+- **FIN-D-021** — staging is keyed on one source record per batch, and replay is a new batch.
+  Rejected uniqueness on `(source_system_id, source_record_ref)` without the batch, which
+  sounds stronger and would make re-extraction — and therefore every restatement
+  investigation — impossible; and rejected no constraint at all, where the first pipeline bug
+  that skipped the check would double a temple's revenue with nothing in the way.
 
 ---
 
@@ -439,11 +557,23 @@ same 4 report files).
    stored generated columns and indexes over them, and no other syntax in V112 is unusual,
    but the deployment target has not run this migration. Worth confirming on the first
    deployment rather than assuming.
-10. **No `fin_cancellation` detail table yet.** The fact carries `cancelled_count` and
+10. **Staging retention is unresolved** (Q7, 30–90 days proposed). `fin_stg_revenue` has no
+   TTL, purge job or partitioning, so it grows without bound — at the first temple's volumes,
+   fast. Deleting financial provenance on a schedule nobody has agreed is not a default worth
+   choosing quietly, so it waits for an answer.
+11. **`fin_stg_revenue` has no writer and no reader.** The table, its grain and its constraint
+   exist; the extraction path that fills it and the validation that drains it are FIN-043 and
+   FIN-053. A constraint violation while staging must fail the batch with a `fin_sync_error`
+   at stage `EXTRACT`, not be caught and skipped.
+12. **`source_business_date` is advisory and currently never populated.** Nothing writes it
+   yet, and normalization must derive the authoritative date from `raw_json` regardless. If a
+   future reader ever treats this column as authoritative, the advisory comment in V113 is the
+   only thing standing in the way.
+13. **No `fin_cancellation` detail table yet.** The fact carries `cancelled_count` and
    `cancelled_amount`, which satisfies every catalogued cancellation report;
    `FINANCE_DATA_MODEL.md` §6.2 also specifies a full-detail table (465 rows across the first
    temple's entire history) that no task in the plan currently owns.
-11. **The registry is built once at worker startup.** A connector bean added at runtime would
+14. **The registry is built once at worker startup.** A connector bean added at runtime would
    not appear, which is correct for an artifact whose connectors are compiled in, and worth
    knowing before anyone attempts dynamic connector loading.
 
@@ -479,7 +609,7 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
    `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*'`
-   — expect **135 passing, 0 failures**. (Requires Docker for the migration test.)
+   — expect **155 passing, 0 failures**. (Requires Docker for the migration test.)
 4. Implement one task. Do not implement a connector, and do not implement Kollur-specific
    anything outside a connector.
 5. Anything that can reach a source system is registered in `SyncWorkerConfig` as a `@Bean`,
@@ -492,25 +622,33 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-050**: `fin_stg_revenue`, the immutable staging table and its entity.
+Implement **FIN-053**: the validation stage — read `RECEIVED` rows for a batch, decide
+`VALID` or `REJECTED`, and record every rejection in `fin_sync_error`.
 
-It is the other end of the same pipeline and needs neither Q4 nor a connector. The task list
-records it as depending on FIN-043 (revenue extraction), but that dependency was written when
-staging was imagined alongside a working extract; the table itself depends on nothing but the
-foundation. Once both ends exist, the stages between them (FIN-053 validation, FIN-054
-mapping, FIN-055 normalization, FIN-056 load) can be built and tested end to end with
-fabricated staging rows, which is the only way any of it can be tested until the network
-question is answered.
+It is next because it is the first stage that can now run end to end: both ends of the
+pipeline exist, so validation can be written and tested entirely against synthetic staging
+rows, with no connector, no credential and no answer to Q4. It is also the first *behaviour*
+in this phase rather than a table — the four preceding sessions built structure, and this is
+where the rules become code.
 
-Shape it per `FINANCE_DATA_MODEL.md` §4: `raw_json` rather than typed columns, so a source
-schema change lands in staging and is caught by validation instead of breaking extraction,
-with `validation_status` and `rejection_reason` so a rejected row is visible rather than
-missing. Rejections belong in `fin_sync_error` (FIN-053), and a batch that rejects rows must
-not be able to look like a batch that loaded them.
+What it owns, and what must not slip:
 
-Then **FIN-056** is the piece that matters most for correctness: the loader writing through
-`uk_frf_grain` with `INSERT … ON DUPLICATE KEY UPDATE`, replacing a restated day rather than
-adding to it. The shape is demonstrated in `should_convergeOnOneRow_when_upsertRepeated`.
+- **A rejected row is recorded, never dropped.** `fin_sync_batch.rows_rejected = 143` has to be
+  explainable down to the individual row, which is what `fin_sync_error` (stage `VALIDATE`,
+  a coded `error_code`, the payload) is for. The staged row keeps its `rejection_reason` and
+  its payload too; the two are complementary, not duplicates.
+- **A batch with rejections must not look like a clean batch.** Counts belong on the batch, and
+  reconciliation later depends on them being honest.
+- **Validation decides structural usability only** — a date that parses, an amount that is a
+  number, a required field present. Whether the figure is *right* is reconciliation's question
+  (FIN-060), and whether its category is known is mapping's (FIN-054). Keep those out.
+- Transitions are monotonic and `REJECTED` is terminal; re-processing means a new batch.
+
+After that, **FIN-054** (mapping, with unmapped values routed to the seeded `UNMAPPED`
+category), **FIN-055** (normalization to daily grain, which owns the `financial_year`
+computation — early April must land in the new year) and **FIN-056** (the load writing through
+`uk_frf_grain` with `INSERT … ON DUPLICATE KEY UPDATE`; the shape is demonstrated in
+`should_convergeOnOneRow_when_upsertRepeated`).
 
 Alternative if a smaller task is wanted: **FIN-032** — probe and capability declaration
 wiring into onboarding. It can only be exercised against fake connectors until FIN-040.

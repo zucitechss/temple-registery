@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-16 (FIN-051, FIN-052)
+**Updated:** 2026-09-17 (FIN-050)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -9,15 +9,15 @@
 ## Current Phase
 
 **Phase 5 — Revenue Pipeline · IN_PROGRESS.** Phases 0–2 are complete, Phase 3 is complete
-apart from onboarding wiring (FIN-032), and the canonical revenue model now exists:
-`fin_revenue_category`, `fin_service_dim` and `fin_revenue_fact` at daily grain, with the
-grain enforced by the database. The reporting boundary is therefore in place — every
-catalogued revenue report can be answered from these three tables without any access to a
-temple source system.
+apart from onboarding wiring (FIN-032), and **both ends of the pipeline now exist**: raw
+records land in `fin_stg_revenue` (FIN-050) and finished figures live in `fin_revenue_fact`
+at daily grain (FIN-052), with dimensions to classify them (FIN-051). Both grains are
+enforced by the database.
 
-What remains between here and a real figure is the pipeline that fills them: staging,
-validation, mapping, normalization and the idempotent load (FIN-050, FIN-053…FIN-056), and a
-connector to produce rows at all.
+What remains is the middle: validation (FIN-053), mapping (FIN-054), normalization (FIN-055)
+and the idempotent load (FIN-056). All four can now be built and tested against synthetic
+staging rows, without a connector and without an answer to Q4 — which is the point of having
+built the ends first.
 
 ---
 
@@ -30,9 +30,9 @@ connector to produce rows at all.
 | Source Configuration | **COMPLETE** | 100 | FIN-021..024 seeded; FIN-020 abstraction delivered, Q5 decides only the permanent store |
 | Connector Framework | IN_PROGRESS | 70 | FIN-030 contract and FIN-031 registry COMPLETE; FIN-032 outstanding |
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
-| Staging | NOT_STARTED | 0 | |
+| Staging | **COMPLETE** | 100 | FIN-050 — `fin_stg_revenue`; other capabilities get their own staging tables with their phases |
 | Canonical Finance Data | **COMPLETE** | 100 | FIN-051, FIN-052 — revenue dimensions and the daily-grain fact; other canonical facts arrive with their phases |
-| Revenue Pipeline | IN_PROGRESS | 35 | Canonical target exists; staging, validation, mapping, normalization and load outstanding |
+| Revenue Pipeline | IN_PROGRESS | 50 | Both ends exist; validation, mapping, normalization and load outstanding |
 | Reconciliation | NOT_STARTED | 0 | Tables exist; service does not |
 | Aggregation | NOT_STARTED | 0 | |
 | Finance APIs | NOT_STARTED | 0 | Contract written, no code |
@@ -243,7 +243,7 @@ missing-connector throw with `return null` failed 4 registry tests, including th
 
 ---
 
-## Phase 5 — Canonical Revenue Model · IN_PROGRESS · 35%
+## Phase 5 — Revenue Pipeline · IN_PROGRESS · 50%
 
 **Completed.** FIN-051 and FIN-052 — `V112__finance_canonical_revenue.sql`, three tables,
 three entities, two enums. This is the reporting boundary: from here upwards, every revenue
@@ -279,12 +279,34 @@ the central platform at all.
    database (FIN-D-020) and is NULL in the third case, because reporting gross as net would
    assert that nothing was cancelled.
 
-**Remaining.** FIN-050 (staging), FIN-053 (validation), FIN-054 (mapping), FIN-055
-(normalization), FIN-056 (the idempotent load that writes through `uk_frf_grain`). The
-canonical tables have no writer yet, and no row of temple financial data exists in them.
+**FIN-050 — the landing table.** `V113__finance_revenue_staging.sql` creates
+`fin_stg_revenue`, where everything a connector extracts arrives before it is trusted.
 
-**Blockers.** None for the pipeline stages. FIN-050 is written against `FIN-043` in the task
-list because staging was scoped around a working extract; it can be built ahead of one.
+Its grain is **one row per record a connector delivered within one sync batch** — one
+`RawRow`, stored exactly as `extract()` produced it, never merged, split or reinterpreted
+(FIN-D-021). Several staged rows may contribute to one canonical daily fact; that collapse
+belongs to normalization, where it is visible and testable, rather than to extraction, where
+it would destroy the trace from a published figure back to what the source actually said.
+
+The payload stays loose — `raw_json`, connector field names, values as strings — because real
+sources contain impossible dates, nulls where the schema promises otherwise and text in
+numeric columns. Typed staging columns would turn each of those into an extraction failure and
+lose a batch of forty thousand good rows over one bad one. There is deliberately no amount
+column here at all; exact decimals are the canonical table's job.
+
+Idempotency is `uk_fsr_batch_record (sync_batch_id, source_record_ref)`: a replay stages the
+same records again under a *new* batch, which is how a restatement gets investigated, while
+the same record twice inside one batch is refused. This needs no NULL workaround, unlike
+FIN-D-018 — `RawRow.sourceRecordRef` is mandatory by contract, so every key column is
+`NOT NULL` and the plain constraint means what it says.
+
+**Remaining.** FIN-053 (validation), FIN-054 (mapping), FIN-055 (normalization), FIN-056 (the
+idempotent load that writes through `uk_frf_grain`). Neither canonical nor staging tables have
+a writer yet, and no row of temple financial data exists in either.
+
+**Blockers.** None. With both ends of the pipeline built, the four remaining stages can be
+developed and tested against synthetic staging rows — no connector, no credential, and no
+answer to Q4 required.
 
 **Tests.** `FinanceCanonicalRevenueMigrationTest` — 19 tests against a real MySQL 8.0
 container with real Flyway, asserting database behaviour rather than DDL text: grain rejection
@@ -295,17 +317,28 @@ One further test compares every `@Column` on the three entities against
 `information_schema` — the defect class behind FIN-X-001, which this project otherwise has no
 working check for.
 
-**Decisions.** FIN-D-018 … FIN-D-020.
+`FinanceRevenueStagingMigrationTest` — 20 tests, same harness: mandatory provenance, the
+duplicate-within-a-batch refusal and the replay-under-a-new-batch allowance, multi-temple and
+multi-source isolation, tracing one record across batches, the four documented states with
+their default, a rejected row keeping both reason and payload, business date separate from
+extraction time, an undeclared date staying NULL, an impossible source value surviving
+verbatim, no typed money column, two purity scans, the index set, and a regression check that
+V112's canonical grain still holds after V113.
+
+Both constraints were verified by mutation: removing `uk_frf_grain`'s generated columns fails
+4 tests, and removing `uk_fsr_batch_record` fails 2.
+
+**Decisions.** FIN-D-018 … FIN-D-021.
 
 ---
 
 ## Remaining Phases · NOT_STARTED
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
-FIN-050 (`fin_stg_revenue`, the immutable raw landing table) is unblocked and recommended
-next: it is the other end of the pipeline, needs neither Q4 nor a connector, and once both
-ends exist the stages between them (FIN-053…FIN-056) can be built and tested with fabricated
-staging rows rather than waiting on a temple.
+FIN-053 (validation, with rejections recorded in `fin_sync_error`) is recommended next: it is
+the first stage that can now run end to end against synthetic staging rows, and it is where
+the rule that a rejected row is recorded rather than dropped becomes code rather than
+intention.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
 Kollur database, and the connector cannot be tested without one. This is exactly the

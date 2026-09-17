@@ -1,6 +1,6 @@
 # Finance Implementation Tasks
 
-**Updated:** 2026-09-16
+**Updated:** 2026-09-17 (FIN-050)
 **Branch:** `feature/db-integration`
 
 Statuses: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `COMPLETE` · `NEEDS_REVIEW`
@@ -211,7 +211,7 @@ including the Kollur one.
 
 | ID | Description | Status | Depends on |
 |---|---|---|---|
-| FIN-050 | `fin_stg_revenue` staging table and entity | NOT_STARTED | FIN-043 |
+| FIN-050 | `fin_stg_revenue` staging table and entity | **COMPLETE** | FIN-011 (dependency on FIN-043 was not real: the table needs no extract) |
 | FIN-051 | Dimensions: `fin_revenue_category`, `fin_service_dim` | **COMPLETE** | FIN-011 |
 | FIN-052 | `fin_revenue_fact` (daily grain) | **COMPLETE** | FIN-051 |
 | FIN-053 | Validation stage, rejections to `fin_sync_error` | NOT_STARTED | FIN-050 |
@@ -220,6 +220,61 @@ including the Kollur one.
 | FIN-056 | Idempotent load keyed on the grain unique constraint | NOT_STARTED | FIN-052, FIN-055 |
 
 
+
+**FIN-050 delivered** — `V113__finance_revenue_staging.sql`: one table, one entity, one enum.
+No connector, no transport, no reader, no service, no repository.
+
+**The dependency on FIN-043 in the table above was not real.** It was written when staging was
+imagined alongside a working extract; the table needs only the foundation, and building it now
+is what lets FIN-053…FIN-056 be developed and tested against synthetic staging rows instead of
+waiting on the Q4 network answer.
+
+**Grain: one row per record a connector delivered, within one sync batch** — one `RawRow`,
+exactly as `extract()` produced it, never merged, split or reinterpreted (FIN-D-021).
+Connectors group at the source (ADR-003), so a delivered record is usually already a
+source-level grouping; staging does not assume that. Several staged rows may contribute to one
+canonical daily fact, and that collapse belongs to FIN-055.
+
+**Idempotency: `uk_fsr_batch_record (sync_batch_id, source_record_ref)`.** A replay stages the
+same records again under a new batch — legitimate, and how a restatement is investigated. The
+same record twice inside one batch is refused. Safe because `RawRow.sourceRecordRef` is
+mandatory and non-blank by contract, so unlike `fin_revenue_fact` no NULL-key workaround is
+needed; the same NULL-distinct index behaviour is a hazard there (FIN-D-018) and correct here.
+
+| Column | Null | Why |
+|---|---|---|
+| `temple_id`, `source_system_id`, `sync_batch_id`, `source_record_ref` | NOT NULL | A staged figure whose origin is unknown cannot be investigated, which is the only reason to keep it |
+| `raw_json` | NOT NULL | The record as delivered: connector field names, values as raw strings. Source vocabulary stops here |
+| `source_business_date` | NULL | Connector-declared and **advisory**; NULL means "not declared at extraction", never "no date". Normalization derives the authoritative date |
+| `validation_status` | NOT NULL, default `RECEIVED` | `RECEIVED` → `VALID`/`REJECTED` (FIN-053) → `LOADED` (FIN-056); monotonic, `REJECTED` terminal |
+| `rejection_reason` | NULL | Human-readable; the coded, queryable form stays in `fin_sync_error` |
+| `extracted_at`, `created_at`, `updated_at` | NOT NULL | Three different questions: when the connector read it, when we stored it, when its state last changed. None is a business date |
+
+**No typed amount column, deliberately.** Amounts stay inside `raw_json` as strings until
+normalization. A typed column would force parsing during extraction, and one malformed value
+would cost the whole batch — which is precisely what staging exists to prevent. A test asserts
+no `DECIMAL`, `FLOAT`, `DOUBLE` or `REAL` column exists in the table.
+
+**Evaluated and deliberately omitted:** `source_modified_at` (the batch already carries the
+change window, and a per-row value would require interpreting the payload), a row hash, a
+`DUPLICATE` status (the constraint refuses one, and across batches it is a restatement, not a
+duplicate), a `loaded_fact_id` back-link (FIN-056's to add if it wants one; a nullable column
+later is a trivial migration), and any `CHECK` on the status vocabulary (TiDB accepted but
+ignored `CHECK` before v7.2, so it would be enforcement that silently is not).
+
+| Review question | Answer | Evidence |
+|---|---|---|
+| Generic across temples, and all four mechanisms? | YES | no transport or temple column exists; `should_stayGeneric_when_migrationScanned` |
+| Kollur schema or source table names? | NO | same scan, plus `should_containNoSourceColumns_when_schemaInspected` |
+| Provenance preserved and mandatory? | YES | `should_requireProvenance_when_rowStaged` |
+| Business date separate from extraction time? | YES | `should_separateBusinessDateFromExtraction_when_oldRecordIsReExtracted` |
+| Grain explicit, and compatible with daily facts? | YES | FIN-D-021; many staged rows → one fact via FIN-055 |
+| Duplicate and replay documented and enforced? | YES | `uk_fsr_batch_record`, mutation-verified |
+| Missing distinguishable from measured zero? | YES | nullable advisory date, payload preserved verbatim including empty values |
+| Credentials or transport detail? | NO | scan covers password, credential, jdbc, host, port, endpoint, driver |
+| Rejected records investigable? | YES | row retained with reason and payload; `should_retainRejection_when_rowFailsValidation` |
+| Anything outside FIN-050 scope? | NO | no status transition is implemented; every row lands `RECEIVED` |
+| Pipeline testable with synthetic rows, no temple database? | YES | the 20 tests do exactly that |
 **FIN-051 / FIN-052 delivered** — `V112__finance_canonical_revenue.sql`: two dimensions, one
 fact, twelve seeded category rows, three entities, two enums. No connector, no staging, no
 transport, no service, no repository.
