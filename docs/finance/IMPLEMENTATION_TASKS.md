@@ -597,7 +597,7 @@ The test found it; reasoning had not.
 
 | ID | Description | Status | Depends on |
 |---|---|---|---|
-| FIN-060 | Reconciliation service: completeness, consistency, and honest deletion handling | **IN PROGRESS** | FIN-056, FIN-057 |
+| FIN-060 | Reconciliation service: completeness, consistency, and honest deletion handling | **COMPLETE** | FIN-056, FIN-057 |
 | FIN-061 | Publication gate — a FAILED result blocks aggregate publication | NOT_STARTED | FIN-060 |
 
 ### FIN-060 — Pre-implementation investigation
@@ -677,6 +677,26 @@ history of a period needs.
 
 No publication gate (FIN-061), no aggregation, no API, no scheduler, no alerting, no canonical
 deletion or restatement of any kind, and no connector implementation.
+
+### Delivered
+
+`RevenueReconciliationStage` + `ReconciliationCheckType` + `V116`, wired as the orchestrator's
+last stage and registered as one explicit `@Bean` (FIN-D-008). No new table and no new lifecycle
+enum: `fin_reconciliation_result`, `ReconciliationStatus`, `SyncStatus.RECONCILE_FAILED` and
+`SyncStage.RECONCILE` all existed and were all unused.
+
+All four planned checks are implemented. Two are authoritative today; two record `NOT_AVAILABLE`
+until a connector implements `sourceTotals()`, which is the honest answer rather than a gap.
+
+Verified by `RevenueReconciliationStageTest`, 26 tests on MySQL 8.0, and eight mutations all KILLED
+with fresh evidence (FIN-D-027). Finance regression 370 green; full suite 1,200 with 0 failures and
+the 18 pre-existing FIN-X-001 errors. TiDB untested. Decisions FIN-D-050…055.
+
+Three things the plan did not anticipate, all found by tests: a row rejected at normalization keeps
+its `VALID` status and would otherwise have counted as lost (FIN-D-055); `uk_frf_grain` does not
+include `source_system_id`, so two sources writing one grain overwrite each other (limitation 47);
+and making `check_type` non-null broke two pre-existing H2 tests, which is recorded in HANDOFF.md
+rather than hidden -- along with the fact that the constraint had no test until this task added one.
 
 ---
 

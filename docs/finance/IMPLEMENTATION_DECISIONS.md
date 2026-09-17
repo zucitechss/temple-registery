@@ -1361,3 +1361,159 @@ this one only partly processed, which is the one watermark error that silently l
 **Boundary recorded.** Watermark advancement is FIN-043's, and must happen only from data the
 connector actually observed. Until then, incremental resumption is not available and every batch
 must be given its window explicitly.
+
+---
+
+## FIN-D-050 — Reconciliation records what it compared, because the checks are not equal evidence
+
+**Date:** 2026-09-17 · **Affects:** `fin_reconciliation_result.check_type`, `ReconciliationCheckType`, `V116`
+
+**Decision.** Every reconciliation row carries a `check_type`. Two values name checks that compare
+this platform's numbers against each other (`STAGE_COMPLETENESS`, `REJECTION_ACCOUNTING`); two name
+checks that compare against a figure the source system produced (`SOURCE_VS_CENTRAL`,
+`SUSPECTED_SOURCE_DELETION`).
+
+**Why the column had to exist.** `fin_reconciliation_result` was shaped for one kind of check, and
+that kind cannot run today — no production connector implements `sourceTotals()`. The checks that
+*can* run are entirely local. A table that could not tell them apart would let a screen full of
+green rows be read as "the figures agree with the temple". Nobody has asked the temple.
+
+**What `source_total` means now.** For `SOURCE_VS_CENTRAL` it is still the source's own figure. For
+a local check it is the upstream side of the comparison and `central_total` the downstream side —
+rows staged against rows accounted for, for instance. The column comments were changed to say so,
+because silently redefining a column is how an audit trail stops being one.
+
+---
+
+## FIN-D-051 — A reconciliation result is idempotent per batch and append-only per period
+
+**Date:** 2026-09-17 · **Affects:** `uk_frr_batch_check`, `FinReconciliationResultRepository.record`
+
+**Decision.** `UNIQUE (sync_batch_id, capability, check_type, metric, period_type, period_key)`,
+written through `INSERT … ON DUPLICATE KEY UPDATE` with assignment, never accumulation.
+
+**The nullable column inside the unique key is deliberate.** NULL never matches NULL in a MySQL
+unique index — the behaviour FIN-D-018 had to engineer generated columns to defeat. Here it is
+exactly what is wanted, and it is used rather than worked around:
+
+- a batch-scoped result (`sync_batch_id` present) **replaces** its own previous answer, so
+  re-running reconciliation cannot leave two contradictory rows about one question;
+- a scheduled re-verification of a period (`sync_batch_id` null) **appends**, which is what an
+  append-only history of a period's figures requires.
+
+One constraint, two behaviours, no generated column. `created_at` is excluded from the update
+list, so the first time a question was asked survives every re-check of it.
+
+---
+
+## FIN-D-052 — A shortfall is a suspicion, never a deletion, and never an action
+
+**Date:** 2026-09-17 · **Affects:** `RevenueReconciliationStage`, FIN-D-044
+
+**Decision.** When a source reports fewer records for a **closed** period than this platform holds,
+a `SUSPECTED_SOURCE_DELETION` row is written with status `FAILED` and a reason that names the
+alternatives. Nothing is deleted, nothing is overwritten, and no record is marked deleted. A test
+asserts the canonical facts are byte-for-byte unchanged afterwards.
+
+**Why it cannot be a conclusion.** A partial source response, a network failure, a source filter
+error, a source-side correction, and this platform having over-counted all produce the identical
+observation. The connector contract offers no deletion signal and no record-level snapshot — only
+`sourceTotals()`, which returns totals. Totals can raise a question; they cannot answer it.
+
+**Why an open period does not even raise the question.** For a year that has not ended, records may
+still arrive, so a shortfall is not evidence in either direction. That case records
+`NOT_AVAILABLE` rather than a pass, because a clean result there would be a different lie.
+
+**What acting on it would require.** A restatement policy, a human decision, and a record of both.
+None exists, and inventing one inside a reconciler — the component whose own checks would then
+pass — is the wrong place for it under any policy.
+
+---
+
+## FIN-D-053 — A canonical row count is not a fact count
+
+**Date:** 2026-09-17 · **Affects:** `FinRevenueFactRepository.sumTransactionCountForSourceAndFinancialYear`
+
+**Decision.** The canonical side of a record-count comparison is `SUM(transaction_count)`, and it
+is reported as `NOT_AVAILABLE` if **any** contributing fact has a null transaction count.
+
+**Why not `COUNT(*)`.** A canonical fact is a daily grain (ADR-003); several thousand receipts
+collapse into one row. Counting rows and comparing that against a source's record count would
+compare two different things and disagree by design, every time.
+
+**Why any unknown makes the whole year unavailable.** `REVENUE_TRANSACTION_COUNT` is an optional
+declaration. Where it is undeclared the count is null, and summing gives a floor. A floor compared
+against a source count manufactures a shortfall that looks exactly like a deletion — turning a
+missing declaration into a false accusation against a temple. That is the "convert missing data to
+zero" failure in a costume (ADR-007).
+
+**Consequence, stated.** Until a source declares `REVENUE_TRANSACTION_COUNT`, record-count
+reconciliation and deletion detection are both unavailable for it, whatever the connector reports.
+
+---
+
+## FIN-D-054 — `RECONCILE_FAILED` is a distinct outcome, and `NOT_AVAILABLE` blocks nothing
+
+**Date:** 2026-09-17 · **Affects:** `FinancePipelineOrchestrator`, `SyncStatus`
+
+**Decision.** Reconciliation runs as the last stage of a pipeline run. A check that found a real
+disagreement ends the batch `RECONCILE_FAILED`; otherwise `SUCCESS`. A stage that *threw* still
+ends the batch `FAILED`. No new status was added — `SyncStatus.RECONCILE_FAILED` and
+`SyncStage.RECONCILE` have existed unused since V110.
+
+**Why not `FAILED`.** The rows are loaded and inspectable. What is in doubt is whether they are the
+source's, not whether they were processed. `FAILED` puts a batch on the retry path, where
+re-extracting would reach the same figures and the same disagreement, forever.
+
+**Why `NOT_AVAILABLE` does not block.** A check that could not be made is not a reason to withhold
+figures that loaded correctly; it is a reason not to claim they were verified, which the recorded
+status already does. Treating the two the same would publish nothing at all until a connector
+implements `sourceTotals()` — and the status column would stop carrying the distinction that makes
+it worth recording.
+
+**Boundary.** The orchestrator records the outcome. *Acting* on it — withholding aggregates — is
+FIN-061's, and nothing here publishes anything.
+
+---
+
+## FIN-D-055 — The reconciler reads everything and writes one table
+
+**Date:** 2026-09-17 · **Affects:** `RevenueReconciliationStage`
+
+**Decision.** `RevenueReconciliationStage` writes only `fin_reconciliation_result`. It does not
+touch `fin_revenue_fact`, `fin_stg_revenue`, `fin_sync_error` or the batch counters, and it is not
+`@Transactional` — each finding is persisted in its own `REQUIRES_NEW` transaction.
+
+**Reason.** A reconciler that could repair what it found could make its own checks pass, and the
+difference between "the figures were right" and "the reconciler adjusted them until they were"
+would exist nowhere in the record. Reading widely and writing narrowly is what makes its output
+evidence.
+
+**On completeness counting.** A row rejected by *normalization* keeps its `VALID` staging status
+(FIN-D-038), so `STAGE_COMPLETENESS` counts `LOADED` + `REJECTED` + rows with a `NORMALIZE` error
+as accounted for. Counting only the two terminal statuses would report every unparseable amount as
+an unexplained loss and fail almost every real batch.
+
+---
+
+## FIN-D-056 — A constraint the design depends on gets a test, not just a column definition
+
+**Date:** 2026-09-17 · **Affects:** `fin_reconciliation_result.check_type`, `FinanceFoundationRepositoryTest`
+
+**Decision.** `check_type` is `NOT NULL` with no entity-level default, and
+`should_refuseResult_when_checkTypeIsMissing` asserts that a result without one is refused.
+
+**Why a default was rejected.** Making the entity supply a default check type would have fixed the
+two failing tests in one line and made the column non-null in name only — every caller that forgot
+to say what it compared would have silently recorded `SOURCE_VS_CENTRAL`, which is the most
+consequential value to get wrong. The whole point of FIN-D-050 is that the two kinds of check are
+not interchangeable evidence.
+
+**Why the test exists.** Until it was written the constraint was enforced by the database and
+asserted by nothing. A later change adding a "convenience" default would have removed a
+load-bearing guarantee with a green suite.
+
+**How it was found.** By breaking it. Two pre-existing tests built a result without a check type
+and failed on **H2** — `FinanceFoundationRepositoryTest` is one of the few finance tests not on
+Testcontainers, and the MySQL-based FIN-060 tests could not have caught it because every result
+they write has a check type. Two engines in one suite is why this surfaced before a commit.

@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-17 (FIN-057)
+**Updated:** 2026-09-17 (FIN-060)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,6 +12,7 @@
 
 | Task | Status |
 |---|---|
+| FIN-060 — Reconciliation (completeness now; source agreement when a connector exists) | **COMPLETE** |
 | FIN-057 — Pipeline orchestrator (and the extraction stage nobody owned) | **COMPLETE** |
 | FIN-056 — Idempotent load | **COMPLETE** |
 | FIN-055 — Revenue normalization | **COMPLETE** |
@@ -44,22 +45,234 @@ mutation table as evidence only if the run that produced it can be shown to have
 boundary (FIN-016), the generic connector contract (FIN-030), connector resolution (FIN-031),
 the complete Kollur configuration (FIN-021…024), the canonical revenue model (FIN-051,
 FIN-052), the staging table that feeds it (FIN-050), and now every stage between them:
-extraction (FIN-057), validation (FIN-053), mapping (FIN-054), normalization (FIN-055) and the
-load (FIN-056) — with an orchestrator (FIN-057) that runs one `fin_sync_batch` through all of
-them and leaves it `SUCCESS` or `FAILED`, never `RUNNING`.
+extraction (FIN-057), validation (FIN-053), mapping (FIN-054), normalization (FIN-055), the load
+(FIN-056) and reconciliation (FIN-060) — with an orchestrator (FIN-057) that runs one
+`fin_sync_batch` through all of them and leaves it `SUCCESS`, `RECONCILE_FAILED` or `FAILED`,
+never `RUNNING`.
 
 The pipeline is end to end. A connector's rows land in staging without being interpreted; a
 staged record is judged and its rejection explained row by row; a validated record has its
 source values translated from configuration alone; the translation becomes a dated, canonical
 figure; and the figure is written to `fin_revenue_fact` through a grain constraint that makes a
-replay converge rather than double.
+replay converge rather than double. The batch is then checked for completeness, with every
+answer -- including the ones that could not be given -- recorded in `fin_reconciliation_result`.
 
 **What does not work yet.** No connector implementation — `RevenueExtractionStage` drains
 whatever connector a source names, but the only one that exists is a synthetic test fixture, so
 **no row of real temple financial data has ever been read** and `fin_revenue_fact` is empty
-outside tests. No credential exists anywhere. Beyond that: no reconciliation (FIN-060), no
-aggregation (FIN-070/071), no API, no scheduler, no retry driver, and no watermark advancement
-(FIN-D-049). The dashboard is still the static HTML file.
+outside tests. No credential exists anywhere -- and because reconciliation against a source needs
+a connector too, the one check that could catch a wrong extraction is `NOT_AVAILABLE` everywhere
+(limitation 44). Beyond that: no publication gate (FIN-061), no aggregation (FIN-070/071), no API,
+no scheduler, no retry driver, and no watermark advancement (FIN-D-049). The dashboard is still
+the static HTML file.
+
+---
+
+## FIN-060 — Reconciliation
+
+### Files
+
+| File | Change |
+|---|---|
+| `service/finance/pipeline/RevenueReconciliationStage.java` | new — four checks, one writer, no repairs |
+| `entity/finance/enums/ReconciliationCheckType.java` | new — what a result compared, and how much it is worth |
+| `db/migration/V116__finance_reconciliation_checks.sql` | `check_type`, `uk_frr_batch_check`, corrected column comments |
+| `entity/finance/FinReconciliationResult.java` | `checkType`, the unique constraint |
+| `repository/finance/FinReconciliationResultRepository.java` | idempotent `record()` upsert, scoped lookups |
+| `repository/finance/FinRevenueFactRepository.java` | four source-scoped reconciliation queries |
+| `service/finance/pipeline/FinancialYear.java` | `startOf`, `endOf`, `isClosed` — the year boundary stays in one place |
+| `service/finance/pipeline/FinancePipelineOrchestrator.java` | `RECONCILE` as the last stage; `RECONCILE_FAILED` as an outcome |
+| `service/finance/sync/SyncWorkerConfig.java` | one explicit `@Bean` (FIN-D-008) |
+| `test/.../RevenueReconciliationStageTest.java` | new — 26 tests |
+
+**No new table.** `fin_reconciliation_result` has existed since V110 and nothing ever wrote to it.
+**No new status enum.** `ReconciliationStatus`, `SyncStatus.RECONCILE_FAILED` and
+`SyncStage.RECONCILE` all existed and were all unused.
+
+### The boundary, stated before the checks
+
+| Question | Answer |
+|---|---|
+| **Extraction completeness** — did the connector get every source record? | **Only the source can say**, through `sourceTotals()`. No production connector implements it, so today: `NOT_AVAILABLE` |
+| **Processing completeness** — did every extracted row reach a terminal state? | **Yes, authoritatively.** All local, all derived |
+| **Canonical consistency** | **By batch and by period, yes. By record, no** — a grouped fact carries no `source_record_ref` (FIN-D-040) |
+| **Source deletion detection** | **No.** See below |
+
+### The checks
+
+| Check | Authority | Compares | Fails when |
+|---|---|---|---|
+| `STAGE_COMPLETENESS` | authoritative | staged vs (loaded + rejected + normalization-rejected) | a row is neither in the figures nor explained |
+| `REJECTION_ACCOUNTING` | authoritative | `REJECTED` rows vs `VALIDATE` errors | a row was dropped with no recorded reason |
+| `SOURCE_VS_CENTRAL` | advisory today | source `GROSS_AMOUNT` / `RECORD_COUNT` vs canonical, per financial year | they differ at all — tolerance is exact |
+| `SUSPECTED_SOURCE_DELETION` | advisory, never destructive | source record count vs canonical, closed years only | the source now holds fewer |
+
+Matching keys: batch id for the local checks; (temple, source system, financial year) for the
+source checks. Amounts compared with `BigDecimal.compareTo` at scale 2, percentages at scale 4,
+`HALF_UP`, zero tolerance. Never `equals` — `100.00` and `100.0` are the same money.
+
+### FIN-D-044, answered honestly
+
+Extraction is incremental along a change axis; there is no deletion marker in `RawRow`; `extract()`
+never returns an authoritative period snapshot; the watermark is not even advanced yet (FIN-D-049).
+`sourceTotals()` *can* be asked for a bounded business-date range, which is why a count comparison
+is possible at all — but a count is evidence, not proof.
+
+So a closed-period shortfall is recorded as **suspected**, with the five other explanations named
+in the row itself, and **nothing is deleted or overwritten** (FIN-D-052). An open-period shortfall
+is `NOT_AVAILABLE`, not a pass: while a year is open, late data and deletion look identical.
+
+A test asserts the canonical facts are unchanged, field by field, after a deletion suspicion. It is
+the most important assertion in the class.
+
+### Why a matching total is not enough
+
+`RECORD_COUNT` is compared as well as `GROSS_AMOUNT`, and a test proves a count mismatch fails while
+the money matches — three receipts missing and three double-counted give the same total. The
+canonical side is `SUM(transaction_count)`, not `COUNT(*)`, because a fact is a daily grain that can
+stand for thousands of receipts; and it is `NOT_AVAILABLE` if any contributing fact has a null count,
+because a floor compared against a source count manufactures a shortfall (FIN-D-053).
+
+### Idempotency, transactions, concurrency
+
+`uk_frr_batch_check` makes a re-run replace its own answers; a null `sync_batch_id` appends instead,
+which is what an append-only period history needs (FIN-D-051). Writes go through
+`INSERT … ON DUPLICATE KEY UPDATE` with assignment, so two reconcilers racing converge rather than
+colliding — no lock was added. `reconcileBatch` is not `@Transactional`; each finding persists in
+its own `REQUIRES_NEW` transaction.
+
+A batch that is `PENDING`, `FAILED`, `CANCELLED` or `DEAD_LETTER` is **refused by name** and no
+result row is written — a failed batch reconciled as though complete is the false clean result this
+task exists to prevent.
+
+### Tests
+
+26 in `RevenueReconciliationStageTest`, MySQL 8.0 Testcontainer, real migrations, real stages, with
+a synthetic connector whose `sourceTotals()` returns what a test tells it. Covering: agreement;
+amount mismatch with both totals preserved; count mismatch while money matches; scale-only
+difference passing; one paisa failing; stuck rows; normalization rejections counted as accounted;
+unexplained rejections; empty batch; closed-year shortfall suspected; **facts unchanged after a
+suspicion**; open-year shortfall not suspected; no source totals; incomplete canonical count;
+source ahead of canonical; four non-reconcilable batch states; unknown batch; two sources on one
+temple; unregistered connector; a throwing source; idempotent re-run replacing its own row;
+re-running leaving facts alone; a full pipeline run reconciling clean; a disagreeing source ending
+`RECONCILE_FAILED` with figures intact; and a second run whose source omits a record.
+
+
+
+### Completion evidence
+
+Measured after `mvn clean`, with every Surefire report regenerated by the run that reports it.
+
+| Suite | Tests | Failures | Errors | Skipped | Database |
+|---|---:|---:|---:|---:|---|
+| `RevenueReconciliationStageTest` | 26 | 0 | 0 | 0 | MySQL 8.0 |
+| `FinanceFoundationRepositoryTest` | 12 | 0 | 0 | 0 | H2 |
+| `FinancePipelineOrchestratorTest` (FIN-057) | 13 | 0 | 0 | 0 | MySQL 8.0 |
+| `RevenueLoadStageTest` (FIN-056) | 18 | 0 | 0 | 0 | MySQL 8.0 |
+| `RevenueNormalizationStageTest` (FIN-055) | 21 | 0 | 0 | 0 | MySQL 8.0 |
+| `RevenueMappingStageTest` (FIN-054) | 22 | 0 | 0 | 0 | MySQL 8.0 |
+| `RevenueStagingValidatorTest` (FIN-053) | 25 | 0 | 0 | 0 | MySQL 8.0 |
+| **Finance regression** | **370** | **0** | **0** | **0** | mixed |
+| **Full backend suite** | **1,200** | **0** | **18** | **0** | mixed |
+
+Regression 13 m 13 s, full suite 15 m 53 s.
+
+**The full suite is not green, and this does not claim it is.** All 18 errors are the FIN-X-001
+baseline — `missing column [field_names_json] in table [declaration_clarifications]` under
+`ddl-auto: validate` — in `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17:
+`TrustCrud` 11, `BoardMemberOperations` 5, `SecurityTests` 1). Same count, same classes and same
+root cause as at FIN-055 and FIN-057. **Zero new failures and zero new errors.**
+
+Test-count movement is accounted for: 1,199 → 1,200 is the one new constraint test; 369 → 370 in
+the regression is the same test, which matches the `*Finance*` filter.
+### The regression this task caused, and why it was not pre-existing
+
+Making `FinReconciliationResult.checkType` non-null broke two tests in
+`FinanceFoundationRepositoryTest` that build a result without one:
+`should_storeNullTotal_when_reconciliationNotAvailable` and
+`should_defaultToZeroTolerance_when_reconciliationRecorded`. Both failed with
+`NULL not allowed for column "CHECK_TYPE"`.
+
+**It was mine, and the evidence says so.** Both tests passed on the FIN-057 tree; the column they
+tripped on was added by V116 in this task; and their failure names that column. Nothing about it
+resembles FIN-X-001, whose signature is `missing column [field_names_json] in table
+[declaration_clarifications]` under `ddl-auto: validate`.
+
+**Corrected by giving each result a check type**, `SOURCE_VS_CENTRAL`, which is what both were
+always recording. One builder line each; **no assertion was changed, relaxed or removed.**
+`should_storeNullTotal_…` still asserts `NOT_AVAILABLE` with null source, central and difference
+totals; `should_defaultToZeroTolerance_…` still asserts a zero tolerance. The alternative — giving
+the entity a default check type — was rejected: a result that does not say what it compared is
+exactly what FIN-D-050 exists to prevent, and a default would have made the column non-null in
+name only.
+
+**It surfaced on H2, not MySQL.** `FinanceFoundationRepositoryTest` is one of the few finance tests
+not on Testcontainers (`[23502-232]` is an H2 error code). The MySQL-based FIN-060 tests could not
+have caught it, because every result they write has a check type. Two engines in the suite is why
+this was found before a commit rather than after.
+
+**The constraint now has a test of its own.** `should_refuseResult_when_checkTypeIsMissing` asserts
+that saving a result without a check type is refused. Before it, the non-null constraint was
+enforced by the database and asserted by nothing — it was load-bearing and unguarded, which is how
+a later "convenience" default would have removed it silently.
+
+### Database coverage, and what is not claimed
+
+| Test | Engine | How |
+|---|---|---|
+| `RevenueReconciliationStageTest` | **MySQL 8.0** | Testcontainers, real Flyway including V116 |
+| `FinancePipelineOrchestratorTest` | **MySQL 8.0** | Testcontainers, real Flyway |
+| `RevenueLoadStageTest`, `RevenueStagingValidatorTest`, the migration tests | **MySQL 8.0** | Testcontainers, real Flyway |
+| `FinanceFoundationRepositoryTest` | **H2** | `@DataJpaTest` on the `test` profile |
+| `SyncWorkerProfileBoundaryTest`, `ConnectorRegistryTest` | **none** | `ApplicationContextRunner`, mocked repositories, no database |
+
+**TiDB has never been tested.** No migration in this project — V116 included — has ever run against
+the deployment target. `ON DUPLICATE KEY UPDATE` with `VALUES()` and a nullable column inside a
+unique index are both documented as MySQL-compatible and both are used by FIN-060; neither has been
+executed on TiDB, so **no TiDB compatibility is claimed**. This extends limitation 9, which has been
+open since FIN-052.
+### Mutations
+
+Eight, under the FIN-D-027 harness: report deleted before each run, run start time recorded, report
+mtime required to postdate it, missing/stale report treated as a failure rather than a pass,
+timeout detection, sources restored and md5-verified between every mutation, single-instance lock,
+one mutation at a time. All artifacts live outside the repository.
+
+| # | Mutation | Applied | Exit | Fresh report | Tests | Failures | Errors | Timed out | Result |
+|---|---|---|---:|---|---:|---:|---:|---|---|
+| R1 | source record-count comparison removed | YES | 1 | YES | 26 | 2 | 0 | NO | **KILLED** |
+| R2 | source amount comparison removed | YES | 1 | YES | 26 | 3 | 0 | NO | **KILLED** |
+| R3 | deletion detection disabled | YES | 1 | YES | 26 | 2 | 0 | NO | **KILLED** |
+| R4 | partial processing reported as complete | YES | 1 | YES | 26 | 1 | 0 | NO | **KILLED** |
+| R5 | any difference recorded as `PASSED` | YES | 1 | YES | 26 | 5 | 0 | NO | **KILLED** |
+| R6 | source scope filter removed from the canonical sum | YES | 1 | YES | 26 | 1 | 0 | NO | **KILLED** |
+| R7 | idempotency constraint removed | YES | 1 | YES | 26 | 1 | 0 | NO | **KILLED** |
+| R8 | suspected deletion acted on destructively | YES | 1 | YES | 26 | 2 | 0 | NO | **KILLED** |
+
+Which test caught each:
+
+- **R1** — `should_fail_when_recordCountsDifferButAmountsMatch`,
+  `should_passDeletionCheck_when_sourceHasMoreRecords`
+- **R2** — `should_fail_when_grossAmountsDiffer`, `should_fail_when_totalsDifferByOnePaisa`,
+  `should_endReconcileFailed_when_sourceDisagrees`
+- **R3** — `should_suspectDeletion_when_closedYearShrankAtSource`,
+  `should_keepPriorFact_when_laterSnapshotOmitsARecord`
+- **R4** — `should_fail_when_stagedRowsAreStuck`
+- **R5** — the four comparison tests plus `should_passDeletionCheck_when_sourceHasMoreRecords`
+- **R6** — `should_keepResultsScoped_when_twoSourcesShareATemple`
+- **R7** — `should_replaceOwnResults_when_reconciledTwice`
+- **R8** — `should_deleteNothing_when_deletionIsSuspected`,
+  `should_keepPriorFact_when_laterSnapshotOmitsARecord`
+
+**R8 is the one that adds code rather than removing it.** There is no deletion call in this class
+to delete, by design, so the only way to test the guarantee was to insert `facts.deleteAll()` into
+the branch that raises a suspicion and confirm a test notices. One does.
+
+**One known weakness in the harness, stated rather than glossed.** `timeout` kills the Maven
+process it spawns but not orphaned Surefire fork JVMs, so a hung mutation could leave a JVM holding
+a container. Nothing timed out in this run — every mutation returned exit 1 with a fresh report —
+so no result here depends on it. Worth fixing before a harness run that does hang.
 
 ---
 
@@ -1224,6 +1437,11 @@ the same 4 report files).
    stored generated columns and indexes over them, and no other syntax in V112 is unusual,
    but the deployment target has not run this migration. Worth confirming on the first
    deployment rather than assuming.
+   **Still true at FIN-060, and now wider:** no migration in this project has ever run against TiDB,
+   V116 included. FIN-060 adds two more MySQL-specific constructs to confirm there — an
+   `ON DUPLICATE KEY UPDATE` upsert, and a nullable column inside a unique index whose NULL-is-
+   distinct behaviour FIN-D-051 relies on deliberately. Both are documented as TiDB-compatible.
+   Neither has been executed on TiDB, so no TiDB compatibility is claimed anywhere.
 10. **Staging retention is unresolved** (Q7, 30–90 days proposed). `fin_stg_revenue` has no
    TTL, purge job or partitioning, so it grows without bound — at the first temple's volumes,
    fast. Deleting financial provenance on a schedule nobody has agreed is not a default worth
@@ -1391,6 +1609,55 @@ the same 4 report files).
    files red for a reason unrelated to the boundary they guard. This happened three times across
    FIN-055, FIN-056 and FIN-057. It is the cost of testing the boundary without a database, and
    it is paid manually with no guard against forgetting.
+
+
+44. **No connector implements `sourceTotals()`, so the only check that could catch a wrong
+   extraction cannot run.** `SOURCE_VS_CENTRAL` and `SUSPECTED_SOURCE_DELETION` both record
+   `NOT_AVAILABLE` against every real source today. The two local checks that do run are
+   authoritative about *processing* and say nothing about whether the right rows were extracted:
+   a batch that read half the source and processed that half perfectly passes both. Closing this
+   is FIN-043 plus Q4, not a reconciliation change.
+
+45. **Source-side deletion cannot be confirmed, only suspected** (FIN-D-044, FIN-D-052). The
+   connector contract offers no deletion signal and no record-level period snapshot. A closed-year
+   shortfall is recorded with its alternatives named; nothing is deleted, and acting on it would
+   need a restatement policy that does not exist. Confirming a deletion needs a new connector
+   capability — an authoritative snapshot of record identities for a bounded business-date range.
+
+46. **Record-count reconciliation needs a declared `REVENUE_TRANSACTION_COUNT`, and the first
+   source has not declared one.** Without it every fact's transaction count is null, the canonical
+   count is a floor, and both the count comparison and deletion detection report `NOT_AVAILABLE`
+   (FIN-D-053) — whatever the connector reports. Only the amount comparison would work.
+
+47. **Two source systems writing the same grain overwrite each other.** `uk_frf_grain` is
+   `(temple_id, transaction_date, service, category, payment_mode, counter, operator)` — it does
+   **not** include `source_system_id`. That is deliberate in ADR-003, where a temple's figure for a
+   day is one figure; but it means a second source reporting the same day and category replaces the
+   first source's row rather than adding to it, and reconciliation then attributes the whole grain
+   to whichever source wrote last. Discovered while writing the FIN-060 scope test, which had to be
+   rebuilt around distinct dates. No temple has two sources today. Before one does, this needs a
+   decision: either the grain gains `source_system_id`, or multi-source temples are refused.
+
+48. **Reconciliation never runs on its own.** `reconcileBatch` is called by the orchestrator and by
+   tests. The scheduled period re-verification the append-only history was designed for — the null
+   `sync_batch_id` path (FIN-D-051) — has no caller, so the only rows written are batch-scoped.
+
+49. **A `RECONCILE_FAILED` batch blocks nothing yet.** The status and the `FAILED` result rows are
+   recorded; withholding aggregates from publication is FIN-061, and there are no aggregates to
+   withhold. Until FIN-061 exists, a disagreement is visible in the database and nowhere else — no
+   alert, no dashboard indicator, no API.
+
+50. **Reconciliation performance is untested at scale.** One `sourceTotals()` call per financial
+   year per batch, and the first source has eight. Each is an aggregate query against a temple's
+   production database, and nothing has measured what that costs the temple. Shares the shape of
+   limitations 18 and 42.
+
+51. **The mutation harness does not kill orphaned Surefire forks.** `timeout` terminates the Maven
+   process it spawned; a forked test JVM can outlive it and keep holding a Testcontainers database.
+   Nothing timed out in the FIN-060 run — all eight mutations returned exit 1 with a fresh report —
+   so no recorded result depends on this. It cost this project a whole discarded mutation round
+   once before, so it is written down rather than remembered.
+
 ---
 
 ## Q4 Status
@@ -1423,9 +1690,10 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
    `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*,*RevenueStaging*'`
-   — expect **343 passing, 0 failures, 0 errors** as of FIN-057 (requires Docker). The filter needs
-   `*Normaliz*`, `*RevenueLoad*` and `*Orchestrator*` too; the pattern in step 3 above is the
-   current one.
+   — expect **370 passing, 0 failures, 0 errors** as of FIN-060 (requires Docker). The filter needs
+   `*Normaliz*`, `*RevenueLoad*`, `*Orchestrator*` and `*Reconcil*` too; the pattern in step 3
+   above is the current one. A stage whose test class matches none of these is not in the
+   baseline, which is how a failing termination test once survived being recorded as green.
 
    **The last pattern was added because it was missing.** Without `*RevenueStaging*` the filter
    matches none of FIN-053's 25 tests, so the documented "155 passing" was a real number for a
@@ -1444,37 +1712,39 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-The pipeline now runs end to end, from a connector's stream to a canonical fact, and a batch that
-fails says where. **Nothing fills it with real data, and nothing triggers it.** Those remain two
-different problems.
+The pipeline runs end to end and now checks itself. **Nothing fills it with real data, nothing
+triggers it, and nothing acts on what reconciliation finds.** Three problems, and the first still
+decides the order.
 
-**FIN-060, reconciliation, is the recommended next task.** It is unblocked, and it is the only
-mechanism that would catch FIN-D-044 — a source deleting records leaves this platform
-overstating those days and nothing else notices. It is also the last piece that can be written
-honestly against synthetic data: every count it compares (`rows_extracted`, `rows_rejected`,
-`rows_loaded`, facts by batch) now has an owner and is derived rather than incremented, so a
-mismatch it reports means something real.
+**FIN-043, the Kollur connector, is the single thing standing between this platform and a real
+figure** — and, since FIN-060, between it and a meaningful reconciliation. Everything downstream of
+a `Stream<RawRow>` exists and is tested. It is blocked on **Q4**. Whoever writes it should implement
+`sourceTotals()` at the same time and from a *separate* query (the contract says so and explains
+why), or the platform gains data it cannot verify.
 
-Go in with a caution: reconciliation against *source totals* needs a source. With only a
-synthetic connector, FIN-060 can prove stage-to-stage completeness and internal consistency, and
-it cannot prove agreement with Kollur. Deletion detection specifically requires either a deletion
-signal or an authoritative period snapshot from the connector, and the current contract provides
-neither — that is a limitation to record, not a check to fake.
+**FIN-061, the publication gate, is the recommended next task** if Q4 is still unanswered. It is
+unblocked, it is small, and it is the piece that makes a `RECONCILE_FAILED` batch mean something:
+today a disagreement is recorded in the database and nowhere else (limitation 49). It pairs
+naturally with FIN-070/071, since a gate with nothing to gate is hard to test honestly.
 
-**FIN-043, the Kollur connector, is blocked on Q4** — network access to the first source. It is
-now the single thing standing between this platform and a real figure: everything downstream of a
-`Stream<RawRow>` exists and is tested.
+Go in knowing what reconciliation can and cannot do: it proves stage-to-stage completeness
+authoritatively, and it cannot prove agreement with any temple until a connector answers
+`sourceTotals()` (limitation 44). Deletion detection is recorded as a suspicion and will stay one
+until the contract gains an authoritative snapshot (limitation 45).
 
-Recommended order: FIN-060, then the aggregates (FIN-070/071) that the API layer reads. FIN-043
-slots in whenever Q4 is answered, and FIN-038/039 (watermark advancement) go with it.
+Recommended order: FIN-061, then the aggregates (FIN-070/071) the API layer reads. FIN-043 slots in
+whenever Q4 is answered, and watermark advancement goes with it.
 
-Two things to decide rather than inherit:
+Three things to decide rather than inherit:
 
 - **Whether a fact records which staged rows produced it.** `NormalizedFact.stagedRowIds` carries
   them in memory and then discards them; `fin_revenue_fact.source_record_ref` is deliberately
-  NULL for grouped facts (FIN-D-040). A back-link table would make every published figure
-  traceable to its evidence, and V113's comment anticipates a `loaded_fact_id` on staging
-  instead. Neither exists. **FIN-060 will want one** — without it, reconciliation can compare
-  counts but cannot trace a canonical figure back to the source records behind it.
-- **Staging retention (Q7).** Still unanswered, and now more pressing: rows stay `LOADED` forever,
-  and at the first source's volumes `fin_stg_revenue` grows without bound.
+  NULL for grouped facts (FIN-D-040). FIN-060 reconciles counts and amounts per period and
+  **cannot trace a canonical figure back to the source records behind it** — the gap is now
+  measured rather than predicted. A back-link table or V113's anticipated `loaded_fact_id` would
+  close it.
+- **Whether the canonical grain should include `source_system_id`** (limitation 47). It does not
+  today, so two sources reporting the same day and category overwrite each other. No temple has
+  two sources yet. One will.
+- **Staging retention (Q7).** Still unanswered: rows stay `LOADED` forever, and at the first
+  source's volumes `fin_stg_revenue` grows without bound.

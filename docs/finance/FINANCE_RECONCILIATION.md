@@ -1,8 +1,31 @@
 # Finance Reconciliation Framework
 
-**Status:** DRAFT — design only.
-**Date:** 2026-09-16
+**Status:** DESIGN. **Partially implemented by FIN-060** — read this alongside the FIN-060
+sections of [HANDOFF.md](HANDOFF.md) and [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
+which describe what was actually built.
+**Date:** 2026-09-16 · **Implementation notes added:** 2026-09-17
 **Parent:** [MULTI_TEMPLE_FINANCE_ARCHITECTURE.md](MULTI_TEMPLE_FINANCE_ARCHITECTURE.md)
+
+> **Where this document and the code differ.** This is a design written before implementation, and
+> three parts of it were not built as described. Trust the code.
+>
+> - **Statuses.** §8 lists six (`MATCHED`, `WITHIN_TOLERANCE`, `VARIANCE_DETECTED`, `FAILED`,
+>   `NOT_RECONCILABLE`, `PENDING`). `ReconciliationStatus` has three: `PASSED`, `FAILED`,
+>   `NOT_AVAILABLE`. The three were already in the schema and carry the distinctions that matter;
+>   a second vocabulary was not added (FIN-D-050). `NOT_AVAILABLE` covers both "the source could
+>   not be asked" and "this check cannot be made", each with a written reason.
+> - **`diagnosis`.** §7's classification table is not implemented and `fin_reconciliation_result`
+>   has no `diagnosis` column. The `status_reason` text names the candidate explanations instead.
+>   Automatic classification is a reasonable later task; it is not one this data can support
+>   honestly yet.
+> - **The Kollur baselines in §6 are acceptance criteria for a load that has not happened.** No
+>   real row of temple data has been read. They remain the target, not a result.
+>
+> **What was built:** four checks (`STAGE_COMPLETENESS`, `REJECTION_ACCOUNTING`,
+> `SOURCE_VS_CENTRAL`, `SUSPECTED_SOURCE_DELETION`), batch-level idempotency, and an explicit
+> refusal to conclude a deletion from a count. What was **not**: publication gating (FIN-061),
+> alerting, scheduled re-verification, and every check that needs a connector to answer
+> `sourceTotals()`.
 
 ---
 

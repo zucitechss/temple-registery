@@ -3,6 +3,7 @@ package com.templeregistry.service.finance.sync;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.config.SchedulingConfig;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
@@ -83,6 +84,7 @@ class SyncWorkerProfileBoundaryTest {
                         .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
                         .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
                         .withBean(FinRevenueFactRepository.class, () -> mock(FinRevenueFactRepository.class))
+                        .withBean(FinReconciliationResultRepository.class, () -> mock(FinReconciliationResultRepository.class))
                         .withBean(FinSourceOfTruthDeclRepository.class, () -> mock(FinSourceOfTruthDeclRepository.class))
                         .withBean(FinSourceSystemRepository.class, () -> mock(FinSourceSystemRepository.class))
                         .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
@@ -116,6 +118,11 @@ class SyncWorkerProfileBoundaryTest {
                         .as("extraction is the one stage that touches a connector, so it could "
                                 + "never belong anywhere but the worker")
                         .hasBean("revenueExtractionStage");
+                assertThat(context)
+                        .as("reconciliation asks a connector for the source's own totals, so it "
+                                + "can reach a temple system exactly as extraction can")
+                        .hasBean("revenueReconciliationStage");
+
                 assertThat(context)
                         .as("the orchestrator can reach a source system and write a canonical "
                                 + "figure in a single call -- the strongest reason of any bean "

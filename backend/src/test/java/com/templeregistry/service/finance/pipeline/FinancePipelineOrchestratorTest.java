@@ -26,6 +26,7 @@ import com.templeregistry.entity.finance.enums.SyncStatus;
 import com.templeregistry.entity.finance.enums.SyncTrigger;
 import com.templeregistry.entity.finance.enums.SyncType;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
@@ -123,6 +124,7 @@ class FinancePipelineOrchestratorTest {
     @Autowired private FinRevenueFactRepository facts;
     @Autowired private FinSyncErrorRepository errors;
     @Autowired private FinSyncBatchRepository batches;
+    @Autowired private FinReconciliationResultRepository reconciliations;
     @Autowired private PlatformTransactionManager transactionManager;
 
     private final ObjectMapper json = new ObjectMapper();
@@ -132,6 +134,7 @@ class FinancePipelineOrchestratorTest {
 
     @BeforeEach
     void setUp() {
+        reconciliations.deleteAllInBatch();
         facts.deleteAllInBatch();
         mappings.deleteAllInBatch();
         staging.deleteAllInBatch();
@@ -426,8 +429,10 @@ class FinancePipelineOrchestratorTest {
                 batches, staging, mappings, declarations, categories, errors, template, json);
         RevenueLoadStage loader = new RevenueLoadStage(
                 normalization, facts, staging, batches, errors, template);
+        RevenueReconciliationStage reconciler = new RevenueReconciliationStage(
+                registry, sourceSystems, batches, staging, errors, facts, reconciliations, template);
         return new FinancePipelineOrchestrator(
-                extraction, validator, mapper, loader, batches, errors, template);
+                extraction, validator, mapper, loader, reconciler, batches, errors, template);
     }
 
     private FinSyncBatch newBatch(SyncStatus status) {

@@ -5,6 +5,7 @@ import com.templeregistry.entity.finance.enums.ConnectorType;
 import com.templeregistry.entity.finance.enums.FinanceCapability;
 import com.templeregistry.entity.finance.enums.SourceTechnology;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
@@ -204,6 +205,7 @@ class ConnectorRegistryTest {
                         .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
                         .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
                         .withBean(FinRevenueFactRepository.class, () -> mock(FinRevenueFactRepository.class))
+                        .withBean(FinReconciliationResultRepository.class, () -> mock(FinReconciliationResultRepository.class))
                 .withBean(FinSourceOfTruthDeclRepository.class, () -> mock(FinSourceOfTruthDeclRepository.class))
                         .withBean(FinSourceSystemRepository.class, () -> mock(FinSourceSystemRepository.class))
                 .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))

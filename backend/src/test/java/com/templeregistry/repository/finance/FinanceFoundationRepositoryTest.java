@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Phase 1 foundation check.
@@ -281,6 +283,7 @@ class FinanceFoundationRepositoryTest {
                 .sourceSystemId(sourceSystemId)
                 .capability(FinanceCapability.EXPENSE)
                 .metric("EXPENSE_AMOUNT")
+                .checkType(ReconciliationCheckType.SOURCE_VS_CENTRAL)
                 .periodType(PeriodType.FINANCIAL_YEAR)
                 .periodKey("2025-26")
                 .status(ReconciliationStatus.NOT_AVAILABLE)
@@ -307,6 +310,7 @@ class FinanceFoundationRepositoryTest {
                 .sourceSystemId(sourceSystemId)
                 .capability(FinanceCapability.REVENUE)
                 .metric("REVENUE_AMOUNT")
+                .checkType(ReconciliationCheckType.SOURCE_VS_CENTRAL)
                 .periodType(PeriodType.FINANCIAL_YEAR)
                 .periodKey("2025-26")
                 .sourceTotal(new BigDecimal("906162936.00"))
@@ -329,5 +333,30 @@ class FinanceFoundationRepositoryTest {
                 .status(status)
                 .watermarkAfter(watermarkAfter)
                 .build();
+    }
+
+    /**
+     * A reconciliation result must say what it compared (FIN-060).
+     *
+     * <p>The column is NOT NULL because the two kinds of check are not interchangeable evidence:
+     * a local count comparison and a comparison against the source's own total answer different
+     * questions, and a row that could not say which would let green local checks be read as
+     * agreement with a temple nobody has asked (FIN-D-050).
+     */
+    @Test
+    void should_refuseResult_when_checkTypeIsMissing() {
+        FinReconciliationResult withoutType = FinReconciliationResult.builder()
+                .templeId(TEMPLE_ID)
+                .sourceSystemId(sourceSystemId)
+                .capability(FinanceCapability.REVENUE)
+                .metric("REVENUE_AMOUNT")
+                .periodType(PeriodType.FINANCIAL_YEAR)
+                .periodKey("2025-26")
+                .status(ReconciliationStatus.PASSED)
+                .checkedAt(LocalDateTime.now())
+                .build();
+
+        assertThatThrownBy(() -> reconciliationRepo.saveAndFlush(withoutType))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 }

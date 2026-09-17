@@ -5,6 +5,7 @@ import com.templeregistry.config.FinanceProfiles;
 import com.templeregistry.connector.finance.ConnectorRegistry;
 import com.templeregistry.connector.finance.TempleFinanceConnector;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
@@ -18,6 +19,7 @@ import com.templeregistry.service.finance.pipeline.RevenueExtractionStage;
 import com.templeregistry.service.finance.pipeline.RevenueLoadStage;
 import com.templeregistry.service.finance.pipeline.RevenueMappingStage;
 import com.templeregistry.service.finance.pipeline.RevenueNormalizationStage;
+import com.templeregistry.service.finance.pipeline.RevenueReconciliationStage;
 import com.templeregistry.service.finance.pipeline.RevenueStagingValidator;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
@@ -213,7 +215,32 @@ public class SyncWorkerConfig {
     }
 
     /**
-     * The orchestrator: one batch, five stages, one status (FIN-057).
+     * Reconciliation: does the batch add up, and does anyone outside agree (FIN-060)?
+     *
+     * <p>Worker-only for the same reason extraction is — it asks a connector for the source's own
+     * totals, which means it can reach a temple system. It writes only
+     * {@code fin_reconciliation_result}; a reconciler able to touch the facts could make its own
+     * checks pass.
+     */
+    @Bean
+    public RevenueReconciliationStage revenueReconciliationStage(
+            ConnectorRegistry connectorRegistry,
+            FinSourceSystemRepository sourceSystemRepository,
+            FinSyncBatchRepository batchRepository,
+            FinStgRevenueRepository stagingRepository,
+            FinSyncErrorRepository errorRepository,
+            FinRevenueFactRepository revenueFactRepository,
+            FinReconciliationResultRepository reconciliationResultRepository,
+            PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new RevenueReconciliationStage(connectorRegistry, sourceSystemRepository,
+                batchRepository, stagingRepository, errorRepository, revenueFactRepository,
+                reconciliationResultRepository, template);
+    }
+
+    /**
+     * The orchestrator: one batch, six stages, one status (FIN-057, FIN-060).
      *
      * <p>The piece that turns stages which each ran alone into a pipeline. It belongs to the
      * worker for the strongest reason of any bean here — it is the thing that can reach a temple
@@ -225,13 +252,14 @@ public class SyncWorkerConfig {
             RevenueStagingValidator stagingValidator,
             RevenueMappingStage mappingStage,
             RevenueLoadStage loadStage,
+            RevenueReconciliationStage reconciliationStage,
             FinSyncBatchRepository batchRepository,
             FinSyncErrorRepository errorRepository,
             PlatformTransactionManager transactionManager) {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new FinancePipelineOrchestrator(extractionStage, stagingValidator, mappingStage,
-                loadStage, batchRepository, errorRepository, template);
+                loadStage, reconciliationStage, batchRepository, errorRepository, template);
     }
 
     /**

@@ -47,4 +47,63 @@ public final class FinancialYear {
                 : businessDate.getYear() - 1;
         return "%d-%02d".formatted(startYear, (startYear + 1) % 100);
     }
+
+    /**
+     * First day of a canonical financial year (FIN-060).
+     *
+     * <p>Reconciliation asks a source to total a business-date range, and that range has to be
+     * derived from the same definition that put the facts in the year. Computing 1 April in the
+     * reconciler would be a second place the year start lives, which is the defect this class
+     * exists to prevent.
+     *
+     * @throws IllegalArgumentException if the string is not canonical form
+     */
+    public static LocalDate startOf(String financialYear) {
+        return LocalDate.of(startYearOf(financialYear), START_MONTH, 1);
+    }
+
+    /** Last day of a canonical financial year — inclusive, and leap-year correct. */
+    public static LocalDate endOf(String financialYear) {
+        return startOf(financialYear).plusYears(1).minusDays(1);
+    }
+
+    /**
+     * Whether the year has finished as of {@code asOf}.
+     *
+     * <p>Load-bearing for FIN-060: a shortfall in an <em>open</em> year is not evidence of
+     * anything, because records may still arrive. Only a closed year makes a shortfall worth
+     * recording as a suspicion at all.
+     */
+    public static boolean isClosed(String financialYear, LocalDate asOf) {
+        return asOf.isAfter(endOf(financialYear));
+    }
+
+    /**
+     * Parses the leading year, rejecting anything that is not canonical form.
+     *
+     * <p>Strict on purpose. {@code 2025-2026} and {@code 2025} would both parse "well enough" to
+     * produce a date, and a reconciliation range silently built from a misread year would compare
+     * the wrong twelve months and report a variance nobody could explain.
+     */
+    private static int startYearOf(String financialYear) {
+        if (financialYear == null || financialYear.length() != 7 || financialYear.charAt(4) != '-') {
+            throw new IllegalArgumentException(
+                    "Not a canonical financial year: " + financialYear + ". Expected yyyy-yy.");
+        }
+        try {
+            int startYear = Integer.parseInt(financialYear.substring(0, 4));
+            int endYear = Integer.parseInt(financialYear.substring(5));
+            if (endYear != (startYear + 1) % 100) {
+                throw new IllegalArgumentException(
+                        "Financial year " + financialYear + " does not end in the year after it "
+                                + "starts; one half of it is wrong and there is no way to tell "
+                                + "which.");
+            }
+            return startYear;
+        } catch (NumberFormatException notNumeric) {
+            throw new IllegalArgumentException(
+                    "Not a canonical financial year: " + financialYear + ". Expected yyyy-yy.",
+                    notNumeric);
+        }
+    }
 }

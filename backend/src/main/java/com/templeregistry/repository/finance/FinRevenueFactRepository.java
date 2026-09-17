@@ -126,4 +126,75 @@ public interface FinRevenueFactRepository extends JpaRepository<FinRevenueFact, 
         """)
     Optional<BigDecimal> sumGrossForFinancialYear(@Param("templeId") Long templeId,
                                                   @Param("financialYear") String financialYear);
+
+    /**
+     * The financial years a batch's facts fall into (FIN-060).
+     *
+     * <p>Reconciliation compares per financial year because that is the period a source can be
+     * asked to total independently, and because a batch's change window says nothing about which
+     * business periods it touched — a single incremental batch can carry corrections to three
+     * different years.
+     */
+    @Query("""
+        SELECT DISTINCT f.financialYear FROM FinRevenueFact f
+         WHERE f.syncBatchId = :syncBatchId
+         ORDER BY f.financialYear
+        """)
+    List<String> findFinancialYearsBySyncBatchId(@Param("syncBatchId") Long syncBatchId);
+
+    /**
+     * One source's gross for a financial year.
+     *
+     * <p>Scoped by source system as well as temple, unlike {@link #sumGrossForFinancialYear}. A
+     * temple with two source systems would otherwise have one source's total compared against
+     * both sources' facts, and the comparison would fail every time while nothing was wrong.
+     */
+    @Query("""
+        SELECT SUM(f.grossAmount) FROM FinRevenueFact f
+         WHERE f.templeId = :templeId
+           AND f.sourceSystemId = :sourceSystemId
+           AND f.financialYear = :financialYear
+        """)
+    Optional<BigDecimal> sumGrossForSourceAndFinancialYear(@Param("templeId") Long templeId,
+                                                           @Param("sourceSystemId") Long sourceSystemId,
+                                                           @Param("financialYear") String financialYear);
+
+    /**
+     * How many source transactions one source's facts represent for a financial year.
+     *
+     * <p>Not {@code COUNT(*)}. A canonical fact is a daily grain, not a receipt — several
+     * thousand receipts collapse into one row — so counting rows and comparing that against a
+     * source's record count would compare two different things and disagree by design.
+     *
+     * <p>Meaningful only when every contributing fact recorded a transaction count; see
+     * {@link #countFactsWithUnknownTransactionCount}.
+     */
+    @Query("""
+        SELECT SUM(f.transactionCount) FROM FinRevenueFact f
+         WHERE f.templeId = :templeId
+           AND f.sourceSystemId = :sourceSystemId
+           AND f.financialYear = :financialYear
+        """)
+    Optional<Long> sumTransactionCountForSourceAndFinancialYear(@Param("templeId") Long templeId,
+                                                                @Param("sourceSystemId") Long sourceSystemId,
+                                                                @Param("financialYear") String financialYear);
+
+    /**
+     * Facts whose transaction count is unknown.
+     *
+     * <p>Any at all makes the year's summed count a floor rather than a total, and a floor
+     * compared against a source count produces a false shortfall. The reconciler reports
+     * NOT_AVAILABLE instead of a number, because a partial count presented as a total is exactly
+     * the "convert missing data to zero" failure this platform refuses (ADR-007).
+     */
+    @Query("""
+        SELECT COUNT(f) FROM FinRevenueFact f
+         WHERE f.templeId = :templeId
+           AND f.sourceSystemId = :sourceSystemId
+           AND f.financialYear = :financialYear
+           AND f.transactionCount IS NULL
+        """)
+    long countFactsWithUnknownTransactionCount(@Param("templeId") Long templeId,
+                                               @Param("sourceSystemId") Long sourceSystemId,
+                                               @Param("financialYear") String financialYear);
 }

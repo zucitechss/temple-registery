@@ -17,11 +17,16 @@ import java.time.LocalDateTime;
  * Runs one {@code fin_sync_batch} through the revenue pipeline (FIN-057).
  *
  * <pre>
- *   PENDING --claim--> RUNNING --> EXTRACT --> VALIDATE --> MAP --> LOAD (normalize + write)
- *                                                                      |
- *                              SUCCESS &lt;---------------------------- all stages ok
- *                              FAILED  &lt;---------------------------- any stage threw
+ *   PENDING --claim--> RUNNING --> EXTRACT --> VALIDATE --> MAP --> LOAD --> RECONCILE
+ *                                                                               |
+ *                    SUCCESS          &lt;--------------- every check passed or was unavailable
+ *                    RECONCILE_FAILED &lt;--------------- a check found a real disagreement
+ *                    FAILED           &lt;--------------- any stage threw
  * </pre>
+ *
+ * <p>{@code RECONCILE_FAILED} is not a worse {@code FAILED}. The rows are loaded and
+ * inspectable; what is blocked is publication of the affected aggregates. Sending such a batch
+ * down the retry path would re-extract and reach the same figures and the same disagreement.
  *
  * <p>Five stages existed before this class and none of them had a caller. Each takes a batch id
  * and returns a result; none takes a payload from another. That is what makes composition this
@@ -63,6 +68,7 @@ public class FinancePipelineOrchestrator {
     private final RevenueStagingValidator validation;
     private final RevenueMappingStage mapping;
     private final RevenueLoadStage load;
+    private final RevenueReconciliationStage reconciliation;
     private final FinSyncBatchRepository batches;
     private final FinSyncErrorRepository errors;
     private final TransactionTemplate transactionTemplate;
@@ -71,6 +77,7 @@ public class FinancePipelineOrchestrator {
                                        RevenueStagingValidator validation,
                                        RevenueMappingStage mapping,
                                        RevenueLoadStage load,
+                                       RevenueReconciliationStage reconciliation,
                                        FinSyncBatchRepository batches,
                                        FinSyncErrorRepository errors,
                                        TransactionTemplate transactionTemplate) {
@@ -78,6 +85,7 @@ public class FinancePipelineOrchestrator {
         this.validation = validation;
         this.mapping = mapping;
         this.load = load;
+        this.reconciliation = reconciliation;
         this.batches = batches;
         this.errors = errors;
         this.transactionTemplate = transactionTemplate;
@@ -117,13 +125,28 @@ public class FinancePipelineOrchestrator {
             stage = SyncStage.LOAD;
             RevenueLoadStage.Result loaded = load.loadBatch(syncBatchId);
 
-            Result result = new Result(syncBatchId, extracted, validated, mapped, loaded,
+            // Reconciliation runs last and against the batch this run just finished loading.
+            // It is a check, not a step: it never repairs, deletes or restates anything, so a
+            // disagreement it finds leaves the data exactly where the load put it.
+            stage = SyncStage.RECONCILE;
+            RevenueReconciliationStage.Result reconciled = reconciliation.reconcileBatch(syncBatchId);
+
+            Result result = new Result(syncBatchId, extracted, validated, mapped, loaded, reconciled,
                     Duration.between(startedAt, LocalDateTime.now()));
-            finish(syncBatchId, SyncStatus.SUCCESS, startedAt);
-            log.info("[FinanceSync] Batch {} succeeded in {} ms: {} staged, {} validated, "
-                            + "{} mapped, {} facts written",
-                    syncBatchId, result.duration().toMillis(), extracted.rowsStaged(),
-                    validated.validated(), mapped.decided(), loaded.factsWritten());
+
+            // RECONCILE_FAILED, not FAILED: the rows are present and inspectable, and what is
+            // blocked is publication of the affected aggregates rather than the load itself.
+            // Collapsing the two would send a batch whose data is fine into the retry path,
+            // where re-extracting would produce the same figures and the same disagreement.
+            SyncStatus outcome = reconciled.blocksPublication()
+                    ? SyncStatus.RECONCILE_FAILED
+                    : SyncStatus.SUCCESS;
+            finish(syncBatchId, outcome, startedAt);
+            log.info("[FinanceSync] Batch {} finished {} in {} ms: {} staged, {} validated, "
+                            + "{} mapped, {} facts written, {} checks ({} failed, {} not available)",
+                    syncBatchId, outcome, result.duration().toMillis(), extracted.rowsStaged(),
+                    validated.validated(), mapped.decided(), loaded.factsWritten(),
+                    reconciled.checksRun(), reconciled.failed(), reconciled.notAvailable());
             return result;
 
         } catch (RuntimeException failure) {
@@ -200,7 +223,13 @@ public class FinancePipelineOrchestrator {
                          RevenueStagingValidator.Result validated,
                          RevenueMappingStage.Result mapped,
                          RevenueLoadStage.Result loaded,
+                         RevenueReconciliationStage.Result reconciled,
                          Duration duration) {
+
+        /** True when reconciliation found a disagreement the aggregates must not be built on. */
+        public boolean blocksPublication() {
+            return reconciled.blocksPublication();
+        }
     }
 
     /** The batch was not available to run. Never thrown for a batch that does not exist. */

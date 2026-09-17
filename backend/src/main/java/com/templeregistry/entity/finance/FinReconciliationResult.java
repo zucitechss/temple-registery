@@ -2,6 +2,7 @@ package com.templeregistry.entity.finance;
 
 import com.templeregistry.entity.finance.enums.FinanceCapability;
 import com.templeregistry.entity.finance.enums.PeriodType;
+import com.templeregistry.entity.finance.enums.ReconciliationCheckType;
 import com.templeregistry.entity.finance.enums.ReconciliationStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -33,7 +34,13 @@ import java.time.LocalDateTime;
     indexes = {
         @Index(name = "idx_frr_temple_period", columnList = "temple_id, metric, period_type, period_key"),
         @Index(name = "idx_frr_batch",         columnList = "sync_batch_id"),
-        @Index(name = "idx_frr_status",        columnList = "status, checked_at")
+        @Index(name = "idx_frr_status",        columnList = "status, checked_at"),
+        @Index(name = "idx_frr_check_type",    columnList = "temple_id, check_type, status")
+    },
+    uniqueConstraints = {
+        @UniqueConstraint(
+            name = "uk_frr_batch_check",
+            columnNames = {"sync_batch_id", "capability", "check_type", "metric", "period_type", "period_key"})
     }
 )
 @Getter
@@ -60,6 +67,17 @@ public class FinReconciliationResult {
     @Enumerated(EnumType.STRING)
     @Column(name = "capability", nullable = false, length = 50)
     private FinanceCapability capability;
+
+    /**
+     * What was compared, and therefore how much this row is worth (FIN-060).
+     *
+     * <p>A local check and a source comparison are not interchangeable evidence, and a table
+     * that could not distinguish them would let green local checks read as agreement with the
+     * temple.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "check_type", nullable = false, length = 30)
+    private ReconciliationCheckType checkType;
 
     /** e.g. {@code REVENUE_AMOUNT}, {@code TRANSACTION_COUNT}. */
     @Column(name = "metric", nullable = false, length = 50)

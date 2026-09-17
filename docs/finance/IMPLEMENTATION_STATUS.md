@@ -569,6 +569,84 @@ unblocked.
 
 **Decisions.** FIN-D-045 … FIN-D-049.
 
+**FIN-060 — the platform starts checking itself, and says what it cannot check.**
+`RevenueReconciliationStage` runs four checks over a finished batch and records every answer in
+`fin_reconciliation_result` — a table that had existed since V110 with nothing ever writing to it.
+
+**Two of the four checks are worth much less than the other two, and the table now says which is
+which.** `STAGE_COMPLETENESS` and `REJECTION_ACCOUNTING` compare this platform's counts against
+each other: authoritative about processing, silent about extraction. A batch that read half a
+source and processed that half perfectly passes both. `SOURCE_VS_CENTRAL` is the only check whose
+two sides are independent, and it is the only one that could catch a wrong extraction query —
+which is exactly why `check_type` had to exist (FIN-D-050). Without it, a screen of green rows
+would read as agreement with a temple nobody has asked.
+
+**No production connector implements `sourceTotals()`**, so against every real source today those
+two checks record `NOT_AVAILABLE` with a reason. That is not a pass, and the distinction is the
+point of recording it.
+
+**Deletion is suspected, never concluded, and never acted on** (FIN-D-052). A closed period that
+shrank at the source produces a `FAILED` row naming the five other explanations — partial
+response, network failure, source filter error, source correction, over-count here — and changes
+nothing. An open period produces `NOT_AVAILABLE`, because while records may still arrive a
+shortfall is not evidence in either direction. The most important test in the class asserts the
+canonical facts are unchanged field by field after a suspicion fires.
+
+**A matching total is not a matching set of records.** `RECORD_COUNT` is compared alongside
+`GROSS_AMOUNT`, and a test proves a count mismatch fails while the money agrees. The canonical
+side is `SUM(transaction_count)`, not `COUNT(*)` — a fact is a daily grain that can stand for
+thousands of receipts — and it is `NOT_AVAILABLE` if any contributing fact has a null count,
+because a floor compared against a source count manufactures a shortfall indistinguishable from a
+deletion (FIN-D-053).
+
+**Money is compared with `compareTo`, never `equals`.** `100.00` and `100.0` are the same amount
+and different `BigDecimal`s; a reconciler using `equals` would report a variance whose difference
+column read zero. Scale 2 for amounts, 4 for percentages, `HALF_UP`, tolerance exactly zero.
+
+**Idempotent by constraint, and append-only where that is what history needs** (FIN-D-051).
+`uk_frr_batch_check` makes a batch replace its own answers; a null `sync_batch_id` never matches
+in a MySQL unique index, so a scheduled period re-verification appends instead. One constraint,
+two behaviours — the same NULL semantics FIN-D-018 had to defeat, used deliberately here.
+
+**`RECONCILE_FAILED` is not a worse `FAILED`** (FIN-D-054). The rows loaded correctly and are
+inspectable; what is in doubt is whether they are the source's. Sending such a batch down the
+retry path would re-extract and reach the same disagreement forever.
+
+**It reads widely and writes one table.** Nothing here touches `fin_revenue_fact`,
+`fin_stg_revenue` or the batch counters. A reconciler able to repair what it found could make its
+own checks pass (FIN-D-055).
+
+**Tests.** `RevenueReconciliationStageTest` — 26 against a real MySQL 8.0 container with the real
+migrations and the real pipeline stages, behind a synthetic connector whose totals a test
+controls. Roughly half are negative: mismatches reported, suspicions recorded, failed batches
+refused, and nothing repaired. All 26 pass. The finance regression is 370 green; the full backend
+suite is 1,200 with 0 failures and the 18 pre-existing FIN-X-001 errors, unchanged.
+
+**Mutations.** Eight, all KILLED, each with a report the run itself produced (FIN-D-027). They
+remove the record-count comparison, the amount comparison, deletion detection, the completeness
+check, the shared comparator's verdict, the source scope filter and the idempotency constraint --
+and, in the one mutation that adds code rather than removing it, make a suspected deletion
+destructive. That last is the only way to test a guarantee whose implementation is the absence of
+a call.
+
+**The regression it caused, and fixed.** Making `check_type` non-null broke two pre-existing
+`FinanceFoundationRepositoryTest` tests that built a result without one -- on **H2**, which is the
+only engine in the finance suite that could have caught it, since every result the MySQL tests
+write has a check type. Both were given `SOURCE_VS_CENTRAL`, the value they were always recording,
+with no assertion changed. The constraint now has a test of its own; before it, a NOT NULL column
+that FIN-D-050 depends on was enforced by the database and asserted by nothing.
+
+**What it found that was not planned.** A row rejected at normalization keeps its `VALID` staging
+status, so counting only `LOADED` and `REJECTED` would have reported every unparseable amount as
+an unexplained loss. And `uk_frf_grain` does not include `source_system_id`, so two sources
+writing the same day and category overwrite each other — deliberate under ADR-003, undocumented
+until now, and a decision somebody must make before a temple has two sources.
+
+**Remaining.** The check that matters most cannot run until a connector answers `sourceTotals()`, and **TiDB has never run any of these migrations** (limitation 9).
+Acting on a disagreement is FIN-061's.
+
+**Decisions.** FIN-D-050 … FIN-D-055.
+
 **Remaining.** None in this phase. Nothing writes to staging yet, so the whole pipeline runs
 today only against rows a test or an operator puts there, and no row of real temple financial
 data exists anywhere. The extraction that would fill staging is FIN-043, blocked on Q4.
@@ -637,7 +715,8 @@ connector implementation.
 
 ## Known Defects Outside Finance Scope
 
-The full suite reports **1,142 tests, 0 failures, 18 errors** (measured at FIN-055). All 18 are in
+The full suite reports **1,200 tests, 0 failures, 18 errors** (measured at FIN-060, after
+`mvn clean`; 1,142 at FIN-055 and 1,173 at FIN-057 — the count grows, the 18 do not). All 18 are in
 `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17), and all share one
 root cause: `ddl-auto: validate` rejecting
 `missing column [field_names_json] in table [declaration_clarifications]`.
