@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-17 (FIN-054)
+**Updated:** 2026-09-17 (FIN-055)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,6 +12,7 @@
 
 | Task | Status |
 |---|---|
+| FIN-055 — Revenue normalization | **COMPLETE** |
 | FIN-054 — Revenue mapping | **COMPLETE** |
 | FIN-053 — Staging validation | **COMPLETE** (repaired; see FIN-D-026 and FIN-D-027) |
 | FIN-050 — `fin_stg_revenue` staging | **COMPLETE** |
@@ -57,6 +58,129 @@ validation and mapping run only against rows a test or an operator puts there; n
 financial data has been read, `fin_revenue_fact` is empty, and no credential exists anywhere.
 
 ---
+
+## FIN-055 — Revenue Normalization
+
+### Files
+
+| File | Change |
+|---|---|
+| `db/migration/V115__kollur_revenue_date_declaration.sql` | new — the business-date declaration for the first source |
+| `service/finance/pipeline/FinancialYear.java` | new — the one computation of a financial year |
+| `service/finance/pipeline/RevenueField.java` | new — the canonical fields, each named by a declaration |
+| `service/finance/pipeline/StagedPayload.java` | new — one payload reader, shared with mapping |
+| `service/finance/pipeline/RevenueNormalizer.java` | new — decides one record, pure |
+| `service/finance/pipeline/RevenueNormalizationStage.java` | new — the stage and the daily collapse |
+| `repository/finance/FinStgRevenueMappingRepository.java` | decisions for a chunk in one query |
+| `service/finance/sync/SyncWorkerConfig.java` | `revenueNormalizationStage` bean |
+| tests | `FinancialYearTest` (12), `RevenueNormalizerTest` (36), `RevenueNormalizationStageTest` (21) |
+
+### Where a figure comes from
+
+ADR-008: which field is authoritative for a metric is declared, versioned and reviewable, not
+buried in a connector. This is the first stage entitled to read a money value, and it reads the
+field `fin_source_of_truth_decl` names. For the first source that declaration is the difference
+between the authoritative total and one 41% short of it.
+
+`V115` adds the missing half. FIN-023 declared the amount; nothing declared the date, so the
+amount could be read and never placed in time. Its evidence is that FIN-023's own extraction
+filter already cuts its window on `ReceiptDate` — good evidence, but inference from a filter, so
+the declaration is seeded **unapproved** exactly as the amount one is.
+
+### The open question from FIN-053, answered
+
+Do declaration field references and connector field names share a vocabulary? **Yes**
+(FIN-D-033). `source_field` is the key read from `raw_json`, matching FIN-D-028's rule for
+mapping namespaces. It constrains connectors — a payload's keys are part of the contract — and
+that is the point: a connector free to rename its output silently detaches every declaration and
+every mapping rule at once.
+
+### What it refuses
+
+| Refusal | Code | Why not the tempting alternative |
+|---|---|---|
+| Mapping did not decide | `UNDECIDED_MAPPING` | `AMBIGUOUS`/`NOT_APPLICABLE`/`INVALID_CONFIGURATION` carry no category by design (FIN-D-031) |
+| Category not in the taxonomy | `UNKNOWN_CANONICAL_CATEGORY` | inventing one is how a taxonomy stops meaning anything |
+| Declared field absent or blank | `MISSING_*` / `EMPTY_*` | a connector that stopped emitting a field would otherwise be invisible |
+| Date not unambiguous ISO | `UNPARSEABLE_TRANSACTION_DATE` | `03/04/2025` is 3 April or 4 March; guessing moves revenue between financial years |
+| Amount not a number | `UNPARSEABLE_*` | zero asserts a measurement that never happened |
+| Amount too precise | `PRECISION_LOSS_*` | rounding is a silent write-down that resurfaces as an unexplainable reconciliation gap |
+
+### The collapse
+
+Several staged records become one fact, grouped on `uk_frf_grain`'s six columns. It happens here
+rather than in a connector because it needs the whole batch and must be visible and testable, and
+not in staging because that would destroy the evidence staging exists for.
+
+The in-memory `GrainKey` and the database constraint must stay in step. If they ever disagree the
+same fact lands twice and revenue doubles, so anything added to one belongs in the other — note
+that the database needed generated `grain_*` columns to get there (FIN-D-018) because NULL is
+distinct from NULL in a unique index, while a Java record compares null by value.
+
+Absence survives the collapse: an undeclared measure is NULL on every fact (FIN-D-035), and a
+group with any unknown contributor totals to NULL rather than a partial sum (FIN-D-036).
+
+### What it does not do
+
+Writes nothing. `fin_revenue_fact` still has no writer, the facts are returned for FIN-056
+(FIN-D-037), and staged rows are **not** marked `LOADED` — a record has not been loaded until
+something loads it (FIN-D-038). `service_id` is always null: canonical service identity needs
+`fin_service_dim` rows and a `SERVICE` mapping type, and a guessed service is worse than none.
+`payment_mode` is always `UNRECORDED`, which is what the source says, not an inference.
+
+### Mutation results
+
+All six measured under the same contract as FIN-053 and FIN-054 (FIN-D-027): report deleted
+first, absence is a failure rather than a pass, mtime must postdate the run's start, sources
+restored and checksum-verified between. The harness is single-instance locked — two concurrent
+copies once corrupted each other's tree and every verdict with it.
+
+| # | Mutation | Applied | Fresh report | Tests | Failed | Verdict |
+|---|---|---|---|---|---|---|
+| P1 | Financial year boundary slips — 1 April falls in the closing year | YES | YES | 69 | 5 | **KILLED** |
+| P2 | An unparseable amount is read as zero | YES | YES | 69 | 8 | **KILLED** |
+| P3 | Money is rounded instead of refused | YES | YES | 69 | 1 | **KILLED** |
+| P4 | An undecided mapping outcome is accepted | YES | YES | 69 | 4 | **KILLED** |
+| P5 | The canonical category leaves the grain key | YES | YES | 69 | 2 | **KILLED** |
+| P6 | An unknown contributor no longer makes the group total unknown | YES | YES | 69 | 1 | **KILLED** |
+
+Which tests caught each one:
+
+| # | Failing tests |
+|---|---|
+| P1 | `should_useTheNewYear_when_dateIsEarlyApril`, `should_startInApril_when_derivingTheYear`, `should_padToTwoDigits_when_yearEndsACentury`, `should_deriveFinancialYear_when_normalizing` |
+| P2 | `should_refuse_when_amountIsNotANumber`, `should_excludeRejected_when_buildingFacts`, `should_beIdempotent_when_runTwice`, `should_leaveOtherStagesErrors_when_recordingItsOwn` |
+| P3 | `should_refuse_when_amountWouldLosePrecision` |
+| P4 | `should_refuse_when_mappingDidNotDecide`, `should_reject_when_mappingWasUndecided` |
+| P5 | `should_groupOnTheCanonicalGrain_when_keying`, `should_keepFactsApart_when_grainDiffers` |
+| P6 | `should_reportNull_when_oneContributorLacksAMeasure` |
+
+**P2 is the one that shows the refusals are load-bearing.** Reading an unparseable amount as
+zero fails eight tests, and only one of them is the direct parser test — the rest are the stage
+tests that check a rejected record contributes nothing, that re-running does not accumulate
+errors, and that this stage's error records exist at all. A zero would have flowed silently into
+a daily total and taken the audit trail with it.
+
+**P3 and P6 fail exactly one test each, which is the point of writing them.** Both defend a
+single specific claim — money is never rounded to fit, and a partial sum never poses as a
+complete one — and a narrow mutation that fails narrowly is evidence the test is testing the
+thing it names rather than passing incidentally.
+
+### Architectural review
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Can a missing amount become zero? | NO | `should_refuse_when_amountIsAbsent`, mutation P2 |
+| Is a date format ever guessed? | NO | `should_refuse_when_dateFormatIsAmbiguous` |
+| Is money ever rounded to fit? | NO | `should_refuse_when_amountWouldLosePrecision`, P3 |
+| Is the financial year right at the boundary? | YES | `should_useTheNewYear_when_dateIsEarlyApril`, P1 |
+| Can an undecided mapping produce a fact? | NO | `should_refuse_when_mappingDidNotDecide`, P4 |
+| Is the grain the same as the constraint's? | YES | `should_groupOnTheCanonicalGrain_when_keying`, P5 |
+| Does a partial sum ever look complete? | NO | `should_reportNull_when_oneContributorLacksAMeasure`, P6 |
+| Can one source's declaration read another's payload? | NO | `should_isolateSources_when_anotherSourceHasTheDeclaration` |
+| Is staging modified? | NO | `should_leaveStagingUntouched_when_normalizing` |
+| Are earlier stages' errors disturbed? | NO | `should_leaveOtherStagesErrors_when_recordingItsOwn` |
+| Is anything loaded here? | NO | no `fin_revenue_fact` write exists in the stage |
 
 ## FIN-054 — Revenue Mapping
 
@@ -974,6 +1098,32 @@ the same 4 report files).
    been exercised against synthetic payloads. The first connector is where it will be tested for
    real, and a mismatch shows up as every record `NOT_APPLICABLE` — loud, but only if somebody
    is looking at the outcome counts.
+27. **The business-date declaration is unapproved and inferred.** `V115` declares `ReceiptDate`
+   as the business date for the first source on the strength of FIN-023's extraction filter
+   already cutting its window on that column. That is good evidence, not confirmation: nobody
+   has ruled out a separate business-date column, and nobody has confirmed that `ReceiptDate` is
+   not itself rewritten when a receipt is edited — which would restate history silently
+   (FIN-D-012). `approved_by` is NULL, and the version in force is stamped on every fact so a
+   later correction can be explained rather than discovered.
+28. **A batch is normalized entirely in memory.** Groups and the staged row ids that made them
+   are held for the whole batch (FIN-D-037). Bounded by the batch and not by history — but a
+   first historical load is one batch, and at the first temple's volumes it will not fit.
+   Windowing by business date is the lever; it is not built because no batch that size can exist
+   until a connector does.
+29. **Only ISO dates are accepted.** `yyyy-MM-dd`, optionally with a time part. Any other form is
+   rejected rather than guessed (FIN-D-039), so a source emitting `15/06/2025` cannot be
+   normalized until its connector emits ISO or somebody declares its format. No mechanism for
+   declaring a format exists; if a real source needs one, that is a new metric on
+   `fin_source_of_truth_decl`, not a heuristic in the parser.
+30. **Payment mode is always `UNRECORDED` and service is always NULL.** Neither is a bug: no
+   `PAYMENT_MODE` mapping rules are seeded for the first source (its mode is inferred from field
+   presence, which ADR-004 puts in connector code), and `fin_service_dim` has no rows. Both mean
+   the first facts this platform produces will carry less detail than `fin_revenue_fact` has room
+   for, and several catalogued reports need that detail.
+31. **Normalization has no caller.** Like the validator and the mapper, `revenueNormalizationStage`
+   is a worker bean nobody invokes. The orchestrator that would run extract → validate → map →
+   normalize → load is still unowned (limitation 14), so the three stages that now exist are
+   three things that run alone.
 ---
 
 ## Q4 Status
@@ -1025,41 +1175,39 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-055**: normalization — turn each mapped staged record into the canonical daily
-shape, which means the two things every stage so far has deliberately deferred: **amounts and
-dates**.
+Implement **FIN-056**: the idempotent load — the first write to `fin_revenue_fact`, and the
+first time this platform stores a figure it will stand behind.
 
-It is next because its inputs now all exist. Validation guarantees the payload is readable,
-mapping supplies the canonical category, and the source-of-truth declaration (FIN-023) names
-which source field is authoritative for `REVENUE_AMOUNT` and under what filter. FIN-055 is the
-first stage entitled to read that declaration, and the first that may look at a money value at
-all.
+It is next because everything it needs now exists. Normalization hands it canonical facts, each
+already at the daily grain and each carrying the staged row ids that produced it; `uk_frf_grain`
+is in place and mutation-verified; and the generated `grain_*` columns already collapse the
+three nullable grain columns so the constraint means what it says (FIN-D-018).
 
 What it owns, and what must not slip:
 
-- **The financial year is computed, not carried.** `fin_revenue_fact.financial_year` is stored
-  and functionally dependent on `transaction_date`, so a wrong computation produces facts that
-  disagree with their own dates. It needs a test that a date in early April lands in the new
-  year, and it must use the canonical `2025-26` string form, never `20252026`.
-- **Amounts are exact decimals, parsed from strings.** No floating point, no rounding, and an
-  unparseable or absent amount is a recorded failure — never zero. `cancelled_amount` NULL,
-  `0` and a positive value are three different states (FIN-D-020).
-- **The business date is not the extraction date.** `source_business_date` in staging is
-  advisory and currently never populated; the authoritative date comes from `raw_json` against
-  the declaration. A source editing a two-year-old receipt must not restate history.
-- **Only decided records may proceed.** `MAPPED` and `UNMAPPED` have a canonical category;
-  `AMBIGUOUS`, `NOT_APPLICABLE` and `INVALID_CONFIGURATION` carry none by design (FIN-D-031),
-  and normalization must refuse them rather than substituting one.
-- **Many staged rows become one fact.** The collapse to daily grain happens here, where it is
-  visible and testable, and every grain column a connector groups by must be a subset of
-  `uk_frf_grain` (FIN-D-019).
+- **The upsert is `INSERT … ON DUPLICATE KEY UPDATE` through `uk_frf_grain`.** Not a
+  select-then-insert, which races, and not a delete-then-insert, which loses `created_at` and
+  makes a restatement indistinguishable from a first load. FIN-052's test already demonstrates
+  the shape.
+- **A re-run must restate, not accumulate.** Loading the same batch twice must leave the same
+  totals. Loading a *second* batch covering the same window is a restatement of those days and
+  must replace, never add — this is the single easiest way to double a temple's reported
+  revenue, and the constraint alone does not prevent it because the fact is keyed on the grain,
+  not on the batch.
+- **`VALID -> LOADED` happens here and only here**, after the fact is written (FIN-D-038), using
+  the staged row ids each fact carries.
+- **`rows_loaded` is derived, not incremented** — the same rule FIN-D-023 imposed on
+  `rows_rejected`, and for the same reason. `rows_extracted` still has no owner (limitation 17).
+- **Nothing partially loaded may look complete.** If the load fails midway the batch must end
+  `FAILED` with its errors recorded at stage `LOAD`; a batch that reports success having written
+  half its facts is worse than one that reports failure.
 
-One open question it should settle rather than inherit: FIN-053 noted that a genuinely generic
-and valuable rule — checking that the payload contains the field the source-of-truth
-declaration names as authoritative — needs a decision about whether declaration field
-references and connector field names share a vocabulary. FIN-054 has now answered the
-equivalent question for mapping rules (FIN-D-028: the namespace is the field name), so there is
-a precedent to follow or to reject deliberately.
+One thing to decide rather than inherit: whether a fact records which staged rows produced it.
+`NormalizedFact.stagedRowIds` carries them in memory, and `fin_revenue_fact` has only a
+nullable `source_record_ref` that is deliberately NULL for grouped facts (FIN-D-040). A
+back-link table would make every published figure traceable to its evidence; V113's comment
+anticipates a `loaded_fact_id` on staging instead. Neither exists, and reconciliation (FIN-060)
+will want one of them.
 
-After that, **FIN-056** (the idempotent load through `uk_frf_grain`), and then the orchestrator
-that no task currently owns — see limitation 14.
+After that, the orchestrator that no task currently owns — see limitation 14 — which is what
+turns five stages that each run alone into a pipeline.

@@ -14,10 +14,9 @@ records land in `fin_stg_revenue` (FIN-050) and finished figures live in `fin_re
 at daily grain (FIN-052), with dimensions to classify them (FIN-051). Both grains are
 enforced by the database.
 
-The middle is half built: validation (FIN-053) judges a staged record and mapping (FIN-054)
-says what its source values mean. What remains is normalization (FIN-055) — amounts, dates and
-the financial year, all of which the two earlier stages deliberately deferred — and the
-idempotent load (FIN-056). Both can be built and tested against synthetic staging rows, without
+The middle is nearly complete: validation (FIN-053) judges a staged record, mapping (FIN-054)
+says what its source values mean, and normalization (FIN-055) turns it into a dated figure at
+the canonical daily grain. What remains is the idempotent load (FIN-056). Both can be built and tested against synthetic staging rows, without
 a connector and without an answer to Q4, which is the point of having built the ends first.
 
 ---
@@ -33,7 +32,7 @@ a connector and without an answer to Q4, which is the point of having built the 
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
 | Staging | **COMPLETE** | 100 | FIN-050 — `fin_stg_revenue`; other capabilities get their own staging tables with their phases |
 | Canonical Finance Data | **COMPLETE** | 100 | FIN-051, FIN-052 — revenue dimensions and the daily-grain fact; other canonical facts arrive with their phases |
-| Revenue Pipeline | IN_PROGRESS | 70 | Both ends exist; validation and mapping done; normalization and load outstanding |
+| Revenue Pipeline | IN_PROGRESS | 85 | Both ends exist; validation, mapping and normalization done; only the load outstanding |
 | Reconciliation | NOT_STARTED | 0 | Tables exist; service does not |
 | Aggregation | NOT_STARTED | 0 | |
 | Finance APIs | NOT_STARTED | 0 | Contract written, no code |
@@ -244,7 +243,7 @@ missing-connector throw with `return null` failed 4 registry tests, including th
 
 ---
 
-## Phase 5 — Revenue Pipeline · IN_PROGRESS · 50%
+## Phase 5 — Revenue Pipeline · IN_PROGRESS · 85%
 
 **Completed.** FIN-051 and FIN-052 — `V112__finance_canonical_revenue.sql`, three tables,
 three entities, two enums. This is the reporting boundary: from here upwards, every revenue
@@ -415,11 +414,65 @@ replacing rather than duplicating, the unique constraint refusing a second decis
 summarisation per distinct value, validation's errors untouched, termination, and two stages
 running concurrently.
 
-**Remaining.** FIN-055 (normalization, including the financial-year derivation and the amounts
-and dates FIN-053 and FIN-054 both deferred) and FIN-056 (the idempotent load that writes
-through `uk_frf_grain`). Nothing writes to staging yet, so validation and mapping run today
-only against rows a test or an operator puts there, and no row of temple financial data exists
-anywhere.
+**FIN-055 — normalization, the stage that turns a record into a figure with a date.** The two
+things every earlier stage deliberately deferred: amounts and dates. `RevenueNormalizer` decides
+one record, `RevenueNormalizationStage` runs it over a batch's `VALID` rows and collapses them
+onto the canonical daily grain. Nothing is written to `fin_revenue_fact` — that is FIN-056.
+
+**It reads a payload only where a declaration says to.** This is the first stage entitled to
+look at a money value, and ADR-008 is why it does not choose which one: for the first onboarded
+source, three columns plausibly represent revenue and disagree by 41%, and the more granular
+one — the one that looks like an improvement — is wrong. `fin_source_of_truth_decl` names the
+field; the code knows only metric names. `V115` adds the matching declaration for the business
+date, which nothing had declared: the amount could be read and never placed in time.
+
+**The open question FIN-053 raised is now answered** (FIN-D-033). A declaration's `source_field`
+names the *staged* field, the same vocabulary a mapping rule's namespace uses (FIN-D-028). The
+alternative — recording the source column and the emitted key separately — is more informative
+and lets the two drift silently, which is worse than the ambiguity it removes.
+
+**The financial year is computed in exactly one place** (FIN-D-034). It is stored beside
+`transaction_date` rather than generated from it, so a wrong computation produces facts that
+disagree with their own dates while both columns look plausible. April start, canonical
+`2025-26` form, tested at both boundaries including the early-April case the handoff singled
+out. Not configurable: April is statutory, and a per-temple year start is a setting whose only
+use is to produce wrong reports.
+
+**Absence survives the collapse.** A field the source has not declared is NULL on every fact,
+never zero (FIN-D-035) — so `cancelled_amount` NULL keeps the generated `net_amount` NULL and no
+report can present gross as net. Where several records become one fact and any of them leaves a
+measure null, the group's total is null rather than a partial sum (FIN-D-036): a partial sum is
+indistinguishable from a complete one and understates the figure with nothing on the row to say
+so.
+
+**A dubious value is refused, never repaired** (FIN-D-039). `03/04/2025` is 3 April or 4 March
+depending on a convention nobody declared, and guessing moves revenue between months and, in
+early April, between financial years. `1500.505` is rejected rather than rounded into a
+`DECIMAL(18,2)` column, because rounding is a silent write-down that reappears later as an
+unexplainable reconciliation gap. A missing amount is a recorded failure, never zero.
+
+**Nothing is persisted here** (FIN-D-037). The facts are returned for FIN-056 to load. A third
+staging table would need its own idempotency key, cleanup and retention answer; computation that
+writes nothing is idempotent for free. The ceiling is stated rather than hidden: a batch's
+groups are held in memory, which is bounded by the batch and not by history — but a first
+historical load is one batch, and windowing by business date is the lever when that arrives.
+
+**Staged rows are not marked `LOADED`** (FIN-D-038). A record has not been loaded until
+something loads it; marking it earlier would strand rows against a fact nobody wrote.
+
+**Tests.** `FinancialYearTest` — 12, no database: both sides of 1 April, the calendar-year trap,
+the canonical string form and a century boundary. `RevenueNormalizerTest` — 36, no database:
+every refusal, exact decimal arithmetic, undeclared measures staying null, `UNRECORDED` payment
+mode, and grain-key behaviour. `RevenueNormalizationStageTest` — 21 against a real MySQL 8.0
+container with the real migrations: the collapse, exact summing, source isolation, staging left
+untouched, stage-scoped error records, re-running, and termination past the chunk boundary.
+
+All 69 pass against MySQL 8.0. The finance suite is 312 green; the full backend suite is 1,142
+with 0 failures and the 18 pre-existing FIN-X-001 errors, unchanged.
+
+**Remaining.** FIN-056 alone — the idempotent load that writes through `uk_frf_grain`.
+Nothing writes to staging yet, so validation, mapping and normalization run today only against
+rows a test or an operator puts there, and no row of temple financial data exists anywhere.
 
 **Blockers.** None. With both ends of the pipeline built, the remaining stages can be
 developed and tested against synthetic staging rows — no connector, no credential, and no
@@ -485,7 +538,7 @@ connector implementation.
 
 ## Known Defects Outside Finance Scope
 
-The full suite reports **958 tests, 0 failures, 18 errors**. All 18 are in
+The full suite reports **1,142 tests, 0 failures, 18 errors** (measured at FIN-055). All 18 are in
 `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17), and all share one
 root cause: `ddl-auto: validate` rejecting
 `missing column [field_names_json] in table [declaration_clarifications]`.

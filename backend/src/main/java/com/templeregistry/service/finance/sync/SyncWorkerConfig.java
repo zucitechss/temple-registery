@@ -6,11 +6,13 @@ import com.templeregistry.connector.finance.ConnectorRegistry;
 import com.templeregistry.connector.finance.TempleFinanceConnector;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
 import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
 import com.templeregistry.service.finance.pipeline.RevenueMappingStage;
+import com.templeregistry.service.finance.pipeline.RevenueNormalizationStage;
 import com.templeregistry.service.finance.pipeline.RevenueStagingValidator;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
@@ -136,6 +138,32 @@ public class SyncWorkerConfig {
         perRow.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new RevenueMappingStage(stagingRepository, mappingRepository, ruleRepository,
                 categoryRepository, errorRepository, batchRepository, perRow, objectMapper);
+    }
+
+    /**
+     * Normalization: a batch's mapped records collapsed onto the canonical daily grain
+     * (FIN-055).
+     *
+     * <p>A worker bean for the same reason as the validator and the mapper — it reads the
+     * pipeline's state and the source-of-truth declarations that decide what a payload means,
+     * and nothing serving HTTP should be able to. It writes no canonical row: {@code
+     * fin_revenue_fact} has no writer until FIN-056, so the facts are returned rather than
+     * persisted.
+     */
+    @Bean
+    public RevenueNormalizationStage revenueNormalizationStage(
+            FinSyncBatchRepository batchRepository,
+            FinStgRevenueRepository stagingRepository,
+            FinStgRevenueMappingRepository mappingRepository,
+            FinSourceOfTruthDeclRepository declarationRepository,
+            FinRevenueCategoryRepository categoryRepository,
+            FinSyncErrorRepository errorRepository,
+            PlatformTransactionManager transactionManager,
+            ObjectMapper objectMapper) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new RevenueNormalizationStage(batchRepository, stagingRepository, mappingRepository,
+                declarationRepository, categoryRepository, errorRepository, template, objectMapper);
     }
 
     /**

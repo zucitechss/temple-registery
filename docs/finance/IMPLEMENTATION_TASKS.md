@@ -216,7 +216,7 @@ including the Kollur one.
 | FIN-052 | `fin_revenue_fact` (daily grain) | **COMPLETE** | FIN-051 |
 | FIN-053 | Validation stage, rejections to `fin_sync_error` | **COMPLETE** | FIN-050 |
 | FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | **COMPLETE** | FIN-024, FIN-053 |
-| FIN-055 | Normalization to daily grain | NOT_STARTED | FIN-054 |
+| FIN-055 | Normalization to daily grain | **COMPLETE** | FIN-054 |
 | FIN-056 | Idempotent load keyed on the grain unique constraint | NOT_STARTED | FIN-052, FIN-055 |
 
 
@@ -449,6 +449,38 @@ an update of the mapping row, not a rewrite of what the source said.
 
 **Out of scope, deliberately:** no canonical fact write (FIN-056), no date or amount handling
 (FIN-055), no financial-year derivation (FIN-055), no orchestration, no connector, no API.
+
+### FIN-055 — Normalization to daily grain
+
+**Delivered.** `FinancialYear`, `RevenueField`, `StagedPayload`, `RevenueNormalizer` and
+`RevenueNormalizationStage`, plus `V115` declaring the business-date field for the first source.
+The two things every earlier stage deferred: amounts and dates.
+
+**It reads a payload only where a declaration says to.** This is the first stage entitled to
+look at a money value, and ADR-008 is why it does not pick the field itself: for the first
+onboarded source three columns plausibly represent revenue and disagree by 41%, and the one
+that looks like an improvement is wrong. The code knows metric names; `fin_source_of_truth_decl`
+names the fields. `V115` adds the declaration for the business date, which nothing had declared
+— the amount could be read and never placed in time.
+
+**The open question from FIN-053 is settled** (FIN-D-033): a declaration's `source_field` names
+the *staged* field, the same vocabulary a mapping rule's namespace uses.
+
+**Five refusals, each with a code:** an undecided mapping outcome, a canonical category outside
+the taxonomy, a missing or empty declared field, an ambiguous date, a non-numeric amount, and an
+amount too precise for `DECIMAL(18,2)`. None of them is repaired into a value (FIN-D-039).
+
+**The collapse happens here** because it needs the whole batch and must be visible and testable.
+Grouping is on `uk_frf_grain`'s six columns; the in-memory key and the database constraint must
+stay in step or the same fact lands twice.
+
+**Absence survives it.** An undeclared measure is NULL on every fact, never zero (FIN-D-035),
+and a group with any unknown contributor totals to NULL rather than a partial sum (FIN-D-036).
+
+**Out of scope, deliberately:** no `fin_revenue_fact` write (FIN-056), no staging status change
+(FIN-D-038), no service resolution, no payment-mode mapping, no orchestration, no connector, no
+API.
+
 ## Phase 6 — Reconciliation
 
 | ID | Description | Status | Depends on |

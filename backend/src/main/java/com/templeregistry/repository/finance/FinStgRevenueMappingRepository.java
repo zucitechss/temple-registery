@@ -24,6 +24,16 @@ public interface FinStgRevenueMappingRepository extends JpaRepository<FinStgReve
     Optional<FinStgRevenueMapping> findByStgRevenueIdAndMappingType(
             Long stgRevenueId, MappingType mappingType);
 
+    /**
+     * The decisions for a chunk of staged rows, in one query.
+     *
+     * <p>Normalization reads each record's decision alongside the staged rows it is already
+     * scanning (FIN-055). Fetching them one at a time would put a query per record on the
+     * pipeline's hot path for no benefit.
+     */
+    List<FinStgRevenueMapping> findByStgRevenueIdInAndMappingType(
+            List<Long> stgRevenueIds, MappingType mappingType);
+
     long countBySyncBatchIdAndMappingTypeAndOutcome(
             Long syncBatchId, MappingType mappingType, MappingOutcome outcome);
 

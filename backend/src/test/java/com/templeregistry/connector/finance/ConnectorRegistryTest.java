@@ -6,6 +6,7 @@ import com.templeregistry.entity.finance.enums.FinanceCapability;
 import com.templeregistry.entity.finance.enums.SourceTechnology;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
 import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
@@ -200,6 +201,7 @@ class ConnectorRegistryTest {
                         .withBean(FinStgRevenueMappingRepository.class, () -> mock(FinStgRevenueMappingRepository.class))
                         .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
                         .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
+                .withBean(FinSourceOfTruthDeclRepository.class, () -> mock(FinSourceOfTruthDeclRepository.class))
                 .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
                 .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
                 .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))

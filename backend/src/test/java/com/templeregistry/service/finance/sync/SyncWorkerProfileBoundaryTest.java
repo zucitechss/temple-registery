@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.config.SchedulingConfig;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
 import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
@@ -79,6 +80,7 @@ class SyncWorkerProfileBoundaryTest {
                         .withBean(FinStgRevenueMappingRepository.class, () -> mock(FinStgRevenueMappingRepository.class))
                         .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
                         .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
+                        .withBean(FinSourceOfTruthDeclRepository.class, () -> mock(FinSourceOfTruthDeclRepository.class))
                         .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
                         .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
                         .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
@@ -98,6 +100,10 @@ class SyncWorkerProfileBoundaryTest {
                                 + "worker, not to a process serving HTTP")
                         .hasBean("revenueStagingValidator");
                 assertThat(context).hasBean("revenueMappingStage");
+                assertThat(context)
+                        .as("normalization reads the source-of-truth declarations that decide "
+                                + "what a payload means; that belongs to the worker too")
+                        .hasBean("revenueNormalizationStage");
             });
         }
 
