@@ -1,8 +1,13 @@
 package com.templeregistry.service.finance.sync;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.config.FinanceProfiles;
 import com.templeregistry.connector.finance.ConnectorRegistry;
 import com.templeregistry.connector.finance.TempleFinanceConnector;
+import com.templeregistry.repository.finance.FinStgRevenueRepository;
+import com.templeregistry.repository.finance.FinSyncBatchRepository;
+import com.templeregistry.repository.finance.FinSyncErrorRepository;
+import com.templeregistry.service.finance.pipeline.RevenueStagingValidator;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -11,6 +16,9 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The single point at which the finance ingestion runtime is assembled.
@@ -78,6 +86,29 @@ public class SyncWorkerConfig {
     @Bean
     public ConnectorRegistry connectorRegistry(ApplicationContext applicationContext) {
         return new ConnectorRegistry(applicationContext.getBeansOfType(TempleFinanceConnector.class));
+    }
+
+    /**
+     * Validates staged revenue rows (FIN-053).
+     *
+     * <p>Reaches no source system — it reads and writes the registry database only — but it
+     * lives here because the pipeline runs in one process, and a stage that mutates pipeline
+     * state should not be reachable from an HTTP request in the registry runtime.
+     *
+     * <p>Transactions are explicit rather than annotation-driven: each row commits in its own
+     * {@code REQUIRES_NEW} transaction, and doing that through {@code @Transactional} on a
+     * self-invoked method silently would not apply.
+     */
+    @Bean
+    public RevenueStagingValidator revenueStagingValidator(FinStgRevenueRepository stagingRepository,
+                                                           FinSyncErrorRepository errorRepository,
+                                                           FinSyncBatchRepository batchRepository,
+                                                           PlatformTransactionManager transactionManager,
+                                                           ObjectMapper objectMapper) {
+        TransactionTemplate perRow = new TransactionTemplate(transactionManager);
+        perRow.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new RevenueStagingValidator(
+                stagingRepository, errorRepository, batchRepository, perRow, objectMapper);
     }
 
     /**

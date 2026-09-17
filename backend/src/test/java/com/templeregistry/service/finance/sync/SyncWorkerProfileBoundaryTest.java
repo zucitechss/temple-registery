@@ -1,6 +1,10 @@
 package com.templeregistry.service.finance.sync;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.config.SchedulingConfig;
+import com.templeregistry.repository.finance.FinStgRevenueRepository;
+import com.templeregistry.repository.finance.FinSyncBatchRepository;
+import com.templeregistry.repository.finance.FinSyncErrorRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -8,8 +12,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 /**
  * FIN-016 regression tests for the registry / sync-worker boundary.
@@ -57,8 +63,20 @@ class SyncWorkerProfileBoundaryTest {
     @DisplayName("Sync worker runtime")
     class SyncWorkerRuntime {
 
+        /**
+         * The worker's pipeline beans need persistence collaborators, which this runner
+         * deliberately does not provide for real: the question here is which beans each
+         * profile creates, and answering it should not require a database. Mocks stand in so
+         * that a pipeline stage gaining a dependency stays a change to this list rather than a
+         * boundary test that goes red for a reason unrelated to the boundary.
+         */
         private final ApplicationContextRunner workerRunner =
-                runner.withPropertyValues("spring.profiles.active=sync-worker");
+                runner.withPropertyValues("spring.profiles.active=sync-worker")
+                        .withBean(FinStgRevenueRepository.class, () -> mock(FinStgRevenueRepository.class))
+                        .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
+                        .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
+                        .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
+                        .withBean(ObjectMapper.class, ObjectMapper::new);
 
         @Test
         void should_loadWorkerInfrastructure_when_syncWorkerProfileActive() {
@@ -69,6 +87,10 @@ class SyncWorkerProfileBoundaryTest {
                 assertThat(context).hasSingleBean(SyncWorkerProperties.class);
                 assertThat(context).hasBean("financeSyncScheduler");
                 assertThat(context.getBean("financeSyncScheduler")).isInstanceOf(TaskScheduler.class);
+                assertThat(context)
+                        .as("a stage that moves rows between pipeline states belongs to the "
+                                + "worker, not to a process serving HTTP")
+                        .hasBean("revenueStagingValidator");
             });
         }
 

@@ -1,12 +1,17 @@
 package com.templeregistry.connector.finance;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.entity.finance.enums.ConnectorType;
 import com.templeregistry.entity.finance.enums.FinanceCapability;
 import com.templeregistry.entity.finance.enums.SourceTechnology;
+import com.templeregistry.repository.finance.FinStgRevenueRepository;
+import com.templeregistry.repository.finance.FinSyncBatchRepository;
+import com.templeregistry.repository.finance.FinSyncErrorRepository;
 import com.templeregistry.service.finance.sync.SyncWorkerConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -24,6 +29,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /**
  * FIN-031. What the registry must do is small; what it must never do is the point.
@@ -184,6 +190,14 @@ class ConnectorRegistryTest {
         new ApplicationContextRunner()
                 .withUserConfiguration(SyncWorkerConfig.class)
                 .withPropertyValues("spring.profiles.active=sync-worker")
+                // Assembling the worker means assembling all of it, and its pipeline stages
+                // need persistence collaborators. Mocked because the question here is what the
+                // registry resolves, which no database participates in.
+                .withBean(FinStgRevenueRepository.class, () -> mock(FinStgRevenueRepository.class))
+                .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
+                .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
+                .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(ConnectorRegistry.class);

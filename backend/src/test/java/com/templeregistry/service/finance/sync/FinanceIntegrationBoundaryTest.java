@@ -34,6 +34,7 @@ class FinanceIntegrationBoundaryTest {
     /** Packages that may contain code capable of reaching a temple source system. */
     private static final List<String> INTEGRATION_PACKAGES = List.of(
             "com.templeregistry.service.finance.sync",
+            "com.templeregistry.service.finance.pipeline",
             "com.templeregistry.connector");
 
     private static final Path RESOURCES = Path.of("src", "main", "resources");
