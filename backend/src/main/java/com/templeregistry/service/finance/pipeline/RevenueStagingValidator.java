@@ -167,7 +167,12 @@ public class RevenueStagingValidator {
 
         // Derived, never incremented: re-running validation cannot inflate it, and every unit
         // it counts is an error row somebody can open.
-        long errorRows = errors.countBySyncBatchId(syncBatchId);
+        //
+        // Scoped to this stage, which matters from FIN-054 onwards: later stages record against
+        // the same batch at a different grain -- mapping writes one error per distinct
+        // unresolved source value, not one per row -- so an unscoped count would fold those
+        // into rows_rejected and produce a rejected-row figure that matches no set of rows.
+        long errorRows = errors.countBySyncBatchIdAndErrorStage(syncBatchId, SyncStage.VALIDATE);
         batch.setRowsRejected(errorRows);
         batches.save(batch);
 

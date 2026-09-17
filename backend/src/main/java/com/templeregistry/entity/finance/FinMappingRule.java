@@ -56,6 +56,22 @@ public class FinMappingRule extends BaseEntity {
     @Column(name = "canonical_value", nullable = false, length = 100)
     private String canonicalValue;
 
+    /**
+     * Precedence where several rules match one record. Higher wins.
+     *
+     * <p>FIN-D-015 decided that the more specific rule wins — a rule keyed on a single service
+     * code beats one keyed on the coarse income bucket that code sits inside — but left the
+     * decision in prose, where an engine reading these rows could not act on it. Storing it
+     * makes precedence configuration rather than something each connector has to remember.
+     *
+     * <p>Equal priority with more than one match is not resolved by picking one: it is an
+     * {@code AMBIGUOUS} outcome, because published revenue must not depend on the order a
+     * database happens to return rows in.
+     */
+    @Builder.Default
+    @Column(name = "priority", nullable = false)
+    private int priority = 100;
+
     @Builder.Default
     @Column(name = "is_active", nullable = false)
     private boolean active = true;

@@ -2,6 +2,9 @@ package com.templeregistry.service.finance.sync;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.config.SchedulingConfig;
+import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
@@ -73,6 +76,9 @@ class SyncWorkerProfileBoundaryTest {
         private final ApplicationContextRunner workerRunner =
                 runner.withPropertyValues("spring.profiles.active=sync-worker")
                         .withBean(FinStgRevenueRepository.class, () -> mock(FinStgRevenueRepository.class))
+                        .withBean(FinStgRevenueMappingRepository.class, () -> mock(FinStgRevenueMappingRepository.class))
+                        .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
+                        .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
                         .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
                         .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
                         .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
@@ -91,6 +97,7 @@ class SyncWorkerProfileBoundaryTest {
                         .as("a stage that moves rows between pipeline states belongs to the "
                                 + "worker, not to a process serving HTTP")
                         .hasBean("revenueStagingValidator");
+                assertThat(context).hasBean("revenueMappingStage");
             });
         }
 

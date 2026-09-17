@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-17 (FIN-053-fix)
+**Updated:** 2026-09-17 (FIN-054)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -14,10 +14,11 @@ records land in `fin_stg_revenue` (FIN-050) and finished figures live in `fin_re
 at daily grain (FIN-052), with dimensions to classify them (FIN-051). Both grains are
 enforced by the database.
 
-What remains is the middle: validation (FIN-053), mapping (FIN-054), normalization (FIN-055)
-and the idempotent load (FIN-056). All four can now be built and tested against synthetic
-staging rows, without a connector and without an answer to Q4 — which is the point of having
-built the ends first.
+The middle is half built: validation (FIN-053) judges a staged record and mapping (FIN-054)
+says what its source values mean. What remains is normalization (FIN-055) — amounts, dates and
+the financial year, all of which the two earlier stages deliberately deferred — and the
+idempotent load (FIN-056). Both can be built and tested against synthetic staging rows, without
+a connector and without an answer to Q4, which is the point of having built the ends first.
 
 ---
 
@@ -32,7 +33,7 @@ built the ends first.
 | Kollur Connector | NOT_STARTED | 0 | FIN-041 blocked on Q4 |
 | Staging | **COMPLETE** | 100 | FIN-050 — `fin_stg_revenue`; other capabilities get their own staging tables with their phases |
 | Canonical Finance Data | **COMPLETE** | 100 | FIN-051, FIN-052 — revenue dimensions and the daily-grain fact; other canonical facts arrive with their phases |
-| Revenue Pipeline | IN_PROGRESS | 50 | Both ends exist; validation, mapping, normalization and load outstanding |
+| Revenue Pipeline | IN_PROGRESS | 70 | Both ends exist; validation and mapping done; normalization and load outstanding |
 | Reconciliation | NOT_STARTED | 0 | Tables exist; service does not |
 | Aggregation | NOT_STARTED | 0 | |
 | Finance APIs | NOT_STARTED | 0 | Contract written, no code |
@@ -344,9 +345,80 @@ had been recorded (one had been measured; the harness was reporting a stale repo
 The fix also removed a quadratic re-scan: the class runs in **74.8 s** where it previously took
 **221.4 s**.
 
-**Remaining.** FIN-054 (mapping), FIN-055 (normalization), FIN-056 (the idempotent load that
-writes through `uk_frf_grain`). Nothing writes to staging yet, so validation runs today only
-against rows a test or an operator puts there, and no row of temple financial data exists
+**FIN-054 — mapping, the stage that says what a value means.** `V114` adds
+`fin_mapping_rule.priority` and creates `fin_stg_revenue_mapping`; `MappingRuleResolver`
+decides, `RevenueMappingStage` runs it over a batch's `VALID` rows.
+
+ADR-004 draws the line this stage sits on: *which rows and which columns* is connector code,
+*what a value means* is configuration. Everything in FIN-054 is the second kind. It names no
+source table and no source column, and a purity scan fails the build if one appears.
+
+**How a shared stage reads a temple's payload without knowing its schema.** A rule's
+`source_value` is namespaced — `SANNIDHI:DS`, `SEVA_CODE:430` — and the namespace **is** the
+name of the staged field the rule reads (FIN-D-028). So the fields consulted are derived from
+the rules themselves: a rule in a new namespace starts a new field being read, with no
+deployment and with nothing in the code learning a temple's vocabulary.
+
+**Two gaps in the existing design had to be closed first.**
+
+1. **Precedence existed only in prose.** FIN-D-015 decided that the more specific rule wins and
+   put the consequence on the connector — "the connector must apply the precedence rule" — which
+   buries a business classification decision in per-temple code and leaves a generic engine
+   unable to tell which of two matching rules is more specific. `priority` makes it
+   configuration (FIN-D-029). It is not academic: without `SEVA_CODE:430` outranking
+   `SANNIDHI:KN`, the first source's donation-box collections — 13 records averaging over a
+   crore each — are classified as ordinary donations and dominate any ranking of purchased
+   services.
+2. **Nothing said where a rule's value is found.** Closed by the namespace convention above,
+   with no new column and no change to the connector contract.
+
+**Five outcomes, and only two of them produce a value** (FIN-D-031). `MAPPED` and `UNMAPPED`
+set a canonical value; `AMBIGUOUS`, `NOT_APPLICABLE` and `INVALID_CONFIGURATION` leave it NULL,
+so FIN-056 has nothing it could load them as. The distinction that earns its keep is
+`UNMAPPED` versus `NOT_APPLICABLE`: an unknown value needs a mapping rule, whereas a record
+carrying no category field at all usually means extraction stopped supplying one. Collapsing
+them would hide a broken connector behind a configuration gap.
+
+**Ambiguity is never resolved by picking one.** Two rules matching at the same priority is a
+contradiction in configuration, and the only available tiebreakers — rule id, or whatever order
+the database returns — would make a temple's published revenue depend on an implementation
+detail. Nothing is decided and the competing rules are named.
+
+**Staging is not touched.** Decisions go to a separate table keyed `(stg_revenue_id,
+mapping_type)`, which is also the idempotency key (FIN-D-030). Correcting a rule and re-running
+replaces the decision rather than adding one — the reason staging is retained at all — and no
+count taken from that table can be doubled by a retry.
+
+**A counter defect this exposed in FIN-053.** `rows_rejected` was derived from *all* of a
+batch's errors. Mapping records against the same batch at a different grain — one error per
+distinct unresolved value, not per row — so the unscoped count would have folded mapping's
+summaries into a rejected-row figure matching no set of rows. Now scoped to `VALIDATE`
+(FIN-D-032).
+
+**Scope: `REVENUE_CATEGORY` only.** It is the only mapping type with both seeded rules and a
+seeded canonical target. `SERVICE` needs 164 rules and `fin_service_dim` rows that do not exist;
+`PAYMENT_MODE` for the first source is inferred from field presence, which ADR-004 puts in
+connector code, and has no seeded rules; `METAL_TYPE` belongs to FIN-110 and its two seeded
+rules are not namespaced, so they are reported as unusable rather than silently ignored. The
+resolver is generic over `MappingType`, so those arrive as configuration.
+
+**Nothing is loaded.** No amounts, no dates, no financial year, no `fin_revenue_fact` row.
+Those are FIN-055 and FIN-056.
+
+**Tests.** `MappingRuleResolverTest` — 16, no database: precedence, order independence,
+ambiguity and its stable message, unmapped versus not-applicable, null and blank values,
+unknown canonical targets, unusable rules, and a check that nothing is trimmed or case-folded
+into a match. `RevenueMappingStageTest` — 22 against a real MySQL 8.0 container with the real
+migrations: provenance carried on the decision, staging left byte-for-byte alone, only `VALID`
+rows mapped, source and temple isolation, disabled and soft-deleted rules ignored, re-running
+replacing rather than duplicating, the unique constraint refusing a second decision, error
+summarisation per distinct value, validation's errors untouched, termination, and two stages
+running concurrently.
+
+**Remaining.** FIN-055 (normalization, including the financial-year derivation and the amounts
+and dates FIN-053 and FIN-054 both deferred) and FIN-056 (the idempotent load that writes
+through `uk_frf_grain`). Nothing writes to staging yet, so validation and mapping run today
+only against rows a test or an operator puts there, and no row of temple financial data exists
 anywhere.
 
 **Blockers.** None. With both ends of the pipeline built, the remaining stages can be

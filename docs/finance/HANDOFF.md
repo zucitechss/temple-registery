@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-17 (FIN-053-fix)
+**Updated:** 2026-09-17 (FIN-054)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,6 +12,7 @@
 
 | Task | Status |
 |---|---|
+| FIN-054 — Revenue mapping | **COMPLETE** |
 | FIN-053 — Staging validation | **COMPLETE** (repaired; see FIN-D-026 and FIN-D-027) |
 | FIN-050 — `fin_stg_revenue` staging | **COMPLETE** |
 | FIN-051 — Canonical dimensions | **COMPLETE** |
@@ -39,18 +40,177 @@ mutation table as evidence only if the run that produced it can be shown to have
 **What works.** The finance foundation (FIN-010…015), the registry / sync-worker runtime
 boundary (FIN-016), the generic connector contract (FIN-030), connector resolution (FIN-031),
 the complete Kollur configuration (FIN-021…024), the canonical revenue model (FIN-051,
-FIN-052), the staging table that feeds it (FIN-050), and now the first pipeline stage that
-actually decides something: validation (FIN-053).
+FIN-052), the staging table that feeds it (FIN-050), and the first two stages between them:
+validation (FIN-053) and mapping (FIN-054).
 
-Both ends of the pipeline exist and the first stage between them runs. A staged record is now
-judged, and the judgement is recorded in a way that cannot be lost — rejected rows keep their
-payload and gain one coded `fin_sync_error` each, so `rows_rejected` is explainable row by row.
+Both ends of the pipeline exist and half the middle now runs. A staged record is judged, and
+the judgement is recorded in a way that cannot be lost — rejected rows keep their payload and
+gain one coded `fin_sync_error` each, so `rows_rejected` is explainable row by row. A validated
+record then has its source values translated into canonical ones from configuration alone, with
+every decision recorded against the record it is about, including the several distinct reasons
+for not reaching one.
 
-**What does not work yet.** No connector implementation, no extraction, no mapping stage, no
-normalization, no loader, no aggregation, no API. The dashboard is still the static HTML file.
-Nothing writes to staging yet, so validation currently runs only against rows a test or an
-operator puts there; no row of temple financial data has been read, `fin_revenue_fact` is
-empty, and no credential exists anywhere.
+**What does not work yet.** No connector implementation, no extraction, no normalization, no
+financial-year derivation, no loader, no aggregation, no API, and no orchestrator to run the
+stages in order. The dashboard is still the static HTML file. Nothing writes to staging yet, so
+validation and mapping run only against rows a test or an operator puts there; no row of temple
+financial data has been read, `fin_revenue_fact` is empty, and no credential exists anywhere.
+
+---
+
+## FIN-054 — Revenue Mapping
+
+### Files
+
+| File | Change |
+|---|---|
+| `db/migration/V114__finance_revenue_mapping.sql` | new — `fin_mapping_rule.priority`, `fin_stg_revenue_mapping` |
+| `entity/finance/enums/MappingOutcome.java` | new — five outcomes |
+| `entity/finance/FinStgRevenueMapping.java` | new |
+| `entity/finance/FinMappingRule.java` | `priority` |
+| `repository/finance/FinStgRevenueMappingRepository.java` | new |
+| `repository/finance/FinRevenueCategoryRepository.java` | new — the canonical taxonomy had no reader |
+| `repository/finance/FinSyncErrorRepository.java` | stage-scoped count, find and delete |
+| `service/finance/pipeline/MappingRuleResolver.java` | new — the resolver, pure |
+| `service/finance/pipeline/RevenueMappingStage.java` | new — the stage |
+| `service/finance/pipeline/RevenueStagingValidator.java` | `rows_rejected` scoped to `VALIDATE` |
+| `service/finance/sync/SyncWorkerConfig.java` | `revenueMappingStage` bean |
+| tests | `MappingRuleResolverTest` (16), `RevenueMappingStageTest` (22), three worker-context tests extended |
+
+### The two mapping layers
+
+ADR-004: *which rows and which columns* is connector code; *what a value means* is
+configuration. FIN-054 is entirely the second.
+
+| Layer | Question | Where | Status |
+|---|---|---|---|
+| A — structural extraction | which source table and column produce a staged field | connector, `fin_source_of_truth_decl` | FIN-041/043, blocked on Q4 |
+| B — semantic business mapping | what a staged value means canonically | `fin_mapping_rule` | **this task** |
+
+A purity scan fails the build if a source table, column, temple or credential name appears in
+the resolver.
+
+### How the stage finds a value without knowing a schema
+
+A rule's `source_value` is namespaced — `SANNIDHI:DS`, `SEVA_CODE:430` — and **the namespace is
+the name of the staged field the rule reads** (FIN-D-028). The fields consulted are derived from
+the rules, so a rule in a new namespace starts a new field being read with no deployment. The
+connector's side of the bargain is to emit its payload under those logical names; that is the one
+place the two vocabularies must agree, and it is now written down rather than assumed.
+
+### Two design gaps closed first
+
+1. **Precedence existed only in prose.** FIN-D-015 decided the more specific rule wins and made
+   it the connector's job, which buries a classification decision in per-temple code. Now a
+   stored `priority` (FIN-D-029). Without `SEVA_CODE:430` outranking `SANNIDHI:KN`, the first
+   source's donation-box collections — 13 records averaging over a crore — are reported as
+   ordinary donations and dominate any ranking of purchased services.
+2. **Nothing said where a rule's value is found.** Closed by the namespace convention, with no
+   new column and no change to the connector contract.
+
+### Outcomes
+
+| Outcome | Canonical value | Meaning |
+|---|---|---|
+| `MAPPED` | the rule's | one rule won |
+| `UNMAPPED` | `UNMAPPED` | a value no rule covers; add a rule |
+| `AMBIGUOUS` | **none** | rules contradict each other at equal priority |
+| `NOT_APPLICABLE` | **none** | no field to read, or present and empty |
+| `INVALID_CONFIGURATION` | **none** | a rule names a category that does not exist |
+
+Three of the five produce no canonical value at all, so FIN-056 has nothing it could load them
+as. `UNMAPPED` versus `NOT_APPLICABLE` is the distinction that earns its keep: the first needs a
+mapping rule, the second usually means extraction stopped supplying a field.
+
+Ambiguity is never resolved by picking one. The only tiebreakers available are rule id and
+whatever order the database returns, and both would make published revenue depend on an
+implementation detail.
+
+Values are matched exactly — nothing trimmed or case-folded into a match. A source that pads or
+capitalises differently surfaces as unmapped, which is how somebody finds out.
+
+### Idempotency and re-running
+
+Keyed `(stg_revenue_id, mapping_type)`, enforced by `uk_fsrm_row_type`. Correcting a rule and
+running again replaces the decision rather than adding one — this is the supported way to fix a
+misclassification, and the main practical reason staging is retained. The stage's own errors are
+cleared, scoped to `MAP`, before being rewritten.
+
+Staging is not touched at all, and `StagingStatus` gains no `MAPPED` value (FIN-D-030).
+
+### A counter defect found in FIN-053
+
+`rows_rejected` was derived from *all* of a batch's errors. Mapping records at a different grain
+— one error per distinct unresolved value, not per row — so the unscoped count would have folded
+mapping's summaries into a rejected-row figure matching no set of rows. Now scoped to `VALIDATE`
+(FIN-D-032). `fin_sync_error` consequently holds two grains, which is a real cost: anything
+counting it must scope by stage, and `MAP` rows carry a NULL `source_record_ref` because they
+are about a value rather than a record.
+
+### Scope
+
+`REVENUE_CATEGORY` only — the only mapping type with both seeded rules and a seeded canonical
+target. `SERVICE` needs 164 rules and `fin_service_dim` rows that do not exist; `PAYMENT_MODE`
+for the first source is inferred from field presence, which ADR-004 puts in connector code;
+`METAL_TYPE` belongs to FIN-110 and its two seeded rules are **not namespaced**, so they are
+reported as `UNUSABLE_MAPPING_RULE` rather than silently ignored. The resolver is generic over
+`MappingType`, so those arrive as configuration.
+
+Nothing is loaded: no amounts, no dates, no financial year, no `fin_revenue_fact` row.
+
+### Mutation results
+
+All six measured, each against a report the run itself produced (FIN-D-027): the report is
+deleted first, its absence is a failure rather than a pass, and its timestamp must postdate the
+run's start. Sources are restored between mutations and verified against a pristine checksum.
+
+| # | Mutation | Applied | Fresh report | Tests | Failures | Verdict |
+|---|---|---|---|---|---|---|
+| N1 | Source scoping removed — every source's rules load | YES | YES | 38 | 2 | **KILLED** |
+| N2 | Ambiguity detection removed — the first winner is taken | YES | YES | 38 | 2 | **KILLED** |
+| N3 | Idempotency protection removed — a re-run inserts a second decision | YES | YES | 38 | 2 | **KILLED** |
+| N4 | Unmapped reported as mapped | YES | YES | 38 | 9 | **KILLED** |
+| N5 | Source-row traceability dropped | YES | YES | 38 | 1 | **KILLED** |
+| N6 | Precedence inverted — the least specific rule wins | YES | YES | 38 | 3 | **KILLED** |
+
+Which tests caught each one:
+
+| # | Failing tests |
+|---|---|
+| N1 | `should_isolateSources_when_anotherSourceHasTheRule`, `should_isolateTemples_when_bothHaveRules` |
+| N2 | `should_reportAmbiguous_when_twoRulesMatchAtTheSamePriority`, `should_carryNoCanonicalValue_when_undecided` |
+| N3 | `should_beIdempotent_when_runTwice`, `should_replaceDecision_when_ruleIsCorrectedAndRerun` |
+| N4 | `should_reportUnmapped_when_noRuleMatchesTheValue`, `should_summariseUnmapped_when_manyRecordsShareAValue` and seven more |
+| N5 | `should_preserveSourceIdentity_when_mapping` |
+| N6 | `should_preferHigherPriority_when_twoRulesMatch`, `should_beDeterministic_when_ruleOrderVaries`, `should_replaceDecision_when_ruleIsCorrectedAndRerun` |
+
+**N6 is the one worth reading twice.** Priority is the column FIN-D-029 added, and inverting it
+is the difference between donation-box collections being reported as collections and being
+reported as ordinary donations. That it fails `should_beDeterministic_when_ruleOrderVaries` as
+well as the direct precedence test is the point: the guarantee is not "the right rule usually
+wins" but "the same rule wins whatever order the database returns".
+
+**Two earlier N6 runs were recorded `NOT_EXECUTED` and are not in this table.** Neither failure
+was the mutation's: the first was an in-progress FIN-055 source file referencing a repository
+method that did not exist yet, the second a `target/` directory left corrupt after a process
+kill. Both are exactly the kind of result FIN-D-027 exists to keep out of a table like this one,
+so N6 was rerun on a verified-clean tree rather than reported from a build that never ran.
+
+### Architectural review
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Source vocabulary, transport or credentials in the stage? | NO | `should_stayGeneric_when_sourceScanned` |
+| Can an unknown value be silently accepted? | NO | `should_reportUnmapped_when_noRuleMatchesTheValue`, mutation N4 |
+| Are ambiguous rules resolved arbitrarily? | NO | `should_reportAmbiguous_when_twoRulesMatchAtTheSamePriority`, N2 |
+| Is precedence deterministic and order-independent? | YES | `should_beDeterministic_when_ruleOrderVaries`, N6 |
+| Can one source's rules classify another's revenue? | NO | `should_isolateSources_when_anotherSourceHasTheRule`, N1 |
+| Are disabled or deleted rules applied? | NO | `should_ignoreRule_when_inactive`, `should_ignoreRule_when_softDeleted` |
+| Are unmapped records discarded? | NO | `should_keepRecord_when_valueIsUnmapped` |
+| Can a retry duplicate a decision? | NO | `uk_fsrm_row_type`, `should_beIdempotent_when_runTwice`, N3 |
+| Is source-row traceability preserved? | YES | `should_preserveSourceIdentity_when_mapping`, N5 |
+| Is staging modified? | NO | `should_leaveStagingUntouched_when_mapping` |
+| Is anything normalized or loaded here? | NO | no amount, date or fact code exists in the stage |
 
 ---
 
@@ -789,6 +949,31 @@ the same 4 report files).
    the `test` profile can boot a full context, "the worker starts" is inferred rather than
    observed.
 
+22. **Mapping has no writer upstream and no reader downstream.** `fin_stg_revenue_mapping` is
+   filled only by a test or a manual invocation, and nothing reads a decision yet: FIN-056 is
+   what turns `canonical_value` into `fin_revenue_fact.category_id`. Whoever writes it must
+   refuse every outcome except `MAPPED` and `UNMAPPED`, because the other three carry no
+   canonical value by design (FIN-D-031).
+23. **`fin_sync_error` now holds two grains.** Validation writes one error per rejected row;
+   mapping writes one per distinct unresolved source value, with a NULL `source_record_ref`.
+   Anything counting that table must scope by `error_stage` — `rows_rejected` now does
+   (FIN-D-032), and a future reconciliation or monitoring query must too.
+24. **The two `METAL_TYPE` rules seeded for the first source cannot fire.** Their `source_value`
+   is a bare `1` and `2` with no namespace, so under FIN-D-028 they name no staged field. They
+   are reported as `UNUSABLE_MAPPING_RULE` rather than ignored, and FIN-110 will need to
+   namespace them. Nothing reads `METAL_TYPE` today, so this costs nothing yet.
+25. **`SERVICE` and `PAYMENT_MODE` mapping do not exist.** `SERVICE` needs 164 rules and
+   `fin_service_dim` rows that have never been created; `PAYMENT_MODE` for the first source is
+   inferred from whether a card field is populated, which ADR-004 places in connector code
+   rather than in a rule. `FINANCE_DATA_INTEGRATION.md` §6 also lists a `code 75 → ENTRY_FEE`
+   rule that **is not in the seed** — nine rules are seeded, not ten. That gap is real and was
+   left rather than invented.
+26. **The namespace convention is a contract no connector has yet had to keep.** FIN-D-028 says
+   a rule's namespace is the name of the staged field it reads, which obliges a connector to
+   emit its payload under those logical names. No connector exists, so the agreement has only
+   been exercised against synthetic payloads. The first connector is where it will be tested for
+   real, and a mismatch shows up as every record `NOT_APPLICABLE` — loud, but only if somebody
+   is looking at the outcome counts.
 ---
 
 ## Q4 Status
@@ -840,42 +1025,41 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-054**: the mapping stage — translate each `VALID` staged record's source
-vocabulary into canonical terms using `fin_mapping_rule`, routing anything unmapped to the
-seeded `UNMAPPED` category rather than dropping it or guessing.
+Implement **FIN-055**: normalization — turn each mapped staged record into the canonical daily
+shape, which means the two things every stage so far has deliberately deferred: **amounts and
+dates**.
 
-It is next because it is the only stage whose inputs all exist: Kollur's nine mapping rules
-are seeded (FIN-024), the canonical taxonomy is seeded (FIN-051), and validation now produces
-`VALID` rows to feed it. It needs no connector, no credential and no answer to Q4.
+It is next because its inputs now all exist. Validation guarantees the payload is readable,
+mapping supplies the canonical category, and the source-of-truth declaration (FIN-023) names
+which source field is authoritative for `REVENUE_AMOUNT` and under what filter. FIN-055 is the
+first stage entitled to read that declaration, and the first that may look at a money value at
+all.
 
 What it owns, and what must not slip:
 
-- **Precedence is part of the rule set** (FIN-D-015). Source values are namespaced
-  (`SANNIDHI:KN`, `SEVA_CODE:430`) and the more specific rule wins. Without the `SEVA_CODE:430`
-  override, Kollur's donation-box collections — 13 records averaging over a crore each — are
-  reported as ordinary donations and dominate any ranking of purchased services.
-- **`UNMAPPED` is a destination, not a failure.** An unmapped value is real revenue whose kind
-  nobody has established; it must stay visible and must never be absorbed into `OTHER_INCOME`,
-  whose own seeded description forbids that use. Whether an unmapped row is also a
-  `fin_sync_error` at stage `MAP` is a decision for that task — visible either way.
-- **No source table or column name may appear in the mapping stage.** It reads configuration
-  rows, not a temple's schema; that is what makes it the same code for every temple.
-- Mapping does not derive dates, parse amounts, or write facts. Those are FIN-055 and FIN-056.
+- **The financial year is computed, not carried.** `fin_revenue_fact.financial_year` is stored
+  and functionally dependent on `transaction_date`, so a wrong computation produces facts that
+  disagree with their own dates. It needs a test that a date in early April lands in the new
+  year, and it must use the canonical `2025-26` string form, never `20252026`.
+- **Amounts are exact decimals, parsed from strings.** No floating point, no rounding, and an
+  unparseable or absent amount is a recorded failure — never zero. `cancelled_amount` NULL,
+  `0` and a positive value are three different states (FIN-D-020).
+- **The business date is not the extraction date.** `source_business_date` in staging is
+  advisory and currently never populated; the authoritative date comes from `raw_json` against
+  the declaration. A source editing a two-year-old receipt must not restate history.
+- **Only decided records may proceed.** `MAPPED` and `UNMAPPED` have a canonical category;
+  `AMBIGUOUS`, `NOT_APPLICABLE` and `INVALID_CONFIGURATION` carry none by design (FIN-D-031),
+  and normalization must refuse them rather than substituting one.
+- **Many staged rows become one fact.** The collapse to daily grain happens here, where it is
+  visible and testable, and every grain column a connector groups by must be a subset of
+  `uk_frf_grain` (FIN-D-019).
 
-Where it fits: staged rows are `VALID` today and there is no status between `VALID` and
-`LOADED`. FIN-054 should decide whether mapping needs its own state or is part of the
-normalization pass that produces canonical rows — and say so, rather than adding a status
-because it looks symmetrical.
+One open question it should settle rather than inherit: FIN-053 noted that a genuinely generic
+and valuable rule — checking that the payload contains the field the source-of-truth
+declaration names as authoritative — needs a decision about whether declaration field
+references and connector field names share a vocabulary. FIN-054 has now answered the
+equivalent question for mapping rules (FIN-D-028: the namespace is the field name), so there is
+a precedent to follow or to reject deliberately.
 
-After that, **FIN-055** (normalization to daily grain, which owns the `financial_year`
-computation — early April must land in the new financial year) and **FIN-056** (the load
-writing through `uk_frf_grain` with `INSERT … ON DUPLICATE KEY UPDATE`; the shape is
-demonstrated in `should_convergeOnOneRow_when_upsertRepeated`).
-
-**An alternative worth considering first:** the orchestrator that ties extraction → validation
-→ mapping → load together, and updates `fin_sync_batch` as it goes. Nothing calls the
-validator today, and each new stage adds another component with no caller. It is not in the
-task list under its own number, which is itself worth noticing.
-
-Alternative if a smaller task is wanted: **FIN-032** — probe and capability declaration
-wiring into onboarding. It can only be exercised against fake connectors until FIN-040.
+After that, **FIN-056** (the idempotent load through `uk_frf_grain`), and then the orchestrator
+that no task currently owns — see limitation 14.

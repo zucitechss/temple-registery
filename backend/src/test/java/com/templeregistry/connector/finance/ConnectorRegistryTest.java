@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.entity.finance.enums.ConnectorType;
 import com.templeregistry.entity.finance.enums.FinanceCapability;
 import com.templeregistry.entity.finance.enums.SourceTechnology;
+import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
@@ -194,6 +197,9 @@ class ConnectorRegistryTest {
                 // need persistence collaborators. Mocked because the question here is what the
                 // registry resolves, which no database participates in.
                 .withBean(FinStgRevenueRepository.class, () -> mock(FinStgRevenueRepository.class))
+                        .withBean(FinStgRevenueMappingRepository.class, () -> mock(FinStgRevenueMappingRepository.class))
+                        .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
+                        .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
                 .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
                 .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
                 .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))

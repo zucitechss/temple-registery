@@ -1,6 +1,6 @@
 # Finance Implementation Tasks
 
-**Updated:** 2026-09-17 (FIN-053-fix)
+**Updated:** 2026-09-17 (FIN-054)
 **Branch:** `feature/db-integration`
 
 Statuses: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `COMPLETE` · `NEEDS_REVIEW`
@@ -215,7 +215,7 @@ including the Kollur one.
 | FIN-051 | Dimensions: `fin_revenue_category`, `fin_service_dim` | **COMPLETE** | FIN-011 |
 | FIN-052 | `fin_revenue_fact` (daily grain) | **COMPLETE** | FIN-051 |
 | FIN-053 | Validation stage, rejections to `fin_sync_error` | **COMPLETE** | FIN-050 |
-| FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | NOT_STARTED | FIN-024, FIN-053 |
+| FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | **COMPLETE** | FIN-024, FIN-053 |
 | FIN-055 | Normalization to daily grain | NOT_STARTED | FIN-054 |
 | FIN-056 | Idempotent load keyed on the grain unique constraint | NOT_STARTED | FIN-052, FIN-055 |
 
@@ -381,6 +381,74 @@ Corrected baseline: **180 tests, 0 failures, 0 errors**, filter extended with `*
 ---
 ---
 
+
+---
+
+## FIN-054 — Implementation Plan (recorded before implementing)
+
+**Two mapping layers, and which one this task is.** ADR-004 draws the line: *which rows and
+which columns* is code; *what a value means* is configuration.
+
+| Layer | Question | Where it lives | Status |
+|---|---|---|---|
+| A — structural extraction | which source table and column produce a staged field | connector code, `fin_source_of_truth_decl` | FIN-041/043, blocked on Q4 |
+| B — semantic business mapping | what a staged source value means canonically | `fin_mapping_rule` | **FIN-054, this task** |
+
+FIN-054 implements layer B only. It never names a source table or column.
+
+**The gap that must be closed first.** Layer B cannot run without knowing which staged field
+carries the value a rule matches on — and the stage is forbidden to know source field names.
+Two facts resolve it:
+
+1. `fin_mapping_rule.source_value` is already namespaced (`SANNIDHI:DS`, `SEVA_CODE:430`,
+   `STREAM:SAREE_AUCTION`) per FIN-D-015. **The namespace is the name of the staged field the
+   rule reads.** The engine derives its candidate fields from the rules themselves, so it holds
+   no source vocabulary — the vocabulary is entirely in configuration rows.
+2. FIN-D-015 states that the more specific rule wins, but the table has **no priority column**,
+   so the engine has no way to know `SEVA_CODE` outranks `SANNIDHI`. FIN-D-015's own consequence
+   line pushes this to "the connector must apply the precedence rule", which would put a
+   business decision inside a per-temple class. A stored `priority` makes it configuration,
+   deterministic, and auditable.
+
+**Deliverables.**
+
+| # | Item |
+|---|---|
+| 1 | `V114` — add `fin_mapping_rule.priority`; create `fin_stg_revenue_mapping` |
+| 2 | `MappingOutcome` enum — `MAPPED`, `UNMAPPED`, `AMBIGUOUS`, `NOT_APPLICABLE`, `INVALID_CONFIGURATION` |
+| 3 | `FinStgRevenueMapping` entity + repository |
+| 4 | `RevenueCategoryMapper` — the deterministic resolver, pure and unit-testable |
+| 5 | `RevenueMappingStage` — reads `VALID` staged rows, writes one mapping row each |
+| 6 | Tests against a real MySQL 8.0 container, plus mutations |
+
+**Resolution, deterministically.** Load active rules for the source system and mapping type.
+For each distinct namespace among them, read the staged field of that name and form the
+candidate key `NAMESPACE:value`. Match candidates against rules, keep the highest `priority`,
+and then:
+
+- exactly one winner → `MAPPED`
+- two or more winners at the same priority → `AMBIGUOUS`, never an arbitrary pick
+- a value present but no rule matches → `UNMAPPED`, routed to the seeded `UNMAPPED` category
+- no rule namespace present in the payload, or present but blank → `NOT_APPLICABLE`
+- a winning rule naming a canonical category that does not exist → `INVALID_CONFIGURATION`
+
+`UNMAPPED` and `NOT_APPLICABLE` are different questions with different owners: the first needs
+a new mapping rule, the second means the source supplied nothing to map. Collapsing them would
+hide a broken extraction behind a configuration gap.
+
+**Scope: `REVENUE_CATEGORY` only.** It is the only mapping type with both seeded rules and a
+seeded canonical target. `SERVICE` needs 164 rules and `fin_service_dim` rows that do not
+exist; `PAYMENT_MODE` for the first source is inferred from field presence, which ADR-004 puts
+in connector code, and has no seeded rules; `METAL_TYPE` belongs to precious metals (FIN-110).
+The resolver is generic over `MappingType` so those arrive as configuration, not code.
+
+**Staging is not modified.** Results go in a separate table keyed
+`(stg_revenue_id, mapping_type)`. `StagingStatus` gains no `MAPPED` value: staging stays the
+immutable evidence FIN-050 designed it to be, and re-running mapping after a rule correction is
+an update of the mapping row, not a rewrite of what the source said.
+
+**Out of scope, deliberately:** no canonical fact write (FIN-056), no date or amount handling
+(FIN-055), no financial-year derivation (FIN-055), no orchestration, no connector, no API.
 ## Phase 6 — Reconciliation
 
 | ID | Description | Status | Depends on |

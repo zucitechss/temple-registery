@@ -4,9 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.config.FinanceProfiles;
 import com.templeregistry.connector.finance.ConnectorRegistry;
 import com.templeregistry.connector.finance.TempleFinanceConnector;
+import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
+import com.templeregistry.service.finance.pipeline.RevenueMappingStage;
 import com.templeregistry.service.finance.pipeline.RevenueStagingValidator;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
@@ -109,6 +113,29 @@ public class SyncWorkerConfig {
         perRow.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new RevenueStagingValidator(
                 stagingRepository, errorRepository, batchRepository, perRow, objectMapper);
+    }
+
+    /**
+     * Translates validated source values into canonical ones (FIN-054).
+     *
+     * <p>Holds no source vocabulary: the fields it reads come from {@code fin_mapping_rule}
+     * rows, so onboarding a temple adds configuration rather than code (ADR-004). It is here
+     * rather than in the registry runtime for the same reason as the validator — it moves
+     * pipeline state, and nothing serving HTTP should be able to.
+     */
+    @Bean
+    public RevenueMappingStage revenueMappingStage(FinStgRevenueRepository stagingRepository,
+                                                   FinStgRevenueMappingRepository mappingRepository,
+                                                   FinMappingRuleRepository ruleRepository,
+                                                   FinRevenueCategoryRepository categoryRepository,
+                                                   FinSyncErrorRepository errorRepository,
+                                                   FinSyncBatchRepository batchRepository,
+                                                   PlatformTransactionManager transactionManager,
+                                                   ObjectMapper objectMapper) {
+        TransactionTemplate perRow = new TransactionTemplate(transactionManager);
+        perRow.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new RevenueMappingStage(stagingRepository, mappingRepository, ruleRepository,
+                categoryRepository, errorRepository, batchRepository, perRow, objectMapper);
     }
 
     /**

@@ -862,3 +862,160 @@ after the run started, so an unrelated process on the machine is not taken down 
 **Consequence.** Mutation numbers in the tracking documents are only those a fresh report
 supports. Where a mutation could not be executed, it is recorded as not executed, with the
 reason — never omitted and never inferred from a neighbouring run.
+
+---
+
+## FIN-D-028 — A mapping rule's namespace names the staged field it reads
+
+**Date:** 2026-09-17 · **Affects:** `fin_mapping_rule.source_value`, `MappingRuleResolver`
+
+**Decision.** `source_value` is written `<field>:<value>` — `SANNIDHI:DS`, `SEVA_CODE:430` — and
+the part before the colon is **the name of the staged field the rule matches against**. The
+mapping stage derives the set of fields it reads from the rules themselves.
+
+**Reason.** ADR-004 puts extraction in code and value mapping in configuration, and FIN-054 is
+the configuration half. But a stage forbidden to know source column names still has to find the
+value a rule is about, and nothing previously connected the two: `fin_mapping_rule` said what
+`DS` means without saying where `DS` is found.
+
+Reusing the namespace closes that with no new column and no change to the connector contract.
+It also keeps the property that makes the stage generic — add a rule in a new namespace and a
+new field starts being read, with no deployment and with nothing in the code learning a
+temple's vocabulary. The obligation it places on a connector is to emit its payload under those
+logical names, which is the one point where the two vocabularies must agree, and it is now
+stated rather than implied.
+
+**Rejected.** A `source_field` column on `fin_mapping_rule`. It would duplicate information the
+namespace already carries and allow the two to disagree.
+
+**Rejected.** A new method on `TempleFinanceConnector` declaring its mapping inputs. It puts a
+business classification decision back into per-temple code, which is what ADR-004 exists to
+prevent, and changes a contract no implementation has yet been written against.
+
+**Consequence.** A rule whose `source_value` has no namespace can never fire. Those are reported
+as `UNUSABLE_MAPPING_RULE` rather than ignored — the two `METAL_TYPE` rules seeded for the first
+source are in this form, and will need namespacing when FIN-110 maps them.
+
+---
+
+## FIN-D-029 — Rule precedence is stored, and equal precedence is an ambiguity
+
+**Date:** 2026-09-17 · **Affects:** `fin_mapping_rule.priority`, `MappingRuleResolver`
+
+**Decision.** `fin_mapping_rule` gains `priority INT NOT NULL DEFAULT 100`; the highest matching
+priority wins. Two or more matches at the top priority produce `AMBIGUOUS` and **no canonical
+value at all**.
+
+**Reason.** FIN-D-015 decided that the more specific rule wins, and left it in prose: the
+consequence line says "the connector must apply the precedence rule". That put a business
+classification decision inside a per-temple class, where a second temple would have to
+reimplement it, and left the engine with no way to tell which of two matching rules was more
+specific. Storing it makes precedence configuration, visible next to the rules it orders.
+
+It is not academic. Without the `SEVA_CODE:430` override outranking `SANNIDHI:KN`, the first
+source's donation-box collections — 13 records averaging over a crore each — are classified as
+ordinary donations and dominate any ranking of services devotees actually bought.
+
+**Why ambiguity is not resolved by picking one.** The available tiebreakers are rule id and
+whatever order the database returns, and both would make a temple's published revenue depend on
+an implementation detail. A contradiction in configuration is a thing for a person to fix, and
+saying so costs one batch's classification; choosing silently costs the credibility of the
+figure.
+
+**Rejected.** Ordering by specificity of the namespace, inferred from how many rules share it.
+It guesses at intent from a statistic, and changes behaviour when an unrelated rule is added.
+
+**Consequence.** `V114` promotes `SEVA_CODE:%` rules to 200. Expressed as a predicate on the
+namespace rather than on a temple id, so it is a statement about specificity rather than about
+one source, and a source not using that namespace is unaffected.
+
+---
+
+## FIN-D-030 — A mapping decision lives beside the staged record, not inside it
+
+**Date:** 2026-09-17 · **Affects:** `fin_stg_revenue_mapping`, `fin_stg_revenue`, `StagingStatus`
+
+**Decision.** Mapping writes to a separate table keyed `(stg_revenue_id, mapping_type)`.
+`fin_stg_revenue` is not modified, and `StagingStatus` gains no `MAPPED` value.
+
+**Reason.** Staging holds what the source actually sent (FIN-050). Mapping is an interpretation
+of it, and interpretations change: the supported way to fix a misclassification is to correct a
+rule and run again, without re-contacting the source. Evidence that is rewritten every time the
+interpretation changes has stopped being evidence.
+
+The key is also the idempotency key. One current decision per record per mapping type means a
+replay updates rather than appends, so no count taken from this table can be doubled by a retry
+— the same rule FIN-D-023 applies to `rows_rejected`.
+
+**Rejected.** Columns on `fin_stg_revenue`. It mutates the evidence, and it does not generalise:
+`SERVICE`, `PAYMENT_MODE` and `METAL_TYPE` would each need their own pair of columns, where the
+separate table takes them as more rows.
+
+**Rejected.** A `MAPPED` staging status. The staged row's status describes its own lifecycle;
+whether an interpretation of it currently exists is a fact about a different table. Adding it
+would also give FIN-056 two places to look for whether a row is loadable.
+
+**Consequence.** Provenance is denormalised onto each decision — temple, source system, batch
+and `source_record_ref`. A decision that could only be explained by joining to staging would
+become unexplainable the day staging retention (Q7) is agreed.
+
+---
+
+## FIN-D-031 — Five mapping outcomes, and only two of them produce a value
+
+**Date:** 2026-09-17 · **Affects:** `MappingOutcome`, `fin_stg_revenue_mapping.canonical_value`
+
+**Decision.** `MAPPED`, `UNMAPPED`, `AMBIGUOUS`, `NOT_APPLICABLE`, `INVALID_CONFIGURATION`.
+Only `MAPPED` and `UNMAPPED` set `canonical_value`; the other three leave it NULL.
+
+**Reason.** "We did not produce a canonical value" has several causes with different owners, and
+an empty value cannot mean all of them at once:
+
+| Outcome | What it means | Who fixes it |
+|---|---|---|
+| `UNMAPPED` | the source sent a value no rule covers | add a mapping rule |
+| `NOT_APPLICABLE` | the source sent nothing to map | the connector, or nothing — some records genuinely have no category |
+| `AMBIGUOUS` | rules contradict each other | whoever owns the configuration |
+| `INVALID_CONFIGURATION` | a rule names a category that does not exist | a typo, same owner |
+
+The distinction that matters most is the first two. An unknown value is an expected part of
+onboarding; a record carrying no category field at all usually means extraction stopped
+supplying one. Collapsing them hides a broken connector behind a configuration gap.
+
+**`UNMAPPED` carries a value because it has a destination.** It is real revenue whose kind
+nobody has established, and it routes to the seeded `UNMAPPED` category rather than to
+`OTHER_INCOME`, whose own description forbids that use (ADR-004). The other three have no
+destination and must not acquire one by default, so FIN-056 has nothing it could load them as.
+
+**Consequence.** `INVALID_CONFIGURATION` is checked against `fin_revenue_category` at mapping
+time rather than at load, where a typo would surface as a constraint failure on tens of
+thousands of rows with nothing naming the rule responsible.
+
+---
+
+## FIN-D-032 — Mapping records one error per unresolved value, not per record
+
+**Date:** 2026-09-17 · **Affects:** `fin_sync_error` at stage `MAP`, `fin_sync_batch.rows_rejected`
+
+**Decision.** The `MAP` stage writes one `fin_sync_error` per distinct unresolved source value
+per batch, carrying the number of records affected. Validation continues to write one per
+rejected row. `rows_rejected` is now derived from **`VALIDATE`-stage errors only**.
+
+**Reason.** A single missing rule can account for an entire batch. Forty thousand identical
+row-level errors would bury the one fact an operator can act on — which value, and how much it
+costs — and the per-record trail already exists in `fin_stg_revenue_mapping`, at full detail.
+
+**The counter interaction this exposed.** FIN-053 set `rows_rejected` from
+`countBySyncBatchId`, unscoped. Once mapping writes against the same batch at a different
+grain, that count folds mapping's summaries into a rejected-row figure and produces a number
+matching no set of rows — exactly the failure FIN-D-023 exists to prevent, arriving from a
+stage FIN-D-023 did not anticipate. Now scoped to `VALIDATE`.
+
+**Consequence, stated because it is a real inconsistency.** `fin_sync_error` no longer holds one
+grain. Its comment says "row-level rejections" and `MAP` rows are not that: they carry a NULL
+`source_record_ref`, because they are about a value rather than a record. The alternative — a
+separate summary table — was rejected as a second place to look for the same question, but the
+mixed grain is a cost, and anything counting this table must scope by stage.
+
+**Re-running clears this stage's errors first**, scoped to `MAP`, so a replay replaces the list
+rather than growing it and cannot touch what validation recorded.
