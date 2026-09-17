@@ -1163,3 +1163,201 @@ For a group it is NULL, and the contributing staged row ids are the trace.
 **Reason.** Naming one member of a group — the first, say — points an investigator at an
 arbitrary record and hides the rest, which is worse than saying nothing. NULL here means
 "several", and is honest about it.
+
+---
+
+## FIN-D-041 — The load assigns measures; it never accumulates them
+
+**Date:** 2026-09-17 · **Affects:** `fin_revenue_fact`, `FinRevenueFactRepository.upsert`
+
+**Decision.** `ON DUPLICATE KEY UPDATE gross_amount = VALUES(gross_amount)` — replacement, never
+`gross_amount + VALUES(gross_amount)`.
+
+**Reason.** A retry and a restatement are different events and this one choice handles both. A
+retry must leave the totals unchanged; a later batch re-reading days already loaded must replace
+those days, because the source was re-read and this is what it now says. Adding would double a
+temple's reported revenue on every replay.
+
+**Why it needs a test rather than a constraint.** An accumulating upsert satisfies
+`uk_frf_grain` perfectly — the row is unique either way — so nothing in the schema can catch it.
+Mutation L1 fails exactly one test, and without that test the defect would reach production
+looking like a working loader.
+
+**Consequence.** `sync_batch_id` records which batch *last* wrote a row, not every batch that
+contributed. That is the honest reading: after a restatement the earlier batch's figures are no
+longer what the platform reports.
+
+---
+
+## FIN-D-042 — A partial load keeps what it wrote and still fails the batch
+
+**Date:** 2026-09-17 · **Affects:** `RevenueLoadStage`
+
+**Decision.** Each fact is written in its own transaction. A failure does not roll back the facts
+already written, and the batch still ends by throwing `LoadFailedException` with its errors
+recorded at stage `LOAD`.
+
+**Reason, both halves.** Keeping the written facts is safe because each is idempotent and keyed
+on the grain, and discarding them would make a retry redo work that had already succeeded — on
+the operation that handles the most rows in the system. Failing the batch anyway is the other
+half: a batch that reports `SUCCESS` having written some of its facts is worse than one that
+reports `FAILED`, because the second is investigated and the first is believed (FIN-D-017).
+
+**Found by a mutation, not by design.** Removing the throw altogether changed no test result
+until the failure path was actually exercised — nothing in the suite had ever made a write fail.
+The tests now force one with an amount too large for `DECIMAL(18,2)`, which is a plausible
+corrupt source value that reaches the write before anything objects.
+
+---
+
+## FIN-D-043 — The staging claim's guard is defence in depth, and its removal is not observable
+
+**Date:** 2026-09-17 · **Affects:** `FinStgRevenueRepository.markLoaded`
+
+**Decision.** `markLoaded` stays conditional on `validationStatus = VALID`. No test asserts that
+the condition is present, because none can honestly.
+
+**What the mutation showed.** Removing the condition kills nothing (L4, SURVIVED). Normalization
+builds facts only from `VALID` rows, so a second load finds nothing to claim whether or not the
+guard is there, and `rows_loaded` is derived from a count rather than incremented, so even two
+racing loaders converge on the same number.
+
+**Why it stays anyway.** It is correct and costs nothing, and it is the guard that would matter
+if a future caller ever incremented a counter instead of deriving one. But a test written to
+"cover" it would be asserting behaviour the design already guarantees by another route — the
+vacuous kind. Recorded rather than faked, exactly as FIN-D-024 was.
+
+---
+
+## FIN-D-044 — A source deleting records cannot be detected by an incremental load
+
+**Date:** 2026-09-17 · **Affects:** `fin_revenue_fact`, FIN-060
+
+**Decision.** If a later batch produces no fact for a grain an earlier batch loaded, the earlier
+fact stands. Nothing is deleted, and nothing guesses.
+
+**Reason.** An incremental batch's window is a *modification* window, not a business-date range
+(ADR-006), so "this day should now be empty" cannot be inferred from it. A loader that deleted
+facts outside the current batch's output would erase correct history every time a batch covered
+a narrower window than the one before.
+
+**The cost, stated.** A source that deletes receipts will leave this platform overstating those
+days, silently, until either a full reload of a date range or a reconciliation against source
+totals (FIN-060) catches it. There is a test asserting the current behaviour so the limitation is
+visible rather than discovered.
+
+---
+
+## FIN-D-045 — Extraction is a generic stage, not the Kollur connector's job
+
+**Date:** 2026-09-17 · **Affects:** `RevenueExtractionStage`, Limitation 11
+
+**Decision.** `RevenueExtractionStage` drains a connector's `Stream<RawRow>` into
+`fin_stg_revenue`. It is production code, owned by no task's temple, and it is new in FIN-057.
+
+**Why it had to be written here.** Limitation 11 recorded extraction as FIN-043's. It is not:
+FIN-043 is scoped as the *Kollur* connector's `extract()` — its live receipt table and its six
+financial-year archives. Taking rows from any connector and landing them in staging is generic,
+and a search of production code for a write against `fin_stg_revenue` found none. The pipeline
+had no first step. Faking one in the test would have made the orchestrator "execute" while
+production still could not stage a single row.
+
+**Boundary.** This stage stores; it does not interpret. A `RawRow`'s values go to `raw_json` as
+delivered. No date is parsed, no amount read, no field name understood — those belong to
+validation (FIN-053), mapping (FIN-054) and normalization (FIN-055), after a declaration says
+what a field means. That is also what keeps the class free of `DailySevaNew`, `HKanikeItems` and
+TempleCode 43.
+
+---
+
+## FIN-D-046 — A doomed chunk is retried row by row, from the raw rows
+
+**Date:** 2026-09-17 · **Affects:** `RevenueExtractionStage.flush`
+
+**Decision.** Staging writes in chunks of 500, each in its own transaction. A chunk refused by
+`uk_fsr_batch_record` is retried one row at a time, and each retry builds a **fresh entity from
+the `RawRow`** rather than re-saving the instance the failed `saveAll` was given.
+
+**Why the rebuild matters.** The failed `saveAll` assigned generated ids to those instances and
+the rollback did not take them back. Re-saving them makes Hibernate treat each as detached and
+attempt a *merge* against a row that was never inserted — `StaleObjectStateException`, not the
+constraint violation the caller is diagnosing. Discovered by a test, not by reasoning: without
+the fix, any chunk containing one duplicate reference failed the whole batch with a misleading
+error.
+
+**Why not one transaction for the extract.** A single duplicate at row 40,000 would discard
+everything, which is the exact failure mode staging's loose payload exists to prevent.
+
+---
+
+## FIN-D-047 — The orchestrator composes; it owns status and nothing else
+
+**Date:** 2026-09-17 · **Affects:** `FinancePipelineOrchestrator`
+
+**Decision.** `run(syncBatchId)` claims the batch, then calls extraction, validation, mapping and
+load in order, each with the batch id alone. It increments no counter and writes no domain row.
+
+**Why composition was this small.** Five stages existed before this class and none had a caller.
+Each takes a batch id and returns a result; none takes a payload from another. The database
+carries the data between stages, so the orchestrator passes an id and reads a result. No stage
+was rewritten to fit the abstraction.
+
+**Counter ownership, restated.** `rows_extracted` belongs to extraction, `rows_rejected` to
+validation, `rows_loaded` to the load — each *derived from a count*, never incremented
+(FIN-D-023). A counter written in two places is one nobody can reconcile after a partial run, and
+the orchestrator writing a total on top of a stage's would be exactly that.
+
+**Normalization has no separate call.** The load normalizes as its first step (FIN-D-037), so the
+orchestrator has four calls for five stages. A failure inside normalization is reported at stage
+`LOAD`, because that is the call an operator sees fail.
+
+---
+
+## FIN-D-048 — No stage runs inside the orchestrator's transaction, and a failure gets its own
+
+**Date:** 2026-09-17 · **Affects:** `FinancePipelineOrchestrator`, `FinSyncBatchRepository.claimForRun`
+
+**Decision.** `run()` is not `@Transactional`. Claim, finish and failure-recording each use
+`TransactionTemplate` in a transaction of their own; every stage manages its own boundaries
+internally.
+
+**Why not one transaction.** A full extract-to-load run over a real source is minutes of work and
+tens of thousands of rows. Holding one transaction across it would pin undo log for the duration,
+block on TiDB's transaction size limits, and — worse — discard every successfully staged row when
+the load failed on one fact. Partial progress that is *recorded* is what makes a batch
+diagnosable (FIN-D-042).
+
+**Why the failure write is separate.** The transaction a stage was using may already be doomed.
+Writing the status inside it would roll back with everything else and leave the batch `RUNNING`
+forever — the one state nothing recovers from automatically. `recordFailure` is additionally
+best-effort: if it fails too, the original exception still propagates rather than being replaced
+by a bookkeeping error.
+
+**Claiming, not checking.** `claimForRun` is `UPDATE ... WHERE id = ? AND status = PENDING`. Two
+runners racing cannot both win; the loser's update matches no row and it is refused **by name**
+(`BatchNotClaimableException` naming the actual status), never skipped silently. A caller that
+asked for a run and got silence cannot tell "already done" from "did nothing".
+
+**No distributed lock, scheduler or queue was added.** The conditional claim is sufficient for the
+current single-worker architecture, and a test proves two threads racing produce exactly one
+winner.
+
+---
+
+## FIN-D-049 — The orchestrator does not advance the watermark
+
+**Date:** 2026-09-17 · **Affects:** `FinancePipelineOrchestrator.finish`, `fin_sync_batch.watermark_after`, FIN-043
+
+**Decision.** A successful run sets `status`, `finished_at` and `duration_ms`. It leaves
+`watermark_after` null. A test asserts this explicitly, so the gap is visible rather than
+discovered.
+
+**Why.** `watermark_after` is the change-axis position a future incremental sync resumes from.
+Deriving it means knowing which source column the watermark is read from, and that is a
+per-connector fact that belongs to the connector's extract (FIN-043) — no generic code can name
+it. Writing *something* here to make the field non-null would mean a later run skipping a window
+this one only partly processed, which is the one watermark error that silently loses money.
+
+**Boundary recorded.** Watermark advancement is FIN-043's, and must happen only from data the
+connector actually observed. Until then, incremental resumption is not available and every batch
+must be given its window explicitly.

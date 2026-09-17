@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-17 (FIN-055)
+**Updated:** 2026-09-17 (FIN-057)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,6 +12,8 @@
 
 | Task | Status |
 |---|---|
+| FIN-057 — Pipeline orchestrator (and the extraction stage nobody owned) | **COMPLETE** |
+| FIN-056 — Idempotent load | **COMPLETE** |
 | FIN-055 — Revenue normalization | **COMPLETE** |
 | FIN-054 — Revenue mapping | **COMPLETE** |
 | FIN-053 — Staging validation | **COMPLETE** (repaired; see FIN-D-026 and FIN-D-027) |
@@ -41,23 +43,226 @@ mutation table as evidence only if the run that produced it can be shown to have
 **What works.** The finance foundation (FIN-010…015), the registry / sync-worker runtime
 boundary (FIN-016), the generic connector contract (FIN-030), connector resolution (FIN-031),
 the complete Kollur configuration (FIN-021…024), the canonical revenue model (FIN-051,
-FIN-052), the staging table that feeds it (FIN-050), and the first two stages between them:
-validation (FIN-053) and mapping (FIN-054).
+FIN-052), the staging table that feeds it (FIN-050), and now every stage between them:
+extraction (FIN-057), validation (FIN-053), mapping (FIN-054), normalization (FIN-055) and the
+load (FIN-056) — with an orchestrator (FIN-057) that runs one `fin_sync_batch` through all of
+them and leaves it `SUCCESS` or `FAILED`, never `RUNNING`.
 
-Both ends of the pipeline exist and half the middle now runs. A staged record is judged, and
-the judgement is recorded in a way that cannot be lost — rejected rows keep their payload and
-gain one coded `fin_sync_error` each, so `rows_rejected` is explainable row by row. A validated
-record then has its source values translated into canonical ones from configuration alone, with
-every decision recorded against the record it is about, including the several distinct reasons
-for not reaching one.
+The pipeline is end to end. A connector's rows land in staging without being interpreted; a
+staged record is judged and its rejection explained row by row; a validated record has its
+source values translated from configuration alone; the translation becomes a dated, canonical
+figure; and the figure is written to `fin_revenue_fact` through a grain constraint that makes a
+replay converge rather than double.
 
-**What does not work yet.** No connector implementation, no extraction, no normalization, no
-financial-year derivation, no loader, no aggregation, no API, and no orchestrator to run the
-stages in order. The dashboard is still the static HTML file. Nothing writes to staging yet, so
-validation and mapping run only against rows a test or an operator puts there; no row of temple
-financial data has been read, `fin_revenue_fact` is empty, and no credential exists anywhere.
+**What does not work yet.** No connector implementation — `RevenueExtractionStage` drains
+whatever connector a source names, but the only one that exists is a synthetic test fixture, so
+**no row of real temple financial data has ever been read** and `fin_revenue_fact` is empty
+outside tests. No credential exists anywhere. Beyond that: no reconciliation (FIN-060), no
+aggregation (FIN-070/071), no API, no scheduler, no retry driver, and no watermark advancement
+(FIN-D-049). The dashboard is still the static HTML file.
 
 ---
+
+## FIN-057 — Pipeline Orchestrator
+
+### Files
+
+| File | Change |
+|---|---|
+| `service/finance/pipeline/FinancePipelineOrchestrator.java` | new — claims a batch, runs the stages, writes the terminal status |
+| `service/finance/pipeline/RevenueExtractionStage.java` | new — the connector→staging drain that did not exist |
+| `repository/finance/FinSyncBatchRepository.java` | `claimForRun` — conditional claim |
+| `repository/finance/FinStgRevenueRepository.java` | `countBySyncBatchId` — source of `rows_extracted` |
+| `service/finance/sync/SyncWorkerConfig.java` | two explicit `@Bean` registrations (FIN-D-008) |
+| `test/.../FinancePipelineOrchestratorTest.java` | new — 13 tests, real stages, synthetic connector |
+| `test/.../SyncWorkerProfileBoundaryTest.java`, `ConnectorRegistryTest.java` | mocks + bean assertions for the new beans |
+
+### The state machine
+
+```text
+PENDING --claimForRun--> RUNNING --> EXTRACT --> VALIDATE --> MAP --> LOAD (normalize + write)
+                                                                        |
+                            SUCCESS <-------------------------------- all stages returned
+                            FAILED  <-------------------------------- any stage threw
+```
+
+No new lifecycle enum was introduced. `SyncStatus` and `SyncStage` already modelled this, and a
+second set would have to be kept in agreement with the first by hand.
+
+Four calls for five stages: the load normalizes as its first step (FIN-D-037), so a normalization
+failure surfaces at stage `LOAD` — the call an operator actually sees fail.
+
+### Stage contracts
+
+| Stage | Call | Owns |
+|---|---|---|
+| Extract | `RevenueExtractionStage.extractBatch(long)` | `rows_extracted`, `DUPLICATE_SOURCE_RECORD_REF` errors |
+| Validate | `RevenueStagingValidator.validateBatch(long)` | `rows_rejected`, per-row rejection errors |
+| Map | `RevenueMappingStage.mapBatch(long)` | mapping decisions, `UNDECIDED`/`UNMAPPED` errors |
+| Normalize | called by the load | normalization rejections |
+| Load | `RevenueLoadStage.loadBatch(long)` | `rows_loaded`, `FACT_WRITE_FAILED` errors |
+| Orchestrator | `run(long)` | `status`, `started_at`, `finished_at`, `duration_ms`, `STAGE_FAILED` |
+
+Every counter is *derived from a count*, never incremented, and the orchestrator writes none of
+them (FIN-D-047, FIN-D-023).
+
+### What the investigation found
+
+**There was no staging writer in production code.** Limitation 11 recorded extraction as
+FIN-043's; FIN-043 is scoped as the *Kollur* connector's `extract()`. The generic
+connector→staging drain was unowned, and a search for any production write against
+`fin_stg_revenue` returned only tests. Implemented here as `RevenueExtractionStage` rather than
+faked in the harness — otherwise the orchestrator would "execute" while production still could
+not stage a row (FIN-D-045).
+
+### Transactions and concurrency
+
+`run()` is **not** `@Transactional`. Claim, finish and failure-recording each take their own
+transaction through `TransactionTemplate`; each stage keeps its own internal boundaries. A
+multi-minute, multi-stage run inside one transaction would pin undo log, hit TiDB's transaction
+size limits, and discard every staged row when the load failed on one fact (FIN-D-048).
+
+The claim is `UPDATE ... WHERE id = ? AND status = PENDING` — a claim, not a check followed by a
+write. Two racing runners cannot both win, and the loser is refused by name with the actual
+status. **No distributed lock, scheduler or queue was added**; none is required by the current
+architecture.
+
+A failure is recorded *before* the status is written, in a fresh transaction, because the
+stage's own transaction may already be doomed — writing the status inside it would roll back and
+strand the batch in `RUNNING`, the one state nothing recovers from automatically. `recordFailure`
+is best-effort: if it also fails, the original exception still propagates and the log carries
+enough to find the batch by hand.
+
+### The bug the tests found
+
+`should_refuseDuplicate_when_connectorRepeatsARecordRef` failed with
+`ObjectOptimisticLockingFailureException`, not the expected constraint violation. The failed
+`saveAll` had assigned generated ids to the entity instances, the rollback did not reclaim them,
+and the row-by-row retry re-saved those same instances — so Hibernate treated each as detached
+and *merged* against rows that were never inserted. Fixed by holding `List<RawRow>` and
+rebuilding entities at flush time (FIN-D-046). Without it, any chunk containing one duplicate
+failed the whole batch with an error naming nothing useful.
+
+### Tests
+
+13 in `FinancePipelineOrchestratorTest`, MySQL 8.0 Testcontainer, real migrations, with the
+**real** extraction, validation, mapping, normalization and load stages wired behind a synthetic
+in-test connector. The synthetic connector supplies rows; it does not stand in for a stage. The
+assertions are on staged rows, mapping decisions, canonical facts and batch counters that the
+real stages produced — composition is proved, not asserted by verifying that methods were called.
+
+No fixture is inserted into any production source table, and nothing in the test represents
+Kollur: the temple id is 940001 and the connector bean is `syntheticTestConnector`.
+
+### Boundaries recorded, not crossed
+
+- **Watermark advancement is FIN-043's** (FIN-D-049). `watermark_after` stays null and a test
+  asserts it. Incremental resumption is therefore not available; every batch needs its window.
+- **Retry driving is not here.** `retry_count`, `max_retries` and `next_retry_at` exist and
+  `findRetryable` reads them; nothing calls it. A `FAILED` batch stays failed until something
+  asks for it again.
+- **Re-processing means a new batch**, not a status reset — a finished batch refuses a re-run.
+
+---
+
+## FIN-056 — Idempotent Load
+
+### Files
+
+| File | Change |
+|---|---|
+| `repository/finance/FinRevenueFactRepository.java` | new — the native upsert, and the only writer of the canonical table |
+| `repository/finance/FinStgRevenueRepository.java` | `markLoaded`, the bulk conditional claim |
+| `service/finance/pipeline/RevenueLoadStage.java` | new — the stage |
+| `service/finance/sync/SyncWorkerConfig.java` | `revenueLoadStage` bean |
+| tests | `RevenueLoadStageTest` (18) |
+
+### The line that carries the risk
+
+```sql
+ON DUPLICATE KEY UPDATE gross_amount = VALUES(gross_amount)   -- not gross_amount + VALUES(...)
+```
+
+Assignment, never accumulation (FIN-D-041). It is what makes a retry and a restatement both
+safe, and an accumulating version satisfies `uk_frf_grain` perfectly — the row is unique either
+way — while doubling a temple's reported revenue on every replay. No constraint can catch it.
+Mutation L1 fails exactly one test, and that test is the entire defence.
+
+`created_at` is deliberately absent from the update list. A delete-then-insert passes every
+other test here and fails only that one, because it makes restating a two-year-old day
+indistinguishable from loading it for the first time.
+
+### Retry, restatement, deletion
+
+| Event | What happens | Why |
+|---|---|---|
+| Same batch loaded twice | totals unchanged, `rows_loaded` unchanged | measures assigned; the staging claim is conditional so a `LOADED` row is not counted again |
+| Later batch covers loaded days | those days are **replaced** | the source was re-read; this is what it says now |
+| Source deletes records | earlier fact **stands**, overstating | an incremental window is a modification window, not a business-date range (FIN-D-044) |
+
+The third is a real gap, tested so that it is visible. Closing it needs a full reload of a date
+range or reconciliation against source totals (FIN-060), and it cannot be inferred from an
+incremental batch without erasing correct history whenever a batch covers a narrower window than
+the one before.
+
+### Generated columns, first exercised
+
+This is the first code path that writes through `grain_service_key`, `grain_counter_key` and
+`grain_operator_key`. NULL is distinct from NULL in a unique index, so a fact with no counter and
+no operator — the ordinary case for the first source — would insert twice and report the day
+twice without them (FIN-D-018). `net_amount` is likewise the database's, and stays NULL where
+cancellations are unrecorded rather than letting gross stand in for net.
+
+### Failure
+
+A partial load keeps what it wrote and still fails the batch (FIN-D-042). Per-fact transactions
+mean a retry does not redo successful work; `LoadFailedException` plus errors at stage `LOAD`
+mean no batch reports success having written half its facts. The orchestrator, when it exists,
+must let that exception mark the batch `FAILED` rather than catching it into a "partially
+loaded" outcome.
+
+### Mutation results
+
+Same contract as FIN-053…FIN-055 (FIN-D-027), single-instance locked.
+
+| # | Mutation | Applied | Fresh report | Tests | Failed | Verdict |
+|---|---|---|---|---|---|---|
+| L1 | The upsert accumulates instead of replacing | YES | YES | 16 | 1 | **KILLED** |
+| L2 | A restatement silently does not restate | YES | YES | 16 | 1 | **KILLED** |
+| L3 | `created_at` is overwritten on restatement | YES | YES | 16 | 1 | **KILLED** |
+| L4 | The staging claim is no longer conditional | YES | YES | 16 | 0 | **SURVIVED** |
+| L5 | A failed load no longer fails the batch | YES | YES | 18 | 2 | **KILLED** (after) |
+| L6 | `rows_loaded` counts rows that were not loaded | YES | YES | 16 | 2 | **KILLED** |
+
+**L5 survived on the first run and that was a real gap.** Nothing in the suite had ever made a
+write fail, so removing the throw that fails the batch changed no result — the whole failure path
+was written and never executed. Two tests now force a genuine failure with an amount too large
+for `DECIMAL(18,2)`, a plausible corrupt source value that reaches the write before anything
+objects, and L5 re-measured is KILLED by exactly those two. The first-run figure is left in this
+table rather than quietly replaced.
+
+**L4 survives and is left surviving** (FIN-D-043). Normalization builds facts only from `VALID`
+rows, so a second load finds nothing to claim whether or not the guard is there, and
+`rows_loaded` is derived rather than incremented, so even two racing loaders converge on the same
+number. The guard stays because it is correct and free, but no outcome this design produces can
+distinguish its presence, and a test written to "cover" it would be asserting something another
+mechanism already guarantees. Same finding as FIN-D-024, recorded rather than faked.
+
+### Architectural review
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Can a replay double a temple's revenue? | NO | `should_replaceNotAccumulate_when_aLaterBatchCoversTheSameDay`, L1 |
+| Is a correction silently ignored? | NO | L2 |
+| Does a restatement look like a first load? | NO | `should_preserveCreatedAt_when_restating`, L3 |
+| Can a NULL grain column duplicate a fact? | NO | `should_notDuplicate_when_grainColumnsAreNull` |
+| Does a partial load report success? | NO | `should_failTheBatch_when_aFactCannotBeWritten`, L5 |
+| Is successful work lost on failure? | NO | `should_keepWhatSucceeded_when_aLaterFactFails` |
+| Is `rows_loaded` derived? | YES | `should_beIdempotent_when_theSameBatchIsLoadedAgain`, L6 |
+| Is a rejected record ever loaded? | NO | `should_loadNothing_when_recordWasRejected` |
+| Is gross ever reported as net? | NO | `should_leaveNetNull_when_cancellationsAreNotRecorded` |
+| Can one temple's total include another's? | NO | `should_totalPerTempleAndYear_when_summing` |
+| Is a source deletion detected? | **NO** | `should_leaveStaleFact_when_aLaterBatchNoLongerCoversIt` — known, FIN-D-044 |
 
 ## FIN-055 — Revenue Normalization
 
@@ -1007,10 +1212,10 @@ the same 4 report files).
    that orchestrator must let the exception fail the batch — recording it against
    `fin_sync_batch` / `fin_sync_error` — and must not catch it into a "skipped" outcome, which
    would restore precisely the silence FIN-D-017 exists to prevent.
-7. **`fin_revenue_fact` has no writer.** The constraint that makes loading idempotent is
-   proven, but the loader that relies on it is FIN-056. Until then the canonical tables are
-   empty by design, and the upsert shape the test demonstrates
-   (`INSERT … ON DUPLICATE KEY UPDATE`) is the intended write path, not a guess.
+7. **~~`fin_revenue_fact` has no writer.~~ Closed by FIN-056.** `RevenueLoadStage` is the only
+   writer, through `FinRevenueFactRepository.upsert` — `INSERT … ON DUPLICATE KEY UPDATE` with
+   assignment, never accumulation (FIN-D-041). The table is still empty outside tests because
+   no real source row has been read (limitation 37).
 8. **`financial_year` is stored, not derived by the database.** It is functionally dependent
    on `transaction_date`, so a loader that computes it wrongly — or with the wrong financial
    year start — will produce facts that disagree with their own dates. FIN-055 owns that
@@ -1023,10 +1228,13 @@ the same 4 report files).
    TTL, purge job or partitioning, so it grows without bound — at the first temple's volumes,
    fast. Deleting financial provenance on a schedule nobody has agreed is not a default worth
    choosing quietly, so it waits for an answer.
-11. **`fin_stg_revenue` has a reader but still no writer.** FIN-053 drains it; the extraction
-   path that fills it is FIN-043 and does not exist, so every row in the table today was put
-   there by a test. A constraint violation while staging must fail the batch with a
-   `fin_sync_error` at stage `EXTRACT`, not be caught and skipped.
+11. **~~`fin_stg_revenue` has a reader but still no writer.~~ Closed by FIN-057** —
+   `RevenueExtractionStage`, which is generic and was **not** FIN-043's to write: FIN-043 is the
+   *Kollur* connector's `extract()`, and taking a `Stream<RawRow>` into staging belongs to no
+   temple (FIN-D-045). A duplicate `source_record_ref` fails the row with a `fin_sync_error` at
+   stage `EXTRACT` and the rest of the batch still lands; it is never caught and skipped. The
+   rows in the table are still all synthetic, because the only connector is a test fixture
+   (limitation 37).
 12. **`source_business_date` is advisory and currently never populated.** Nothing writes it
    yet, and normalization must derive the authoritative date from `raw_json` regardless. If a
    future reader ever treats this column as authoritative, the advisory comment in V113 is the
@@ -1035,9 +1243,9 @@ the same 4 report files).
    `cancelled_amount`, which satisfies every catalogued cancellation report;
    `FINANCE_DATA_MODEL.md` §6.2 also specifies a full-detail table (465 rows across the first
    temple's entire history) that no task in the plan currently owns.
-14. **Nothing calls the validator yet.** `revenueStagingValidator` is a worker bean with no
-   caller: the orchestrator that would run extraction, then validation, then the rest is not
-   built. Until it exists, validation runs only from tests or a manual invocation.
+14. **~~Nothing calls the validator yet.~~ Closed by FIN-057.** `FinancePipelineOrchestrator`
+   calls it second, after extraction. What is still missing is anything that calls *the
+   orchestrator* — see limitation 39.
 15. **Two validation rules cannot fire** (FIN-D-022). `MISSING_PAYLOAD` and
    `MALFORMED_PAYLOAD` are unreachable while `raw_json` is a `JSON` column, because MySQL and
    TiDB reject a malformed document at insert. They remain because parsing throws a checked
@@ -1048,9 +1256,10 @@ the same 4 report files).
    a genuinely generic and valuable rule — it would catch a connector that stopped emitting the
    revenue field — but it needs a decision about whether declaration field references and
    connector field names share a vocabulary. Recorded for FIN-055.
-17. **`rows_extracted` and `rows_loaded` have no owner.** FIN-053 sets only `rows_rejected`,
-   derived. Whoever writes staging (FIN-043) and the loader (FIN-056) must decide theirs, and
-   should follow the same derived-not-incremented rule.
+17. **~~`rows_extracted` and `rows_loaded` have no owner.~~ Closed.** `rows_extracted` is
+   FIN-057's, derived from `countBySyncBatchId`; `rows_loaded` is FIN-056's, derived from a
+   count of `LOADED` rows. All three counters follow the derived-not-incremented rule, and the
+   orchestrator writes none of them (FIN-D-047).
 18. **Validation performance is untested at scale.** Rows are processed one transaction each,
    in chunks of 500 read through an id cursor. The quadratic re-scan that the earlier offset
    form caused is gone (FIN-D-026), and the test class dropped from 221.4 s to 74.8 s as a
@@ -1120,10 +1329,68 @@ the same 4 report files).
    presence, which ADR-004 puts in connector code), and `fin_service_dim` has no rows. Both mean
    the first facts this platform produces will carry less detail than `fin_revenue_fact` has room
    for, and several catalogued reports need that detail.
-31. **Normalization has no caller.** Like the validator and the mapper, `revenueNormalizationStage`
-   is a worker bean nobody invokes. The orchestrator that would run extract → validate → map →
-   normalize → load is still unowned (limitation 14), so the three stages that now exist are
-   three things that run alone.
+31. **~~Normalization has no caller.~~ Closed by FIN-057.** The orchestrator runs it, via the
+   load, which normalizes as its first step (FIN-D-037).
+32. **A source deleting records leaves this platform overstating.** The load replaces the grains a
+   batch produces and touches nothing else, because an incremental window is a modification
+   window and not a business-date range (FIN-D-044). If receipts are deleted at source, the
+   earlier fact stands and nothing notices. Only a full reload of a date range or reconciliation
+   against source totals (FIN-060) closes it, and FIN-060 is now unblocked.
+33. **Nothing links a published fact back to the rows that made it.** `NormalizedFact` carries the
+   contributing staged row ids in memory and discards them at the load;
+   `fin_revenue_fact.source_record_ref` is NULL for any grouped fact by design (FIN-D-040). So a
+   figure can be traced to a batch and a day, but not to its evidence. V113 anticipates a
+   `loaded_fact_id` on staging; neither that nor a back-link table exists.
+34. **Staged rows are never purged, and now they accumulate as `LOADED`.** Q7 is still unanswered
+   and the load has made it sharper: every row a batch processes stays forever, and at the first
+   source's volumes `fin_stg_revenue` grows without bound.
+35. **The upsert uses `VALUES()`, which MySQL 8.0.20 deprecates.** It works on MySQL 8.0 and on
+   TiDB, and is verified on the former by these tests. The alias form (`AS new ... = new.col`) is
+   the modern spelling and was not used because TiDB compatibility for it has not been checked —
+   the deployment target has still never run any of these migrations (limitation 9).
+36. **~~The load has no caller either.~~ Closed by FIN-057.** Every stage now has a caller:
+   `FinancePipelineOrchestrator.run(batchId)` composes extract → validate → map → load, and the
+   load normalizes internally.
+
+37. **The only connector is a test fixture.** `RevenueExtractionStage` drains whatever connector
+   a source system names, but the only implementation that exists is `SyntheticConnector`, which
+   lives in the test source tree. **No row of real temple financial data has ever been read.**
+   `kollurFinanceConnector` is named by the seed and does not exist (limitation 3), and building
+   it is FIN-043, blocked on Q4. Everything downstream is proven against synthetic rows.
+
+38. **The watermark is never advanced** (FIN-D-049). A successful run leaves `watermark_after`
+   null, so nothing can resume incrementally from where a previous batch stopped — every batch
+   must be given its window explicitly. Deriving it requires knowing which source column the
+   watermark is read from, which is per-connector knowledge belonging to FIN-043.
+
+39. **Nothing creates or schedules a batch.** `run()` takes the id of a `PENDING` batch that
+   something else inserted. Today that something is a test. There is no scheduler, no API and no
+   trigger, deliberately: the current architecture does not need one, and adding a scheduler
+   before there is a connector would schedule nothing.
+
+40. **`FAILED` batches are never retried automatically.** `retry_count`, `max_retries` and
+   `next_retry_at` exist and `findRetryable` reads them, but nothing calls it. Re-processing
+   means creating a new batch — a finished batch refuses a re-run rather than resetting its own
+   status, which is what keeps the audit spine honest.
+
+41. **A batch that dies with the JVM stays `RUNNING` forever.** The orchestrator guarantees no
+   batch is left `RUNNING` after an *exception*; it cannot guarantee it after a kill -9 or a pod
+   eviction, because the claim has no lease and no heartbeat. Recovering such a batch is a manual
+   operation today. A lease would be the fix and was not added: it is unjustified complexity
+   until something other than a test runs the pipeline.
+
+42. **`RevenueExtractionStage` is untested at source scale.** Chunks of 500 in their own
+   transactions terminate structurally, and the duplicate path is covered, but the largest run
+   any test performs is a handful of rows. The first source's archives are six financial years,
+   and nothing has measured what that costs. Shares limitation 18's shape.
+
+43. **Pipeline stage dependencies must be added to two database-free test contexts by hand.**
+   `SyncWorkerProfileBoundaryTest` and `ConnectorRegistryTest` build contexts with mocked
+   repositories to answer "which beans does each profile create" without a database. Every new
+   stage dependency means a new `.withBean(...)` line in both, and forgetting one turns both
+   files red for a reason unrelated to the boundary they guard. This happened three times across
+   FIN-055, FIN-056 and FIN-057. It is the cost of testing the boundary without a database, and
+   it is paid manually with no guard against forgetting.
 ---
 
 ## Q4 Status
@@ -1156,7 +1423,9 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
    `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*,*RevenueStaging*'`
-   — expect **180 passing, 0 failures, 0 errors** (8 m 29 s; requires Docker).
+   — expect **343 passing, 0 failures, 0 errors** as of FIN-057 (requires Docker). The filter needs
+   `*Normaliz*`, `*RevenueLoad*` and `*Orchestrator*` too; the pattern in step 3 above is the
+   current one.
 
    **The last pattern was added because it was missing.** Without `*RevenueStaging*` the filter
    matches none of FIN-053's 25 tests, so the documented "155 passing" was a real number for a
@@ -1175,39 +1444,37 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-Implement **FIN-056**: the idempotent load — the first write to `fin_revenue_fact`, and the
-first time this platform stores a figure it will stand behind.
+The pipeline now runs end to end, from a connector's stream to a canonical fact, and a batch that
+fails says where. **Nothing fills it with real data, and nothing triggers it.** Those remain two
+different problems.
 
-It is next because everything it needs now exists. Normalization hands it canonical facts, each
-already at the daily grain and each carrying the staged row ids that produced it; `uk_frf_grain`
-is in place and mutation-verified; and the generated `grain_*` columns already collapse the
-three nullable grain columns so the constraint means what it says (FIN-D-018).
+**FIN-060, reconciliation, is the recommended next task.** It is unblocked, and it is the only
+mechanism that would catch FIN-D-044 — a source deleting records leaves this platform
+overstating those days and nothing else notices. It is also the last piece that can be written
+honestly against synthetic data: every count it compares (`rows_extracted`, `rows_rejected`,
+`rows_loaded`, facts by batch) now has an owner and is derived rather than incremented, so a
+mismatch it reports means something real.
 
-What it owns, and what must not slip:
+Go in with a caution: reconciliation against *source totals* needs a source. With only a
+synthetic connector, FIN-060 can prove stage-to-stage completeness and internal consistency, and
+it cannot prove agreement with Kollur. Deletion detection specifically requires either a deletion
+signal or an authoritative period snapshot from the connector, and the current contract provides
+neither — that is a limitation to record, not a check to fake.
 
-- **The upsert is `INSERT … ON DUPLICATE KEY UPDATE` through `uk_frf_grain`.** Not a
-  select-then-insert, which races, and not a delete-then-insert, which loses `created_at` and
-  makes a restatement indistinguishable from a first load. FIN-052's test already demonstrates
-  the shape.
-- **A re-run must restate, not accumulate.** Loading the same batch twice must leave the same
-  totals. Loading a *second* batch covering the same window is a restatement of those days and
-  must replace, never add — this is the single easiest way to double a temple's reported
-  revenue, and the constraint alone does not prevent it because the fact is keyed on the grain,
-  not on the batch.
-- **`VALID -> LOADED` happens here and only here**, after the fact is written (FIN-D-038), using
-  the staged row ids each fact carries.
-- **`rows_loaded` is derived, not incremented** — the same rule FIN-D-023 imposed on
-  `rows_rejected`, and for the same reason. `rows_extracted` still has no owner (limitation 17).
-- **Nothing partially loaded may look complete.** If the load fails midway the batch must end
-  `FAILED` with its errors recorded at stage `LOAD`; a batch that reports success having written
-  half its facts is worse than one that reports failure.
+**FIN-043, the Kollur connector, is blocked on Q4** — network access to the first source. It is
+now the single thing standing between this platform and a real figure: everything downstream of a
+`Stream<RawRow>` exists and is tested.
 
-One thing to decide rather than inherit: whether a fact records which staged rows produced it.
-`NormalizedFact.stagedRowIds` carries them in memory, and `fin_revenue_fact` has only a
-nullable `source_record_ref` that is deliberately NULL for grouped facts (FIN-D-040). A
-back-link table would make every published figure traceable to its evidence; V113's comment
-anticipates a `loaded_fact_id` on staging instead. Neither exists, and reconciliation (FIN-060)
-will want one of them.
+Recommended order: FIN-060, then the aggregates (FIN-070/071) that the API layer reads. FIN-043
+slots in whenever Q4 is answered, and FIN-038/039 (watermark advancement) go with it.
 
-After that, the orchestrator that no task currently owns — see limitation 14 — which is what
-turns five stages that each run alone into a pipeline.
+Two things to decide rather than inherit:
+
+- **Whether a fact records which staged rows produced it.** `NormalizedFact.stagedRowIds` carries
+  them in memory and then discards them; `fin_revenue_fact.source_record_ref` is deliberately
+  NULL for grouped facts (FIN-D-040). A back-link table would make every published figure
+  traceable to its evidence, and V113's comment anticipates a `loaded_fact_id` on staging
+  instead. Neither exists. **FIN-060 will want one** — without it, reconciliation can compare
+  counts but cannot trace a canonical figure back to the source records behind it.
+- **Staging retention (Q7).** Still unanswered, and now more pressing: rows stay `LOADED` forever,
+  and at the first source's volumes `fin_stg_revenue` grows without bound.

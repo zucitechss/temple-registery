@@ -39,6 +39,36 @@ public interface FinStgRevenueRepository extends JpaRepository<FinStgRevenue, Lo
 
     long countBySyncBatchIdAndValidationStatus(Long syncBatchId, StagingStatus validationStatus);
 
+    /** Everything a batch staged, whatever state it has reached. Source of {@code rows_extracted}. */
+    long countBySyncBatchId(Long syncBatchId);
+
+    /**
+     * Marks the rows that contributed to a written fact as {@code LOADED} (FIN-056).
+     *
+     * <p>Conditional on {@code expected} for the same reason {@link #transition} is: it makes
+     * this a claim rather than an overwrite, so a re-run counts only the rows it actually moved
+     * and {@code rows_loaded} cannot drift above the rows that exist. A row already {@code
+     * LOADED} matches nothing and is not counted twice.
+     *
+     * <p>In bulk because a load writes one fact from many rows: one statement per contributing
+     * record would put a round trip on the hot path of exactly the operation that handles the
+     * most rows.
+     *
+     * @return how many rows this call moved, which is the number that had not been loaded before
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE FinStgRevenue s
+           SET s.validationStatus = :next,
+               s.updatedAt        = :now
+         WHERE s.id IN :ids
+           AND s.validationStatus = :expected
+        """)
+    int markLoaded(@Param("ids") List<Long> ids,
+                   @Param("expected") StagingStatus expected,
+                   @Param("next") StagingStatus next,
+                   @Param("now") LocalDateTime now);
+
     /**
      * Moves one row between states, but only from the state the caller expected.
      *

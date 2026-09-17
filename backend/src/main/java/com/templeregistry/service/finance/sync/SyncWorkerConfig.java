@@ -6,11 +6,16 @@ import com.templeregistry.connector.finance.ConnectorRegistry;
 import com.templeregistry.connector.finance.TempleFinanceConnector;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
+import com.templeregistry.repository.finance.FinSourceSystemRepository;
 import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
+import com.templeregistry.service.finance.pipeline.FinancePipelineOrchestrator;
+import com.templeregistry.service.finance.pipeline.RevenueExtractionStage;
+import com.templeregistry.service.finance.pipeline.RevenueLoadStage;
 import com.templeregistry.service.finance.pipeline.RevenueMappingStage;
 import com.templeregistry.service.finance.pipeline.RevenueNormalizationStage;
 import com.templeregistry.service.finance.pipeline.RevenueStagingValidator;
@@ -164,6 +169,69 @@ public class SyncWorkerConfig {
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new RevenueNormalizationStage(batchRepository, stagingRepository, mappingRepository,
                 declarationRepository, categoryRepository, errorRepository, template, objectMapper);
+    }
+
+    /**
+     * The load: a batch's normalized facts written to {@code fin_revenue_fact} (FIN-056).
+     *
+     * <p>The only writer of the canonical revenue table, and the reason it belongs to the worker
+     * is sharper than for the earlier stages: this is the process that decides what the platform
+     * will report. Nothing serving HTTP should be able to write a figure.
+     */
+    @Bean
+    public RevenueLoadStage revenueLoadStage(RevenueNormalizationStage normalizationStage,
+                                             FinRevenueFactRepository factRepository,
+                                             FinStgRevenueRepository stagingRepository,
+                                             FinSyncBatchRepository batchRepository,
+                                             FinSyncErrorRepository errorRepository,
+                                             PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new RevenueLoadStage(normalizationStage, factRepository, stagingRepository,
+                batchRepository, errorRepository, template);
+    }
+
+    /**
+     * Extraction: a connector's rows landed in staging (FIN-057).
+     *
+     * <p>The first stage, and the only one that touches a connector — which is why it could not
+     * exist in the registry runtime under any circumstances. It names no source table or column;
+     * what to read is the connector's, and what a value means is configuration's.
+     */
+    @Bean
+    public RevenueExtractionStage revenueExtractionStage(ConnectorRegistry connectorRegistry,
+                                                         FinSourceSystemRepository sourceSystemRepository,
+                                                         FinStgRevenueRepository stagingRepository,
+                                                         FinSyncBatchRepository batchRepository,
+                                                         FinSyncErrorRepository errorRepository,
+                                                         PlatformTransactionManager transactionManager,
+                                                         ObjectMapper objectMapper) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new RevenueExtractionStage(connectorRegistry, sourceSystemRepository,
+                stagingRepository, batchRepository, errorRepository, template, objectMapper);
+    }
+
+    /**
+     * The orchestrator: one batch, five stages, one status (FIN-057).
+     *
+     * <p>The piece that turns stages which each ran alone into a pipeline. It belongs to the
+     * worker for the strongest reason of any bean here — it is the thing that can reach a temple
+     * source system and write a canonical figure in one call.
+     */
+    @Bean
+    public FinancePipelineOrchestrator financePipelineOrchestrator(
+            RevenueExtractionStage extractionStage,
+            RevenueStagingValidator stagingValidator,
+            RevenueMappingStage mappingStage,
+            RevenueLoadStage loadStage,
+            FinSyncBatchRepository batchRepository,
+            FinSyncErrorRepository errorRepository,
+            PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new FinancePipelineOrchestrator(extractionStage, stagingValidator, mappingStage,
+                loadStage, batchRepository, errorRepository, template);
     }
 
     /**

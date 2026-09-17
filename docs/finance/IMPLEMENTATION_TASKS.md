@@ -217,7 +217,7 @@ including the Kollur one.
 | FIN-053 | Validation stage, rejections to `fin_sync_error` | **COMPLETE** | FIN-050 |
 | FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | **COMPLETE** | FIN-024, FIN-053 |
 | FIN-055 | Normalization to daily grain | **COMPLETE** | FIN-054 |
-| FIN-056 | Idempotent load keyed on the grain unique constraint | NOT_STARTED | FIN-052, FIN-055 |
+| FIN-056 | Idempotent load keyed on the grain unique constraint | **COMPLETE** | FIN-052, FIN-055 |
 
 
 
@@ -481,12 +481,202 @@ and a group with any unknown contributor totals to NULL rather than a partial su
 (FIN-D-038), no service resolution, no payment-mode mapping, no orchestration, no connector, no
 API.
 
+
+### FIN-056 — Idempotent load
+
+**Delivered.** `FinRevenueFactRepository` with a native upsert through `uk_frf_grain`,
+`FinStgRevenueRepository.markLoaded`, and `RevenueLoadStage`. The first write to
+`fin_revenue_fact`, and the first figure this platform will stand behind.
+
+**One line carries most of the risk.** `ON DUPLICATE KEY UPDATE gross_amount =
+VALUES(gross_amount)` — assignment, not accumulation (FIN-D-041). An accumulating upsert
+satisfies the unique constraint perfectly and doubles a temple's revenue on every replay, so
+nothing in the schema can catch it; only a test that checks the number can.
+
+**A retry and a restatement are the same mechanism.** Loading a batch twice leaves the totals
+unchanged. A later batch covering days already loaded replaces them, because the source was
+re-read and that is what it now says. `created_at` is excluded from the update list so a
+restatement of an old day stays distinguishable from a first load.
+
+**Failure keeps what succeeded and still fails the batch** (FIN-D-042). Per-fact transactions, so
+a retry does not redo work that worked; `LoadFailedException` and errors at stage `LOAD`, so no
+batch reports success having written half its facts.
+
+**`rows_loaded` is derived** from the staged rows actually `LOADED`, never incremented — the rule
+FIN-D-023 imposed on `rows_rejected`, for the same reason.
+
+**Out of scope, deliberately:** no reconciliation (FIN-060), no aggregation (FIN-070/071), no
+orchestration, no connector, no API. And no deletion detection — an incremental window cannot
+support it (FIN-D-044).
+
+
+## Phase 5b — Pipeline Orchestration
+
+| ID | Description | Status | Depends on |
+|---|---|---|---|
+| FIN-057 | Finance pipeline orchestrator | **COMPLETE** | FIN-053…FIN-056 |
+
+**Why here.** FIN-056 finished the last stage, and five stages that each run alone are not a
+pipeline. It sits before FIN-060 because reconciliation compares what a *run* produced against
+source totals, and until something executes a run there is nothing to reconcile. It is also the
+last substantial piece buildable without Q4.
+
+### Pre-implementation investigation — what actually exists
+
+Verified by reading source, not documentation.
+
+| Stage | Entry point | Implemented? |
+|---|---|---|
+| Extract | — | **NO.** No production code writes `fin_stg_revenue`. Confirmed by searching every `save` against it: the only hits are tests |
+| Validate | `RevenueStagingValidator.validateBatch(long)` | YES (FIN-053) |
+| Map | `RevenueMappingStage.mapBatch(long)` | YES (FIN-054) |
+| Normalize | `RevenueNormalizationStage.normalizeBatch(long)` | YES (FIN-055) |
+| Load | `RevenueLoadStage.loadBatch(long)` | YES (FIN-056), and it calls normalize itself |
+
+**The finding that shaped this task: there is no staging writer.** Limitation 11 said extraction
+"is FIN-043", but FIN-043 is scoped as *Kollur's* extraction — the live table plus six financial-
+year archives. Draining a connector's `Stream<RawRow>` into staging is generic, belongs to no
+temple, and nothing owned it. Without it the orchestrator has no `EXTRACT` step at all and the
+pipeline can never run in production, only in tests.
+
+So FIN-057 adds `RevenueExtractionStage`: generic, driven by `ConnectorRegistry` and the existing
+`RawRow` contract, naming no source table or column. FIN-043 remains what it always was — the
+Kollur connector's `extract()` — and is still blocked on Q4.
+
+### Stage contracts, as they actually are
+
+| Stage | In | Out | Idempotent | Retry | Transaction |
+|---|---|---|---|---|---|
+| Extract | batch id | rows staged, rows refused | per batch: `uk_fsr_batch_record` refuses a repeat within one batch | yes, into a new batch | one per chunk |
+| Validate | batch id | validated / rejected / already-claimed | yes — conditional claim, terminal rows skipped | yes | one per row |
+| Map | batch id | counts by outcome, contended | yes — `uk_fsrm_row_type`, decision replaced | yes | one per row |
+| Normalize | batch id | facts + rejections | yes — pure over staging, writes only errors | yes | one for the error summary |
+| Load | batch id | facts written, rows loaded | yes — upsert assigns (FIN-D-041) | yes | one per fact |
+
+Every stage takes a batch id and nothing else, which is what makes composition trivial: the
+orchestrator passes an id and a status, never a payload.
+
+**Load already calls normalize.** Rather than change a working stage to fit a new abstraction,
+the orchestrator treats `LOAD` as the step that also normalizes, and reports both. Documented
+rather than refactored (FIN-D-047).
+
+### Batch state machine — existing statuses, no new enum
+
+`SyncStatus` already models this, and mirrors the `email_outbox` machine this codebase runs:
+
+```
+PENDING --claim--> RUNNING --+--> SUCCESS
+                             +--> FAILED   (retryable until max_retries)
+```
+
+Per-stage statuses (`EXTRACTING`, `MAPPING`, …) are deliberately **not** added. They would be a
+second lifecycle vocabulary for information `fin_sync_error.error_stage` already carries at a
+finer grain, and every one would need a migration, an enum value and a transition rule. The
+current stage lives on the batch only while it runs, in the log and in the failure record.
+
+### Out of scope, deliberately
+
+No reconciliation (FIN-060), no aggregation, no API, no scheduler, no cancellation, no retry
+driver, no watermark advancement, and no connector implementation.
+
+
+### Delivered
+
+`FinancePipelineOrchestrator` + `RevenueExtractionStage`, both registered as explicit `@Bean`s in
+`SyncWorkerConfig` (FIN-D-008). `claimForRun` added to `FinSyncBatchRepository`,
+`countBySyncBatchId` to `FinStgRevenueRepository`. No migration — the state machine uses the
+statuses that already existed, and no new enum value was introduced.
+
+Verified by `FinancePipelineOrchestratorTest`, 13 tests on MySQL 8.0, wiring the real stages
+behind a synthetic in-test connector. Finance regression 343 green. Decisions FIN-D-045…049.
+
+One thing the plan did not anticipate: rebuilding entities on the row-by-row retry (FIN-D-046).
+The test found it; reasoning had not.
+
 ## Phase 6 — Reconciliation
 
 | ID | Description | Status | Depends on |
 |---|---|---|---|
-| FIN-060 | Reconciliation service: source total vs central total | NOT_STARTED | FIN-044, FIN-056 |
+| FIN-060 | Reconciliation service: completeness, consistency, and honest deletion handling | **IN PROGRESS** | FIN-056, FIN-057 |
 | FIN-061 | Publication gate — a FAILED result blocks aggregate publication | NOT_STARTED | FIN-060 |
+
+### FIN-060 — Pre-implementation investigation
+
+Verified by reading source and migrations, not documentation.
+
+**Already exists, and is reused rather than re-created:**
+
+| Thing | Where | State |
+|---|---|---|
+| `fin_reconciliation_result` | `V110` | table exists, entity + repository exist, **nothing writes it** |
+| `ReconciliationStatus` | enum | `PASSED`, `FAILED`, `NOT_AVAILABLE` |
+| `SyncStatus.RECONCILE_FAILED` | enum | exists, unused |
+| `SyncStage.RECONCILE` | enum | exists, unused |
+| `PeriodType` | enum | `DAY`, `MONTH`, `FINANCIAL_YEAR`, `FULL_HISTORY` |
+| `ReconMetric` | connector | `RECORD_COUNT`, `GROSS_AMOUNT`, `CANCELLED_COUNT`, `CANCELLED_AMOUNT`, `QUANTITY` |
+| `SourceTotals` | connector | absence means *not available*, never zero |
+| `TempleFinanceConnector.sourceTotals(capability, source, DateRange)` | contract | declared; **no production implementation exists** |
+
+**No new table, no new status enum, and no new lifecycle vocabulary is required.** The one
+schema change needed is a unique constraint for idempotency — `fin_reconciliation_result` has
+none today.
+
+### The boundary, stated before any check is written
+
+| Question | Can the platform answer it? |
+|---|---|
+| **A. Extraction completeness** — did the connector get every source record in scope? | **Only if the source answers `sourceTotals`.** No production connector implements it, so today this is `NOT_AVAILABLE`, not a pass |
+| **B. Processing completeness** — did every extracted row reach a terminal state? | **Yes, authoritatively.** Staging statuses and the batch counters are all local and all derived |
+| **C. Canonical consistency** — do the facts correspond to the rows that produced them? | **By batch, yes. By record, no** — a grouped fact deliberately carries no `source_record_ref` (FIN-D-040) |
+| **D. Source deletion detection** | **No, and it must say so.** See below |
+
+### FIN-D-044, examined
+
+1. **Extraction is incremental**, along a change axis (`SyncContext.changedSince`), not a
+   business-date snapshot. ADR-006.
+2. **Stable identifiers exist** — `fin_stg_revenue.source_record_ref`, unique within a batch.
+3. **No deletion marker exists** anywhere in the contract. `RawRow` carries values, not tombstones.
+4. **`extract()` never returns an authoritative period snapshot.** It returns what changed.
+5. **The watermark does not support period comparison** — and is not even advanced yet
+   (FIN-D-049).
+6. **The source *can* be asked for a bounded business-date range** — but only through
+   `sourceTotals(capability, source, DateRange)`, which returns *totals*, not records.
+7. **Prior source-record identities are retained** in `fin_stg_revenue`, subject to Q7 retention.
+8. **A deletion cannot be distinguished** from extraction failure, network failure, a partial
+   source response, a source filter error, late-arriving data, or a source-side correction —
+   every one of them produces the same observable: fewer records than before.
+
+**Conclusion.** With only totals and no record-level snapshot, a shortfall is *evidence worth
+recording*, never proof. FIN-060 will record a suspicion and will **never delete a canonical
+fact**. Confirmed deletion detection requires either a deletion signal or a record-level
+authoritative snapshot from the connector; neither exists, and inventing one is out of scope.
+
+### Checks to implement
+
+| # | Check | Authority | Input | Key |
+|---|---|---|---|---|
+| 1 | Stage-to-stage completeness | **authoritative** | `fin_stg_revenue` statuses vs batch counters | batch id |
+| 2 | Rejected-row accounting | **authoritative** | `rows_rejected` vs `fin_sync_error` at each stage | batch id |
+| 3 | Canonical count vs source | advisory | `sourceTotals(RECORD_COUNT)` vs facts in period | period |
+| 4 | Canonical gross vs source | advisory | `sourceTotals(GROSS_AMOUNT)` vs `SUM(gross_amount)` | period |
+| 5 | Suspected source deletion | **advisory, never destructive** | prior canonical count vs current source count, same closed period | period |
+
+Checks 3–5 record `NOT_AVAILABLE` with a reason when the connector cannot answer. **Absence is
+never a pass** (ADR-007).
+
+### Idempotency
+
+Unique on `(sync_batch_id, capability, metric, period_type, period_key)`.
+
+`sync_batch_id` is nullable, and NULL ≠ NULL in a unique index — which is *wanted* here, and is
+the opposite of the problem FIN-D-018 had to engineer around. A batch-scoped result deduplicates
+on re-run; a scheduled re-verification (null batch) appends, which is what an append-only audit
+history of a period needs.
+
+### Out of scope, deliberately
+
+No publication gate (FIN-061), no aggregation, no API, no scheduler, no alerting, no canonical
+deletion or restatement of any kind, and no connector implementation.
 
 ---
 

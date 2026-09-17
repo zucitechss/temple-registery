@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.config.SchedulingConfig;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
+import com.templeregistry.repository.finance.FinSourceSystemRepository;
 import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
@@ -80,7 +82,9 @@ class SyncWorkerProfileBoundaryTest {
                         .withBean(FinStgRevenueMappingRepository.class, () -> mock(FinStgRevenueMappingRepository.class))
                         .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
                         .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
+                        .withBean(FinRevenueFactRepository.class, () -> mock(FinRevenueFactRepository.class))
                         .withBean(FinSourceOfTruthDeclRepository.class, () -> mock(FinSourceOfTruthDeclRepository.class))
+                        .withBean(FinSourceSystemRepository.class, () -> mock(FinSourceSystemRepository.class))
                         .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
                         .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
                         .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
@@ -104,6 +108,19 @@ class SyncWorkerProfileBoundaryTest {
                         .as("normalization reads the source-of-truth declarations that decide "
                                 + "what a payload means; that belongs to the worker too")
                         .hasBean("revenueNormalizationStage");
+                assertThat(context)
+                        .as("the load is the only writer of the canonical revenue table; "
+                                + "nothing serving HTTP should be able to write a figure")
+                        .hasBean("revenueLoadStage");
+                assertThat(context)
+                        .as("extraction is the one stage that touches a connector, so it could "
+                                + "never belong anywhere but the worker")
+                        .hasBean("revenueExtractionStage");
+                assertThat(context)
+                        .as("the orchestrator can reach a source system and write a canonical "
+                                + "figure in a single call -- the strongest reason of any bean "
+                                + "here to be worker-only")
+                        .hasBean("financePipelineOrchestrator");
             });
         }
 
