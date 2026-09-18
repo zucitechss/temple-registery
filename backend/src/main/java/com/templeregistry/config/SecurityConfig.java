@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.common.ApiResponse;
 import com.templeregistry.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -46,13 +47,35 @@ public class SecurityConfig {
     private static final String[] PUBLIC_PATHS = {
             "/api/v1/auth/**",
             "/api/v1/geo/**",
-            "/v3/api-docs/**",
-            "/swagger-ui/**",
-            "/swagger-ui.html",
             "/actuator/health",
             "/actuator/info",
             "/error"
     };
+
+    /**
+     * OpenAPI/Swagger paths (H-6).
+     *
+     * <p>These are public only while the documentation is actually being served. Production
+     * switches springdoc off, and leaving the paths permitted there would be worse than
+     * useless: with no handler behind them a request passes security, matches nothing, and
+     * falls into the catch-all exception handler, which answers 500. Keeping the permit tied
+     * to the same flag makes them fall through to {@code authenticated()} and answer 401,
+     * exactly like any other unknown path.</p>
+     */
+    private static final String[] API_DOCS_PATHS = {
+            "/v3/api-docs/**",
+            "/swagger-ui/**",
+            "/swagger-ui.html"
+    };
+
+    /**
+     * Mirrors {@code springdoc.api-docs.enabled}, which {@code application-prod.yml} sets to
+     * false. A plain field rather than a constructor parameter: this class has a single
+     * Lombok-generated constructor and adding a second would reintroduce the ambiguity that
+     * broke JwtServiceImpl's wiring.
+     */
+    @Value("${springdoc.api-docs.enabled:true}")
+    private boolean apiDocsEnabled;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -63,14 +86,18 @@ public class SecurityConfig {
                         .csrfTokenRequestHandler(csrfTokenRequestHandler()))
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_PATHS).permitAll()
+                .authorizeHttpRequests(auth -> {
+                        auth.requestMatchers(PUBLIC_PATHS).permitAll();
+                        if (apiDocsEnabled) {
+                            auth.requestMatchers(API_DOCS_PATHS).permitAll();
+                        }
                         // Public temple search — exact path only (NOT wildcard, to prevent PII exposure via /{id})
-                        .requestMatchers(HttpMethod.GET, "/api/v1/temples").permitAll()
+                        auth.requestMatchers(HttpMethod.GET, "/api/v1/temples").permitAll()
                         // Public photo serve — temple photos are not sensitive
                         .requestMatchers(HttpMethod.GET, "/api/v1/temples/*/profile-photo/serve").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/temples/*/photos/*/serve").permitAll()
-                        .anyRequest().authenticated())
+                        .anyRequest().authenticated();
+                })
                 // Return 401 (not Spring's default 403) for requests with missing/expired tokens
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))

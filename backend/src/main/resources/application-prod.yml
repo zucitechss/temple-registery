@@ -125,10 +125,23 @@ email:
   startup-validation:
     fail-fast: true
 
-# NOTE (deferred): audit finding H-6 — springdoc/swagger-ui are still enabled
-# from application.yml and are reachable unauthenticated in production. Not
-# changed here because H-tier remediation was explicitly out of scope for this
-# pass. Add springdoc.api-docs.enabled/swagger-ui.enabled = false when H-6 runs.
+# H-6: no API documentation in production.
+#
+# application.yml enables springdoc for local development, and that was inherited
+# here: GET /v3/api-docs answered unauthenticated with a ~233 KB document
+# describing every endpoint of all 39 controllers, and /swagger-ui.html served the
+# UI. Both are switched off below.
+#
+# SecurityConfig reads springdoc.api-docs.enabled and only makes the documentation
+# paths public while it is true, so here they require authentication like any other
+# unknown path. Re-enabling this flag in production therefore republishes the API
+# description publicly — that is the point of keeping one switch rather than two.
+springdoc:
+  api-docs:
+    enabled: false
+
+  swagger-ui:
+    enabled: false
 
 logging:
   level:
