@@ -2,7 +2,10 @@ spring:
   config:
     import: optional:file:./dev-secrets.properties
   datasource:
-    url: jdbc:mysql://gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/test?useSSL=true&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    # Defaults to a LOCAL database. Point DB_URL at your own instance in
+    # dev-secrets.properties (git-ignored). Never put a shared/production host here.
+    # TiDB users must also set: DB_INIT_SQL=SET tidb_enable_noop_functions=1
+    url: ${DB_URL:jdbc:mysql://localhost:3306/temple_registry?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
@@ -13,7 +16,7 @@ spring:
       keepalive-time: 120000
       minimum-idle: 2
       maximum-pool-size: 8
-      connection-init-sql: "SET tidb_enable_noop_functions=1"
+      connection-init-sql: ${DB_INIT_SQL:SELECT 1}
 
   jpa:
     hibernate:

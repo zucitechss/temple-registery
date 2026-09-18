@@ -9,9 +9,11 @@ spring:
     default: dev
 
   datasource:
-    url: jdbc:mysql://gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/test?useSSL=true&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: ${DB_USERNAME:3Nkwm2fKtuGqoiu.root}
-    password: ${DB_PASSWORD:6sXYNlDhrX80xnDz}
+    # No defaults on purpose (C-6). A missing DB_URL/DB_USERNAME/DB_PASSWORD must
+    # fail startup loudly rather than silently connect to someone else's database.
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
 
     hikari:
       connection-timeout: 20000
@@ -21,7 +23,7 @@ spring:
       keepalive-time: 120000
       minimum-idle: 2
       maximum-pool-size: 8
-      connection-init-sql: "SET tidb_enable_noop_functions=1"
+      connection-init-sql: ${DB_INIT_SQL:SELECT 1}
 
   jpa:
     hibernate:
@@ -81,11 +83,14 @@ app:
   cors:
     allowed-origins: http://localhost:5173,http://localhost:5174,https://temple-registery.vercel.app
 
+  # Both keys must be exactly 32 bytes and are required (no defaults, C-6).
+  # CryptoKeyValidator additionally rejects the historic dev placeholders
+  # outside the dev/test profiles.
   encryption:
-    key: ${APP_ENCRYPTION_KEY:TempleRegDev32ByteKey!!Replace!!}
+    key: ${APP_ENCRYPTION_KEY}
 
   hmac:
-    key: ${APP_HMAC_KEY:TempleRegHmacDev32ByteKey!Repl!!}
+    key: ${APP_HMAC_KEY}
 
   storage:
     base-dir: ./uploads
