@@ -6,8 +6,8 @@ target/
 # APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY env vars (see backend/.env.example).
 src/main/resources/keys/
 
-# Never commit prod config with real credentials
-src/main/resources/application-prod.yml
+# NOTE: application-prod.yml IS tracked. It contains configuration only --
+# every secret in it is an ${ENV_VAR} placeholder with no default.
 
 # IDE
 .idea/

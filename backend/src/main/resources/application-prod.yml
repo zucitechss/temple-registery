@@ -1,0 +1,149 @@
+# ============================================================================
+# PRODUCTION PROFILE — TRACKED IN GIT ON PURPOSE (C-2)
+#
+# This file contains configuration ONLY. Every secret is an ${ENV_VAR}
+# placeholder with NO default, so a missing variable aborts startup instead of
+# silently falling back to a development value.
+#
+# Activate with: SPRING_PROFILES_ACTIVE=prod
+#
+# Required environment variables — see backend/.env.example:
+#   DB_URL  DB_USERNAME  DB_PASSWORD
+#   APP_ENCRYPTION_KEY  APP_HMAC_KEY            (32 bytes each)
+#   APP_JWT_PRIVATE_KEY  APP_JWT_PUBLIC_KEY     (PEM contents)
+#   APP_BASE_URL
+#   SMTP_HOST  EMAIL_USERNAME  EMAIL_PASSWORD
+#   APP_CORS_ALLOWED_ORIGINS
+# ============================================================================
+
+spring:
+  datasource:
+    # Inherited from application.yml, which already resolves ${DB_URL} /
+    # ${DB_USERNAME} / ${DB_PASSWORD} with no defaults. Restated here so the
+    # production contract is readable in one place.
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      # TiDB requires "SET tidb_enable_noop_functions=1"; plain MySQL rejects it.
+      connection-init-sql: ${DB_INIT_SQL:SELECT 1}
+
+  jpa:
+    hibernate:
+      # Flyway owns the schema. Hibernate must never alter production tables.
+      ddl-auto: validate
+    show-sql: false
+
+  flyway:
+    enabled: true
+    # Schema + production reference data ONLY. classpath:db/seed holds the
+    # development fixture set (dev users, sample temples) and is deliberately
+    # excluded here so no seeded account can ever exist in production (C-5).
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    # A failed migration in production must be investigated by a human.
+    # Auto-repair would silently rewrite checksum history and mask corruption.
+    repair-on-migrate: false
+    clean-disabled: true
+    baseline-on-migrate: false
+
+  security:
+    debug: false
+
+  mail:
+    enabled: true
+    host: ${SMTP_HOST}
+    port: ${SMTP_PORT:587}
+    username: ${EMAIL_USERNAME}
+    password: ${EMAIL_PASSWORD}
+    from: ${EMAIL_FROM:noreply@templeregistry.gov.in}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+app:
+  # JWT RS256 keypair supplied as PEM by the platform secret store.
+  # No key file is committed; JwtKeyProvider aborts startup if these are unset.
+  jwt:
+    private-key: ${APP_JWT_PRIVATE_KEY}
+    public-key: ${APP_JWT_PUBLIC_KEY}
+    # Explicitly blank: production must not fall back to an on-disk key.
+    private-key-path: ""
+    public-key-path: ""
+    access-token-expiry-ms: ${APP_JWT_ACCESS_TOKEN_EXPIRY_MS:7200000}
+
+  # 32-byte keys, required. CryptoKeyValidator additionally rejects the
+  # historic development placeholders on this profile.
+  encryption:
+    key: ${APP_ENCRYPTION_KEY}
+
+  hmac:
+    key: ${APP_HMAC_KEY}
+
+  base-url: ${APP_BASE_URL}
+
+  # Must be an explicit allow-list — no localhost origins in production.
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}
+
+  storage:
+    base-dir: ${APP_STORAGE_BASE_DIR:./uploads}
+
+  # Flyway auto-repair is a development-only affordance (see FlywayConfig).
+  flyway:
+    auto-repair: false
+
+  notification:
+    email-enabled: true
+
+  legacy:
+    enabled: false
+
+  # Initial SUPER_ADMIN provisioning (C-5). Disabled by default. Enable for a
+  # single boot against a brand-new database, then turn it off and redeploy.
+  # It is a no-op whenever a SUPER_ADMIN already exists.
+  bootstrap:
+    admin:
+      enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}
+      username: ${APP_BOOTSTRAP_ADMIN_USERNAME:}
+      email: ${APP_BOOTSTRAP_ADMIN_EMAIL:}
+      password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:}
+
+trm:
+  export:
+    base-dir: ${TRM_EXPORT_BASE_DIR:./exports}
+
+# Abort startup if an email template referenced by a notification rule is missing.
+email:
+  startup-validation:
+    fail-fast: true
+
+# NOTE (deferred): audit finding H-6 — springdoc/swagger-ui are still enabled
+# from application.yml and are reachable unauthenticated in production. Not
+# changed here because H-tier remediation was explicitly out of scope for this
+# pass. Add springdoc.api-docs.enabled/swagger-ui.enabled = false when H-6 runs.
+
+logging:
+  level:
+    root: WARN
+    com.templeregistry: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+
+management:
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      enabled: false
+
+debug: false

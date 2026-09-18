@@ -53,7 +53,6 @@ backend/BOOT-INF/
 # APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY (see backend/.env.example);
 # local dev generates its own pair under keys/.
 backend/src/main/resources/keys/
-backend/src/main/resources/application-prod.yml
 backend/dev-secrets.properties
 backend/.env
 
