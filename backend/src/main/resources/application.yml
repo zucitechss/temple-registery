@@ -1,9 +1,30 @@
 server:
   port: ${PORT:8080}
 
+  tomcat:
+    # Tomcat discards at most this much of a request body it has already decided to
+    # reject, then closes the connection. At the 2MB default an over-limit upload is
+    # answered with a connection reset instead of the FILE_TOO_LARGE JSON body, so this
+    # must stay comfortably above spring.servlet.multipart.max-request-size.
+    max-swallow-size: 30MB
+
 spring:
   application:
     name: temple-registry-backend
+
+  servlet:
+    multipart:
+      # H-4. Boot defaults to 1MB/10MB, which rejected uploads during multipart parsing —
+      # before any controller ran — regardless of what the domain allowed. The limits below
+      # are the ones the application actually enforces:
+      #   VAL-005  documents          max 10 MB per file
+      #   VAL-006  temple photographs max  5 MB per file
+      max-file-size: 10MB
+      # Temple photos are submitted as one batched multipart request, so the request budget
+      # must hold several 5MB photos. It is deliberately not 20x5MB: the photo bytes are read
+      # into memory and stored in a database column, and this service runs as one replica.
+      # The SPA uploads in batches sized to fit here.
+      max-request-size: 25MB
 
   profiles:
     default: dev

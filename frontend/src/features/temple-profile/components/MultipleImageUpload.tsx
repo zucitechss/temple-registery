@@ -20,8 +20,17 @@ interface MultipleImageUploadProps {
   onUploadError?: (error: any) => void
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB (VAL-006)
 const MAX_FILES = 20
+
+/**
+ * H-4 — the API accepts at most 25MB per multipart request
+ * (spring.servlet.multipart.max-request-size). At 5MB per photo, four fit with room for the
+ * multipart envelope, so a selection larger than this is uploaded as several requests rather
+ * than one that the server would reject outright. Sending all 20 at once could reach ~100MB,
+ * and the server reads those bytes into memory.
+ */
+export const PHOTO_UPLOAD_BATCH_SIZE = 4
 const ALLOWED_TYPES = ['image/jpeg', 'image/png']
 
 function extractUploadErrorMessage(err: any): string {
@@ -119,26 +128,34 @@ export const MultipleImageUpload: React.FC<MultipleImageUploadProps> = ({
     )
 
     try {
-      const response = await uploadPhotos({
-        id: templeId,
-        files: pendingFiles.map((f) => f.file),
-      }).unwrap()
+      const uploadedUrls: string[] = []
 
-      if (response.success) {
+      for (let i = 0; i < pendingFiles.length; i += PHOTO_UPLOAD_BATCH_SIZE) {
+        const batch = pendingFiles.slice(i, i + PHOTO_UPLOAD_BATCH_SIZE)
+        const response = await uploadPhotos({
+          id: templeId,
+          files: batch.map((f) => f.file),
+        }).unwrap()
+
+        if (!response.success) {
+          throw new Error(response.message || 'Upload failed')
+        }
+        uploadedUrls.push(...(response.data || []))
+      }
+
+      {
         setFiles((prev) =>
           prev.map((f) =>
             f.status === 'uploading' ? { ...f, status: 'completed', progress: 100 } : f
           )
         )
         toast.success('Images uploaded successfully')
-        if (onUploadSuccess) onUploadSuccess(response.data || [])
+        if (onUploadSuccess) onUploadSuccess(uploadedUrls)
         
         // Clear files after a delay
         setTimeout(() => {
           setFiles([])
         }, 2000)
-      } else {
-        throw new Error(response.message || 'Upload failed')
       }
     } catch (err: any) {
       setFiles((prev) =>

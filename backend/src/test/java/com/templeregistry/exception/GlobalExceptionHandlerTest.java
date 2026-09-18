@@ -12,6 +12,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.List;
@@ -26,7 +27,7 @@ class GlobalExceptionHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new GlobalExceptionHandler();
+        handler = new GlobalExceptionHandler(DataSize.ofMegabytes(10));
     }
 
     // ─── EntityNotFoundException ──────────────────────────────────────────────
@@ -257,14 +258,26 @@ class GlobalExceptionHandlerTest {
     @Nested
     class MaxUploadSizeHandling {
         @Test
-        void should_return400_withFixedMessage_when_fileTooLarge() {
+        void should_return400_withTheConfiguredLimit_when_fileTooLarge() {
+            // The message used to be hardcoded to "5 MB" while the servlet actually rejected
+            // at 1 MB and the domain allowed 10 MB, so it told the user a number that was
+            // true nowhere. It now reports whatever spring.servlet.multipart is configured to.
             MaxUploadSizeExceededException ex = mock(MaxUploadSizeExceededException.class);
 
             ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSize(ex);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
             assertThat(response.getBody().getErrorCode()).isEqualTo("FILE_TOO_LARGE");
-            assertThat(response.getBody().getMessage()).contains("5 MB");
+            assertThat(response.getBody().getMessage()).contains("10 MB");
+        }
+
+        @Test
+        void should_reportTheLimitItIsGiven_when_configurationChanges() {
+            ResponseEntity<ApiResponse<Void>> response =
+                    new GlobalExceptionHandler(DataSize.ofMegabytes(25))
+                            .handleMaxUploadSize(mock(MaxUploadSizeExceededException.class));
+
+            assertThat(response.getBody().getMessage()).contains("25 MB");
         }
     }
 

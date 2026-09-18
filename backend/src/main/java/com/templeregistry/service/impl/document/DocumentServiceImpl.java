@@ -44,7 +44,14 @@ import java.util.Set;
 @Slf4j
 public class DocumentServiceImpl implements DocumentService {
 
-    private static final long MAX_SIZE_BYTES = 5 * 1024 * 1024L; // 5 MB
+    /**
+     * VAL-005: "Document upload — file size | Max 10 MB per file; enforced client + server".
+     *
+     * <p>This used to be 5 MB on the multipart path while {@link #validateExternalUpload}
+     * allowed 10 MB for the same document kind, so which limit applied depended only on
+     * whether the bytes arrived through this service or through a pre-signed upload (H-4).</p>
+     */
+    private static final long MAX_SIZE_BYTES = 10 * 1024 * 1024L; // 10 MB (VAL-005)
     private static final Set<String> ALLOWED_MIME = Set.of(
             "image/jpeg", "image/png", "application/pdf");
 
@@ -243,9 +250,7 @@ public class DocumentServiceImpl implements DocumentService {
         if (!ALLOWED_MIME.contains(mimeType)) {
             throw new FileValidationException("Unsupported file type. Allowed: PDF, JPEG, PNG.");
         }
-        // Document uploads for TA are max 10 MB (VAL-005); photo uploads are max 5 MB (VAL-006)
-        long maxDocumentBytes = 10 * 1024 * 1024L;
-        if (fileSizeBytes > maxDocumentBytes) {
+        if (fileSizeBytes > MAX_SIZE_BYTES) {
             throw new FileValidationException("File exceeds maximum allowed size of 10 MB.");
         }
         if (fileSizeBytes <= 0) {
@@ -261,7 +266,7 @@ public class DocumentServiceImpl implements DocumentService {
             throw new FileValidationException("Unsupported file type. Allowed: PDF, JPEG, PNG.");
         }
         if (file.getSize() > MAX_SIZE_BYTES) {
-            throw new FileValidationException("File exceeds maximum allowed size of 5 MB.");
+            throw new FileValidationException("File exceeds maximum allowed size of 10 MB.");
         }
     }
 
