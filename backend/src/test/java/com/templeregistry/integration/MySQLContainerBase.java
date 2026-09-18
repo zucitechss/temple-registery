@@ -21,10 +21,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * class MyIT extends MySQLContainerBase { ... }
  * }</pre>
  *
- * <p>{@link Testcontainers#disabledWithoutDocker()} is {@code true} so that the test
- * is silently skipped in environments without Docker rather than failing.
+ * <p>Docker is a hard requirement. {@code disabledWithoutDocker} is deliberately NOT
+ * set: it used to be {@code true}, which turned an unreachable Docker daemon into a
+ * silently skipped test and a green build, hiding both the migration coverage gap and
+ * any schema drift it would have caught (audit finding H-9). If Docker is unavailable
+ * these tests must fail loudly.
  */
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 public abstract class MySQLContainerBase {
 
     @Container

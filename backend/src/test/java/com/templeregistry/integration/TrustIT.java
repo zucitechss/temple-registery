@@ -38,19 +38,17 @@ import org.junit.jupiter.api.Disabled;
  * Integration tests for the Trust & Board module.
  * Proves end-to-end correctness: validation, persistence, security, and PII masking.
  *
- * NOTE: These tests require a MySQL-compatible database. They are disabled in environments
- * without Docker/MySQL (e.g., local dev without Docker). All business logic is covered
- * by TrustServiceImplTest and TrustValidationServiceImplTest which run without a DB.
+ * NOTE: These tests require Docker. {@link MySQLContainerBase} provisions a real MySQL
+ * container and runs the Flyway migrations against it; if Docker is unavailable the test
+ * fails rather than skipping (H-9). Run by Failsafe during `mvn verify`, not by Surefire.
  *
- * To enable: remove @Disabled and ensure a MySQL-compatible DB is available via
- * Testcontainers or application-test.yml pointing to a real DB.
- *
- * Now uses {@link MySQLContainerBase} for automatic Testcontainers MySQL setup.
+ * Business logic is additionally covered by TrustServiceImplTest and
+ * TrustValidationServiceImplTest, which run without a database.
  */
 @SpringBootTest
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
-class TrustIntegrationTest extends MySQLContainerBase {
+class TrustIT extends MySQLContainerBase {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
