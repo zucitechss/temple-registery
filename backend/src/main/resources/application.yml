@@ -36,6 +36,9 @@ spring:
 
   flyway:
     enabled: true
+    # Schema + production reference data only. The dev fixture set lives in
+    # classpath:db/seed and is opted into by the dev profile alone (C-5).
+    locations: classpath:db/migration
     validate-on-migrate: false
     repair-on-migrate: true
 

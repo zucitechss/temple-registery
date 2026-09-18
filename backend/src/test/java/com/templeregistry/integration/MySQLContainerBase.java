@@ -56,6 +56,8 @@ public abstract class MySQLContainerBase {
         registry.add("app.jwt.public-key",  TEST_JWT_KEYS::publicKeyPem);
         registry.add("app.jwt.private-key-path", () -> "");
         registry.add("app.jwt.public-key-path",  () -> "");
+        // Integration tests exercise the dev fixture set alongside the schema.
+        registry.add("spring.flyway.locations", () -> "classpath:db/migration,classpath:db/seed");
         // AWS/S3 stubs — no real bucket needed for unit/integration tests
         registry.add("cloud.aws.s3.bucket-name",   () -> "test-bucket");
         registry.add("cloud.aws.region.static",    () -> "ap-south-1");

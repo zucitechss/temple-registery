@@ -27,6 +27,9 @@ spring:
         format_sql: false
 
   flyway:
+    # Dev/test ONLY: additionally load the fixture set (dev users, sample
+    # temples) from classpath:db/seed. Production uses db/migration alone (C-5).
+    locations: classpath:db/migration,classpath:db/seed
     validate-on-migrate: false
     repair-on-migrate: true
 

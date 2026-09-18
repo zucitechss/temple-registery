@@ -45,6 +45,8 @@ class ApplicationContextIntegrationTest {
         registry.add("app.jwt.public-key", TEST_JWT_KEYS::publicKeyPem);
         registry.add("app.jwt.private-key-path", () -> "");
         registry.add("app.jwt.public-key-path", () -> "");
+        // Verifies the production Flyway location set: schema + reference data, no dev seed (C-5).
+        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
         registry.add("cloud.aws.s3.bucket-name", () -> "test-bucket");
         registry.add("cloud.aws.region.static", () -> "ap-south-1");
         registry.add("app.encryption.aes-key", () -> "12345678901234567890123456789012");
