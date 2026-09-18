@@ -75,6 +75,8 @@ class RevenueLoadStageTest {
     private static final long TEMPLE_A = 930001L;
     private static final long TEMPLE_B = 930002L;
     private static final long SOURCE_A = 8301L;
+    /** A second source for TEMPLE_A. Its whole purpose is to collide with SOURCE_A and not win. */
+    private static final long SOURCE_B = 8303L;
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
@@ -316,6 +318,64 @@ class RevenueLoadStageTest {
         assertThat(facts.sumGrossForFinancialYear(TEMPLE_B, "2025-26")).isEmpty();
     }
 
+    /**
+     * FIN-052A, and the failure it closes is one nobody would have seen. Before V118 the second
+     * source's load matched the first source's grain, the upsert <em>replaced</em> its figures,
+     * and the temple's year fell from ₹300 to ₹200 with no error, no warning and no record that
+     * ₹100 had ever been loaded (limitation 47).
+     */
+    @Test
+    @DisplayName("Two source systems loading one temple's same day keep their figures apart")
+    void should_keepFactsApart_when_onlyTheSourceSystemDiffers() {
+        FinSyncBatch second = newBatch(TEMPLE_A, SOURCE_B);
+        declare(SOURCE_B, RevenueField.TRANSACTION_DATE, "ReceiptDate", 1);
+        declare(SOURCE_B, RevenueField.GROSS_AMOUNT, "Amount", 1);
+
+        mapped(stage(batch, "rec-1", payload("2025-06-15", "100.00")), "SEVA");
+        mapped(stage(second, "rec-1", payload("2025-06-15", "200.00")), "SEVA");
+
+        stage.loadBatch(batch.getId());
+        stage.loadBatch(second.getId());
+
+        assertThat(facts.countByTempleId(TEMPLE_A))
+                .as("one fact per source, not one fact belonging to whichever source wrote last")
+                .isEqualTo(2);
+        assertThat(facts.sumGrossForSourceAndFinancialYear(TEMPLE_A, SOURCE_A, "2025-26"))
+                .get().isEqualTo(new BigDecimal("100.00"));
+        assertThat(facts.sumGrossForSourceAndFinancialYear(TEMPLE_A, SOURCE_B, "2025-26"))
+                .get().isEqualTo(new BigDecimal("200.00"));
+        assertThat(facts.sumGrossForFinancialYear(TEMPLE_A, "2025-26"))
+                .as("the temple's figure for the year is the sum of its sources, not one of them")
+                .get().isEqualTo(new BigDecimal("300.00"));
+
+        // And a restatement stays inside the source that made it: the first source re-reads the
+        // same day and corrects itself, which must move its own figure and nothing else.
+        FinSyncBatch restatement = newBatch(TEMPLE_A, SOURCE_A);
+        mapped(stage(restatement, "rec-1", payload("2025-06-15", "150.00")), "SEVA");
+        stage.loadBatch(restatement.getId());
+
+        assertThat(facts.countByTempleId(TEMPLE_A))
+                .as("a restatement replaces one source's fact; it does not add a third")
+                .isEqualTo(2);
+        assertThat(facts.sumGrossForSourceAndFinancialYear(TEMPLE_A, SOURCE_A, "2025-26"))
+                .get().isEqualTo(new BigDecimal("150.00"));
+        assertThat(facts.sumGrossForSourceAndFinancialYear(TEMPLE_A, SOURCE_B, "2025-26"))
+                .as("one source's correction must never move another source's money")
+                .get().isEqualTo(new BigDecimal("200.00"));
+    }
+
+    @Test
+    @DisplayName("A fact records the source system that produced it")
+    void should_persistSourceSystem_when_factIsWritten() {
+        mapped(stage(batch, "rec-1", payload("2025-06-15", "100.00")), "SEVA");
+
+        stage.loadBatch(batch.getId());
+
+        assertThat(factOn("2025-06-15").getSourceSystemId())
+                .as("a grain column that is wrong on the row is a grain that cannot be trusted")
+                .isEqualTo(SOURCE_A);
+    }
+
     // ---------------------------------------------------------------- refusals
 
     @Test
@@ -441,10 +501,14 @@ class RevenueLoadStageTest {
     }
 
     private FinSyncBatch newBatch(long templeId) {
+        return newBatch(templeId, templeId == TEMPLE_A ? SOURCE_A : SOURCE_A + 1);
+    }
+
+    private FinSyncBatch newBatch(long templeId, long sourceSystemId) {
         return batches.save(FinSyncBatch.builder()
                 .batchRef(UUID.randomUUID().toString())
                 .templeId(templeId)
-                .sourceSystemId(templeId == TEMPLE_A ? SOURCE_A : SOURCE_A + 1)
+                .sourceSystemId(sourceSystemId)
                 .capability(FinanceCapability.REVENUE)
                 .syncType(SyncType.INCREMENTAL)
                 .triggeredBy(SyncTrigger.MANUAL)

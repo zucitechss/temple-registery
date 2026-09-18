@@ -180,7 +180,7 @@ Two mappings encode findings that would otherwise be lost. `HUNDI_DONATION` and 
 
 ## 7. Loading and Idempotency
 
-Upsert keyed on `uk_frf_grain (temple_id, transaction_date, service_id, category_id, payment_mode, counter_ref)`.
+Upsert keyed on `uk_frf_grain (temple_id, source_system_id, transaction_date, service_id, category_id, payment_mode, counter_ref, operator_ref)` — `source_system_id` since V118 (FIN-052A, FIN-D-067).
 
 Consequences: re-running a batch is safe; a partial failure can be replayed; a corrected source row overwrites rather than duplicating. Every load is wrapped in a batch whose `status` gates the aggregate rebuild.
 

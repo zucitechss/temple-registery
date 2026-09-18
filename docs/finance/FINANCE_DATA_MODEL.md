@@ -284,7 +284,7 @@ Canonical service identity, scoped per temple (service catalogs are genuinely te
 | `source_record_ref` | VARCHAR(200) | e.g. `DailySevaNew\|2025-04-01\|83\|1` |
 | `source_of_truth_version` | INT | |
 
-`uk_frf_grain (temple_id, transaction_date, service_id, category_id, payment_mode, counter_ref)` — this is what makes loading idempotent.
+`uk_frf_grain (temple_id, source_system_id, transaction_date, service_id, category_id, payment_mode, counter_ref, operator_ref)` — this is what makes loading idempotent. The three nullable members are enforced through generated `IFNULL` stand-in columns (FIN-D-018). `source_system_id` joined the key in **V118 (FIN-052A)**; before that, two sources reporting one temple's day overwrote each other (FIN-D-067). `operator_ref` was always in the key and was missing from this line.
 Indexes: `(temple_id, financial_year)`, `(temple_id, transaction_date)`, `(temple_id, category_id, financial_year)`, `(sync_batch_id)`.
 
 Note what is **absent**: devotee name, address, mobile, email, receipt number. None is needed by any catalogued report, and excluding them keeps personal data out of the central platform entirely.

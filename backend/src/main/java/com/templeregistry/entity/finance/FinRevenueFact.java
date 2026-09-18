@@ -15,18 +15,27 @@ import java.time.LocalDateTime;
  * One row of canonical revenue -- the reporting boundary of the finance platform.
  *
  * <p><b>Grain:</b> one row per
- * {@code (temple, transaction_date, service, category, payment mode, counter, operator)},
- * not one row per receipt (ADR-003). On the first onboarded source, 22,348,125
- * receipts collapse to roughly 121 thousand rows, and every catalogued report is
- * still answerable. No devotee name, address, mobile or email column exists here,
- * because none is needed and a central platform holding personal data it cannot
- * use is a liability.
+ * {@code (temple, source system, transaction_date, service, category, payment mode,
+ * counter, operator)}, not one row per receipt (ADR-003). On the first onboarded
+ * source, 22,348,125 receipts collapse to roughly 121 thousand rows, and every
+ * catalogued report is still answerable. No devotee name, address, mobile or email
+ * column exists here, because none is needed and a central platform holding personal
+ * data it cannot use is a liability.
  *
  * <p>The grain is enforced by the database, not by the loader: {@code uk_frf_grain}
- * covers all seven columns, with generated key columns standing in for the three
+ * covers all eight columns, with generated key columns standing in for the three
  * that are nullable, because MySQL and TiDB treat NULLs in a unique index as
  * distinct and would otherwise accept the same fact twice (FIN-D-018). Re-running
  * a sync therefore updates a row rather than adding a second one.
+ *
+ * <p><b>{@link #sourceSystemId} is part of the grain (FIN-052A, V118).</b> It was not
+ * until then, and two sources reporting the same temple, day, category and payment
+ * mode overwrote one another — the second replacing the first's figures rather than
+ * adding to them (limitation 47). ADR-003's "a temple's figure for a day is one
+ * figure" is unchanged in substance: it becomes true after summing the temple's
+ * sources rather than at the row, which is the more honest reading, because two
+ * systems genuinely did report separately. V118 does not recover anything a prior
+ * overwrite destroyed.
  *
  * <p><b>Business date, not modification date.</b> {@link #transactionDate} is when
  * the revenue belongs financially. A source may edit a two-year-old receipt today;
@@ -45,10 +54,10 @@ import java.time.LocalDateTime;
  * involved.
  */
 @Entity
-// uk_frf_grain is declared in V112 and not here: two of its seven columns are
-// database-generated, so an entity-side declaration would name columns this class
-// does not map. Flyway owns the schema (ADR-002); this annotation describes only
-// the access paths.
+// uk_frf_grain is declared in V112, widened by V118, and not here: three of its
+// eight columns are database-generated, so an entity-side declaration would name
+// columns this class does not map. Flyway owns the schema (ADR-002); this
+// annotation describes only the access paths.
 @Table(
     name = "fin_revenue_fact",
     indexes = {
@@ -77,7 +86,12 @@ public class FinRevenueFact {
     @Column(name = "temple_id", nullable = false)
     private Long templeId;
 
-    /** {@code fin_source_system.id} -- which system produced this figure. */
+    /**
+     * {@code fin_source_system.id} -- which system produced this figure.
+     *
+     * <p>Part of the grain since V118 (FIN-052A), so two sources for one temple keep
+     * their figures apart instead of overwriting each other.
+     */
     @Column(name = "source_system_id", nullable = false)
     private Long sourceSystemId;
 

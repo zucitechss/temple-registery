@@ -261,6 +261,143 @@ class FinanceCanonicalRevenueMigrationTest {
         }
     }
 
+
+    // ---------------------------------------------------------------- FIN-052A source grain
+
+    @Nested
+    @DisplayName("FIN-052A the grain distinguishes source systems")
+    class SourceSystemGrain {
+
+        /**
+         * The defect V118 closes, and it never announced itself. Before V118 the second insert
+         * did not fail — an upsert accepted it as a duplicate key and <em>replaced</em> the first
+         * source's money, carrying the row's source_system_id and sync_batch_id across with it.
+         * Nothing anywhere recorded that the first figure had existed (limitation 47).
+         */
+        @Test
+        @DisplayName("Two source systems may hold the identical remaining grain independently")
+        void should_keepSourcesApart_when_everyOtherGrainColumnMatches() throws SQLException {
+            String cols = BASE_COLS + ", service_id, counter_ref, operator_ref, gross_amount";
+            String day = "'2025-10-06'";
+
+            insertFact(cols, TEMPLE_A + ", 41, 1, " + day + ", '2025-26', 1, 'CASH', 70, 'C1', 'OP1', 111.00");
+            insertFact(cols, TEMPLE_A + ", 42, 2, " + day + ", '2025-26', 1, 'CASH', 70, 'C1', 'OP1', 222.00");
+
+            assertThat(count("fin_revenue_fact WHERE transaction_date = " + day))
+                    .as("two systems genuinely reported separately; one must not replace the other")
+                    .isEqualTo(2);
+            assertThat(scalar("SELECT SUM(gross_amount) FROM fin_revenue_fact "
+                    + "WHERE transaction_date = " + day))
+                    .as("the temple's figure for the day is the sum of its sources, not one of them")
+                    .isEqualTo("333.00");
+        }
+
+        /**
+         * The source distinction has to survive the generated stand-ins, because a hundi
+         * collection carries no service, counter or operator — which is exactly the shape
+         * FIN-D-018 had to defend once already.
+         */
+        @Test
+        @DisplayName("Sources stay apart even when service, counter and operator are all NULL")
+        void should_keepSourcesApart_when_nullableGrainColumnsAreNull() throws SQLException {
+            String cols = BASE_COLS + ", gross_amount";
+            String day = "'2025-10-07'";
+
+            insertFact(cols, TEMPLE_A + ", 43, 1, " + day + ", '2025-26', 4, 'UNRECORDED', 500.00");
+            insertFact(cols, TEMPLE_A + ", 44, 2, " + day + ", '2025-26', 4, 'UNRECORDED', 600.00");
+
+            assertThat(count("fin_revenue_fact WHERE transaction_date = " + day)).isEqualTo(2);
+
+            assertThatThrownBy(() -> insertFact(cols,
+                    TEMPLE_A + ", 43, 3, " + day + ", '2025-26', 4, 'UNRECORDED', 700.00"))
+                    .as("widening the key must not have weakened it: within one source the grain "
+                            + "is still one row per day and category")
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("uk_frf_grain");
+        }
+
+        @Test
+        @DisplayName("Restating one source's figure leaves the other source's untouched")
+        void should_leaveOtherSourceIntact_when_oneSourceIsRestated() throws SQLException {
+            String upsert = """
+                INSERT INTO fin_revenue_fact
+                    (temple_id, source_system_id, sync_batch_id, transaction_date, financial_year,
+                     category_id, payment_mode, service_id, counter_ref, operator_ref,
+                     gross_amount, created_at, updated_at)
+                VALUES (%d, %d, %d, '2025-10-08', '2025-26', 1, 'CASH', 71, 'C1', 'OP1',
+                        %s, NOW(6), NOW(6))
+                ON DUPLICATE KEY UPDATE
+                    sync_batch_id = VALUES(sync_batch_id),
+                    gross_amount  = VALUES(gross_amount),
+                    updated_at    = NOW(6)
+                """;
+
+            execute(String.format(upsert, TEMPLE_A, 45, 1, "100.00"));
+            execute(String.format(upsert, TEMPLE_A, 46, 2, "200.00"));
+            execute(String.format(upsert, TEMPLE_A, 45, 3, "150.00"));
+
+            String day = " WHERE transaction_date = '2025-10-08'";
+            assertThat(count("fin_revenue_fact" + day))
+                    .as("a restatement replaces one source's row; it does not create a third")
+                    .isEqualTo(2);
+            assertThat(scalar("SELECT gross_amount FROM fin_revenue_fact" + day
+                    + " AND source_system_id = 45"))
+                    .as("the restating source's own figure is replaced, not added to")
+                    .isEqualTo("150.00");
+            assertThat(scalar("SELECT gross_amount FROM fin_revenue_fact" + day
+                    + " AND source_system_id = 46"))
+                    .as("one source's restatement must never move another source's figure")
+                    .isEqualTo("200.00");
+            assertThat(scalar("SELECT sync_batch_id FROM fin_revenue_fact" + day
+                    + " AND source_system_id = 46"))
+                    .as("nor its provenance")
+                    .isEqualTo("2");
+        }
+
+        /**
+         * The constraint itself, read back from the server. Every other test here proves a
+         * behaviour the index happens to produce; this one proves the index is what V118 says it
+         * is, including the column order that makes {@code (temple_id, source_system_id)} a usable
+         * prefix for the source-scoped reconciliation queries.
+         */
+        @Test
+        @DisplayName("uk_frf_grain covers the eight grain columns, in order, and is still unique")
+        void should_defineGrainOverEightColumns_when_v118HasRun() throws SQLException {
+            assertThat(valuesOf("""
+                    SELECT column_name FROM information_schema.statistics
+                     WHERE table_schema = DATABASE() AND table_name = 'fin_revenue_fact'
+                       AND index_name = 'uk_frf_grain'
+                     ORDER BY seq_in_index
+                    """))
+                    .containsExactly("temple_id", "source_system_id", "transaction_date",
+                            "grain_service_key", "category_id", "payment_mode",
+                            "grain_counter_key", "grain_operator_key");
+
+            assertThat(scalar("""
+                    SELECT non_unique FROM information_schema.statistics
+                     WHERE table_schema = DATABASE() AND table_name = 'fin_revenue_fact'
+                       AND index_name = 'uk_frf_grain' AND seq_in_index = 1
+                    """))
+                    .as("widening the grain must not have quietly turned it into a plain index")
+                    .isEqualTo("0");
+        }
+
+        /** V118 changes an index and nothing else. No column may have moved or relaxed. */
+        @Test
+        @DisplayName("V118 left source_system_id NOT NULL and the generated columns intact")
+        void should_leaveColumnsUntouched_when_grainWasWidened() throws SQLException {
+            assertThat(scalar("SELECT is_nullable FROM information_schema.columns "
+                    + "WHERE table_schema = DATABASE() AND table_name = 'fin_revenue_fact' "
+                    + "AND column_name = 'source_system_id'")).isEqualTo("NO");
+
+            assertThat(valuesOf("SELECT column_name FROM information_schema.columns "
+                    + "WHERE table_schema = DATABASE() AND table_name = 'fin_revenue_fact' "
+                    + "AND extra LIKE '%GENERATED%' ORDER BY column_name"))
+                    .as("the NULL stand-ins and the derived net must all have survived")
+                    .containsExactly("grain_counter_key", "grain_operator_key",
+                            "grain_service_key", "net_amount");
+        }
+    }
     // ---------------------------------------------------------------- semantics
 
     @Nested

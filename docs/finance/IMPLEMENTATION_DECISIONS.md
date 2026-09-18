@@ -1779,3 +1779,60 @@ documentation is not in front of the person clicking Save.
 the strength of a dropdown change is a far worse failure than leaving a figure visibly wrong, and
 there is no authorization model for a pipeline trigger. Asserted by
 `should_leaveFactsUntouched_when_ruleIsEdited` and `should_leaveStagedDecisionsUntouched_when_ruleIsCreated`.
+
+---
+
+## FIN-D-067 — `source_system_id` joins the canonical grain, and the migration was never the hard part
+
+**Date:** 2026-09-18 · **Affects:** `fin_revenue_fact.uk_frf_grain`, V118, ADR-003, FIN-070B D1
+
+`uk_frf_grain` was declared over seven columns in V112 and omitted `source_system_id`, although the
+column has always been `NOT NULL` and populated on every row. Two source systems reporting the same
+temple, business date, service, category, payment mode, counter and operator therefore collided, and
+the loader's `ON DUPLICATE KEY UPDATE` *replaced* the first source's figures with the second's —
+carrying `source_system_id` and `sync_batch_id` across with them. The first source's revenue was not
+added to; it was gone, with nothing recording that it had existed (limitation 47, found while writing
+the FIN-060 scope test).
+
+**Decision.** V118 widens the constraint to eight columns, with `source_system_id` second so the
+index also serves the `(temple_id, source_system_id)` prefix every source-scoped reconciliation query
+already filters on. The three generated stand-ins are untouched and still carry the nullable members,
+because MySQL and TiDB treat NULLs in a unique index as distinct (FIN-D-018).
+
+**The deadline analysis in FIN-070A was wrong, and correcting it is the point of this entry.** That
+plan argued the change had to happen before any data landed, "because it will never be this cheap
+again". Adding a column to a UNIQUE key *widens* it: rows distinct over seven columns are still
+distinct over eight, so the ALTER cannot fail on data, and with `source_system_id` already `NOT NULL`
+and populated there is nothing to backfill at any table size. What actually expires is narrower —
+once a second source has overwritten a first, the destroyed figures are unrecoverable, because the
+upsert replaced them in place and no history of prior values exists. The real deadline was therefore
+the **second source system**, not the first fact. FIN-070B recorded that correction; V118 acts on it
+early anyway, because it costs one index swap and removes a class of silent loss permanently.
+
+**ADR-003 is amended in substance and not overturned.** "A temple's figure for a day is one figure"
+becomes true after summing the temple's sources rather than at the row — arguably the more honest
+reading, since two systems genuinely did report separately. **ADR-003's text was deliberately not
+edited by FIN-052A:** amending an architecture decision record is a governance act, and the task's
+own instruction was to explain such a change rather than make it. It needs the architect's amendment.
+
+**`RevenueNormalizer.GrainKey` needed no change**, and that is not luck. Normalization runs over one
+batch, and a batch has exactly one temple and exactly one source system, so both are constant across
+every key it builds — which is why the in-memory key has six fields against the constraint's eight and
+the two still agree. A future change letting one normalization run span batches would have to add both.
+
+**`source_system_id = VALUES(source_system_id)` was removed from the upsert's update list.** Once the
+column is part of the key, a matched row necessarily already holds the value being written, so the
+assignment is a no-op. Before V118 it was the mechanism by which one source took ownership of
+another's figures.
+
+**What this does not do.** It recovers nothing already overwritten. It does not make the platform
+multi-source-capable: `uk_ftc_temple_capability (temple_id, capability)` and
+`uk_fsd_temple_service (temple_id, service_code)` carry the same single-source assumption and stay
+deferred under FIN-070B D9, because neither is a mechanical widening — each forces an unanswered
+question about what a temple-level answer means when two sources disagree.
+
+Verified on MySQL 8.0 by `FinanceCanonicalRevenueMigrationTest$SourceSystemGrain` (5 tests, including
+the index definition read back from `information_schema` and a check that no column was relaxed) and
+by `RevenueLoadStageTest` (2 tests through the real loader). `RevenueReconciliationStageTest`'s
+two-source scoping test was moved onto a *single* shared day — it had been forced onto separate days
+by this very defect, and on the same day it fails without V118. TiDB is not verified.

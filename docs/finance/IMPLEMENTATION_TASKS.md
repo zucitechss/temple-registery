@@ -743,6 +743,79 @@ before reconciliation leaves figures nothing has verified — the `PENDING` case
 | FIN-070 | `fin_agg_revenue_period` | NOT_STARTED | FIN-056 |
 | FIN-071 | `fin_agg_revenue_service` | NOT_STARTED | FIN-056 |
 | FIN-072 | Deterministic rebuild of affected periods only | NOT_STARTED | FIN-070, FIN-071, FIN-061 |
+| FIN-070A | Aggregation architecture and implementation plan | **COMPLETE** | FIN-056, FIN-061 |
+| FIN-070B | Aggregation decisions — D1, D3, D5, D8 resolved | **COMPLETE** | FIN-070A |
+
+### FIN-070B — Aggregation decisions
+
+Decisions in [FIN-070B_AGGREGATION_DECISIONS.md](FIN-070B_AGGREGATION_DECISIONS.md), which
+supersedes FIN-070A §18 for D1, D3, D5 and D8. Decision document only: no Java, SQL or migration
+was written, the fact model is unchanged, and FIN-070/071/072 remain `NOT_STARTED`.
+
+**None of the four blocks FIN-070**, which is the substantive outcome — FIN-070A had listed three
+of them as blockers, and closer source inspection shows none is.
+
+**D1 accepted** (`source_system_id` joins `uk_frf_grain`) but on a corrected schedule. FIN-070A
+argued it had to happen while the table was empty; widening a UNIQUE key cannot be violated by
+existing rows, and `source_system_id` is already `NOT NULL` and populated, so the DDL is safe with
+or without data. What expires is the recovery of facts already destroyed by a second source
+overwriting the first — so the deadline is the **second source system**, not FIN-070. Own task.
+`uk_ftc_temple_capability` and `uk_fsd_temple_service` carry the same assumption and are deferred:
+neither is a mechanical widening, because both force an unanswered question about what a
+temple-level answer means when two sources disagree (new decision D9).
+
+**D3 resolved as Option A** — facts immutable, mapping changes affect future extraction only, no
+aggregation path corrects history. Option B is rejected on a schema fact: a grouped fact carries
+`source_record_ref = NULL` by design (FIN-D-040) and the fact-to-staged-row link is never
+persisted, so a snapshot policy cannot say which facts a source record fed. Option D is rejected as
+unenforceable and harmful — it would strand `UNMAPPED` revenue permanently. Option C is the
+approved successor with five prerequisites, none of which exists.
+
+The correction that matters for whoever builds it: a remap needs **no source access**.
+`uk_fsrm_row_type` exists so a re-run after a rule correction updates the decision rather than
+duplicating it, and staging retains `raw_json`. The missing piece was never re-extraction; it is a
+fact retirement path.
+
+**D5 resolved**: `category_id` is `NOT NULL` and part of the aggregate unique key, totals computed
+at read time. The documented "nullable, null = all" design would reproduce FIN-D-018's defect one
+layer up — MySQL and TiDB do not constrain a NULL in a unique key, so every run would insert
+another total row into a table whose defining property is idempotency.
+
+**D8: accept ADR-011 with three amendments**, though the status change is the architect's act and
+this task did not edit the ADR. All **eleven** finance ADRs are `Proposed`, so ADR-011's status is
+not an anomaly and accepting one of eleven needs the governance question answered too (new decision
+D10). The amendments: lead with publication gating rather than unmeasured performance, replace
+`sync_batch_id` on an aggregate row with a contributing-batch reference, and state what a blocked
+period looks like in the table.
+
+### FIN-070A — Aggregation plan
+
+Analysis in [FIN-070A_AGGREGATION_PLAN.md](FIN-070A_AGGREGATION_PLAN.md). Design only: no Java, SQL
+or migration was written, and FIN-070/071/072 remain `NOT_STARTED`.
+
+The plan confirms ADR-011's aggregate tables, but on the **publication-gating** argument rather
+than the performance one — a query-time total always reflects the newest facts, including facts
+`ReconciliationGate` says must not be published, and no performance figure for this platform has
+ever been measured. Recommended grain is
+`(temple, source system, period type, period key, category, payment mode)`, which is what makes
+`requirePublishable(temple, source, financialYear)` applicable to an aggregate row at all.
+
+Three things the plan found that must be decided before FIN-070 is written:
+
+`uk_frf_grain` still omits `source_system_id` (limitation 47), and `fin_temple_capability` carries
+the same single-source assumption in `uk_ftc_temple_capability` — so aggregating *by* source would
+produce confident, wrong attribution. The fact table is empty in production, which makes this the
+cheapest moment the grain will ever be fixable (decision D1).
+
+Reconciliation writes results only at `FULL_HISTORY` and `FINANCIAL_YEAR` scope, so **monthly
+aggregates cannot be gated on their own evidence** and must inherit the parent year's verdict,
+recorded on the row as inherited rather than measured.
+
+And a new finding, not previously recorded: **re-extraction after a mapping change orphans a fact
+and double-counts the money.** `category_id` is part of the fact grain, the upsert has no delete
+path, and nothing else deletes facts — so a value remapped from `UNMAPPED` to `SEVA` produces a
+second row and leaves the first. Reachable now that FIN-054B has shipped the editing screen
+(decision D3, risk R2).
 
 ---
 

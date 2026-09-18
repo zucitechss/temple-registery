@@ -299,7 +299,10 @@ public final class RevenueNormalizer {
                       BigDecimal quantity,
                       Integer sourceOfTruthVersion) {
 
-        /** The canonical grain of {@code uk_frf_grain}, minus the temple which the batch fixes. */
+        /**
+         * The canonical grain of {@code uk_frf_grain}, minus the temple and the source system,
+         * both of which the batch fixes.
+         */
         public GrainKey grain() {
             return new GrainKey(transactionDate, serviceId, categoryId, paymentMode,
                     counterRef, operatorRef);
@@ -313,6 +316,13 @@ public final class RevenueNormalizer {
      * unlike in the database, where NULL-distinct index semantics forced the generated
      * {@code grain_*} columns (FIN-D-018). The two must agree: anything added to one belongs in
      * the other, or the same fact lands twice.
+     *
+     * <p>Two of the constraint's eight columns are absent here and correctly so: normalization
+     * runs over one batch, and a batch has exactly one temple and exactly one source system, so
+     * both are constant across every key this class builds. {@code source_system_id} joining the
+     * constraint in V118 (FIN-052A) therefore needed no change here — but a future change that
+     * let one normalization run span batches would break that assumption and would have to add
+     * both.
      */
     public record GrainKey(LocalDate transactionDate,
                            Long serviceId,
