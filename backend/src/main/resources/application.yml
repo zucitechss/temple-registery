@@ -75,9 +75,15 @@ trm:
     base-dir: ./exports
 
 app:
+  # JWT RS256 keys (C-1). Preferred: supply the PEM bodies via
+  # APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY so nothing is committed.
+  # The *-path values are a local-dev fallback only and resolve to git-ignored
+  # files; JwtKeyProvider fails startup if neither source yields a key.
   jwt:
-    private-key-path: classpath:keys/jwt-private.pem
-    public-key-path: classpath:keys/jwt-public.pem
+    private-key: ${APP_JWT_PRIVATE_KEY:}
+    public-key: ${APP_JWT_PUBLIC_KEY:}
+    private-key-path: ${APP_JWT_PRIVATE_KEY_PATH:classpath:keys/jwt-private.pem}
+    public-key-path: ${APP_JWT_PUBLIC_KEY_PATH:classpath:keys/jwt-public.pem}
     access-token-expiry-ms: 7200000
 
   cors:

@@ -1,6 +1,7 @@
 package com.templeregistry.integration;
 
 import com.templeregistry.TempleRegistryApplication;
+import com.templeregistry.service.impl.auth.RsaTestKeys;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -29,6 +30,8 @@ class ApplicationContextIntegrationTest {
             .withUsername("test")
             .withPassword("test");
 
+    private static final RsaTestKeys TEST_JWT_KEYS = RsaTestKeys.generate();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", mysql::getJdbcUrl);
@@ -37,8 +40,11 @@ class ApplicationContextIntegrationTest {
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
         // Drop the TiDB-only init SQL from application-dev.yml — plain MySQL rejects it
         registry.add("spring.datasource.hikari.connection-init-sql", () -> "SELECT 1");
-        registry.add("app.jwt.private-key-path", () -> "classpath:keys/jwt-private.pem");
-        registry.add("app.jwt.public-key-path", () -> "classpath:keys/jwt-public.pem");
+        // Generated per run and injected as PEM — no committed key file (C-1).
+        registry.add("app.jwt.private-key", TEST_JWT_KEYS::privateKeyPem);
+        registry.add("app.jwt.public-key", TEST_JWT_KEYS::publicKeyPem);
+        registry.add("app.jwt.private-key-path", () -> "");
+        registry.add("app.jwt.public-key-path", () -> "");
         registry.add("cloud.aws.s3.bucket-name", () -> "test-bucket");
         registry.add("cloud.aws.region.static", () -> "ap-south-1");
         registry.add("app.encryption.aes-key", () -> "12345678901234567890123456789012");

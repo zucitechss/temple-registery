@@ -2,6 +2,7 @@ package com.templeregistry.integration;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import com.templeregistry.service.impl.auth.RsaTestKeys;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -33,6 +34,9 @@ public abstract class MySQLContainerBase {
             .withPassword("test_pass")
             .withReuse(true);   // reuse across ITs in the same JVM run to speed CI
 
+    /** Ephemeral RS256 keypair shared by every test extending this base. */
+    private static final RsaTestKeys TEST_JWT_KEYS = RsaTestKeys.generate();
+
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",      MYSQL::getJdbcUrl);
@@ -46,9 +50,12 @@ public abstract class MySQLContainerBase {
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
         // Drop the TiDB-only init SQL from application.yml — plain MySQL rejects it
         registry.add("spring.datasource.hikari.connection-init-sql", () -> "SELECT 1");
-        // JWT keys (test stubs — keys must exist under src/test/resources/keys/)
-        registry.add("app.jwt.private-key-path", () -> "classpath:keys/jwt-private.pem");
-        registry.add("app.jwt.public-key-path",  () -> "classpath:keys/jwt-public.pem");
+        // JWT keys: generated per run and injected as PEM, exactly as production
+        // supplies APP_JWT_PRIVATE_KEY/APP_JWT_PUBLIC_KEY. No key file is committed (C-1).
+        registry.add("app.jwt.private-key", TEST_JWT_KEYS::privateKeyPem);
+        registry.add("app.jwt.public-key",  TEST_JWT_KEYS::publicKeyPem);
+        registry.add("app.jwt.private-key-path", () -> "");
+        registry.add("app.jwt.public-key-path",  () -> "");
         // AWS/S3 stubs — no real bucket needed for unit/integration tests
         registry.add("cloud.aws.s3.bucket-name",   () -> "test-bucket");
         registry.add("cloud.aws.region.static",    () -> "ap-south-1");

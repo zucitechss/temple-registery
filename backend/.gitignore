@@ -2,8 +2,9 @@
 target/
 *.class
 
-# Never commit the private key
-src/main/resources/keys/private.pem
+# Never commit JWT/RSA private keys. Production supplies them through
+# APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY env vars (see backend/.env.example).
+src/main/resources/keys/
 
 # Never commit prod config with real credentials
 src/main/resources/application-prod.yml

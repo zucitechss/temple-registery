@@ -49,6 +49,9 @@ backend/BOOT-INF/
 *.class
 
 # ─── Backend — private keys / secrets ───────────────────────
+# JWT PEMs are never committed. Production supplies them via
+# APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY (see backend/.env.example);
+# local dev generates its own pair under keys/.
 backend/src/main/resources/keys/
 backend/src/main/resources/application-prod.yml
 backend/dev-secrets.properties
