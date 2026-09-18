@@ -197,4 +197,22 @@ public interface FinRevenueFactRepository extends JpaRepository<FinRevenueFact, 
     long countFactsWithUnknownTransactionCount(@Param("templeId") Long templeId,
                                                @Param("sourceSystemId") Long sourceSystemId,
                                                @Param("financialYear") String financialYear);
+
+    /**
+     * The batches whose facts sit in one source's financial year (FIN-061).
+     *
+     * <p>The publication gate needs these because a period's trustworthiness is not only a
+     * property of the period: a batch that lost rows on its way through the pipeline taints every
+     * period it fed, however well that period's totals happen to agree.
+     */
+    @Query("""
+        SELECT DISTINCT f.syncBatchId FROM FinRevenueFact f
+         WHERE f.templeId = :templeId
+           AND f.sourceSystemId = :sourceSystemId
+           AND f.financialYear = :financialYear
+         ORDER BY f.syncBatchId
+        """)
+    List<Long> findContributingBatchIds(@Param("templeId") Long templeId,
+                                        @Param("sourceSystemId") Long sourceSystemId,
+                                        @Param("financialYear") String financialYear);
 }

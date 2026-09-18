@@ -23,9 +23,16 @@ which describe what was actually built.
 >
 > **What was built:** four checks (`STAGE_COMPLETENESS`, `REJECTION_ACCOUNTING`,
 > `SOURCE_VS_CENTRAL`, `SUSPECTED_SOURCE_DELETION`), batch-level idempotency, and an explicit
-> refusal to conclude a deletion from a count. What was **not**: publication gating (FIN-061),
-> alerting, scheduled re-verification, and every check that needs a connector to answer
-> `sourceTotals()`.
+> refusal to conclude a deletion from a count. What was **not**: alerting, scheduled
+> re-verification, and every check that needs a connector to answer `sourceTotals()`.
+>
+> **FIN-061 added the publication decision** this document's §8 anticipates: `ReconciliationGate`
+> turns those results into PASSED / NOT_AVAILABLE / FAILED / PENDING per temple, source and
+> financial year, and only the first two publish. The mapping to §8's six statuses is:
+> `MATCHED` and `WITHIN_TOLERANCE` both become `PASSED` (tolerance is exact, so they are the same
+> thing); `VARIANCE_DETECTED` and `FAILED` both become `FAILED`; `NOT_RECONCILABLE` becomes
+> `NOT_AVAILABLE`; `PENDING` is unchanged. The gate has **no caller yet** -- aggregates and APIs do
+> not exist -- so a blocked period today withholds a replacement that nothing would have written.
 
 ---
 

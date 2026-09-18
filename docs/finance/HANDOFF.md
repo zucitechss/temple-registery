@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-17 (FIN-060)
+**Updated:** 2026-09-18 (FIN-061)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,6 +12,7 @@
 
 | Task | Status |
 |---|---|
+| FIN-061 — Publication gate (the decision; its callers are FIN-070/072) | **COMPLETE** |
 | FIN-060 — Reconciliation (completeness now; source agreement when a connector exists) | **COMPLETE** |
 | FIN-057 — Pipeline orchestrator (and the extraction stage nobody owned) | **COMPLETE** |
 | FIN-056 — Idempotent load | **COMPLETE** |
@@ -46,7 +47,7 @@ boundary (FIN-016), the generic connector contract (FIN-030), connector resoluti
 the complete Kollur configuration (FIN-021…024), the canonical revenue model (FIN-051,
 FIN-052), the staging table that feeds it (FIN-050), and now every stage between them:
 extraction (FIN-057), validation (FIN-053), mapping (FIN-054), normalization (FIN-055), the load
-(FIN-056) and reconciliation (FIN-060) — with an orchestrator (FIN-057) that runs one
+(FIN-056), reconciliation (FIN-060) and the publication gate (FIN-061) — with an orchestrator (FIN-057) that runs one
 `fin_sync_batch` through all of them and leaves it `SUCCESS`, `RECONCILE_FAILED` or `FAILED`,
 never `RUNNING`.
 
@@ -55,16 +56,95 @@ staged record is judged and its rejection explained row by row; a validated reco
 source values translated from configuration alone; the translation becomes a dated, canonical
 figure; and the figure is written to `fin_revenue_fact` through a grain constraint that makes a
 replay converge rather than double. The batch is then checked for completeness, with every
-answer -- including the ones that could not be given -- recorded in `fin_reconciliation_result`.
+answer -- including the ones that could not be given -- recorded in `fin_reconciliation_result`;
+and a gate turns those answers into a deterministic verdict on whether the period may be published.
 
 **What does not work yet.** No connector implementation — `RevenueExtractionStage` drains
 whatever connector a source names, but the only one that exists is a synthetic test fixture, so
 **no row of real temple financial data has ever been read** and `fin_revenue_fact` is empty
 outside tests. No credential exists anywhere -- and because reconciliation against a source needs
 a connector too, the one check that could catch a wrong extraction is `NOT_AVAILABLE` everywhere
-(limitation 44). Beyond that: no publication gate (FIN-061), no aggregation (FIN-070/071), no API,
-no scheduler, no retry driver, and no watermark advancement (FIN-D-049). The dashboard is still
-the static HTML file.
+(limitation 44). The publication gate now decides correctly and **nothing calls it** (limitation
+52). Beyond that: no aggregation (FIN-070/071), no API, no scheduler, no retry driver, and no
+watermark advancement (FIN-D-049). The dashboard is still the static HTML file.
+
+---
+
+## FIN-061 — Publication Gate
+
+### Files
+
+| File | Change |
+|---|---|
+| `service/finance/publication/ReconciliationGate.java` | new — the decision, and a guard that throws |
+| `entity/finance/enums/ReconciliationStatus.java` | `PENDING`, derived only, never persisted |
+| `repository/finance/FinRevenueFactRepository.java` | `findContributingBatchIds` |
+| `repository/finance/FinReconciliationResultRepository.java` | two scoped lookups |
+| `test/.../ReconciliationGateTest.java` | new — 16 tests |
+
+**No migration, no new table, no new status column.**
+
+### The scope question, answered before any code
+
+The plan said *"a FAILED result blocks aggregate publication"*. **There are no aggregates**
+(FIN-070/071 `NOT_STARTED`) and **no APIs** (Phase 8 `NOT_STARTED`), so nothing publishes anything
+today. FIN-072 depends on FIN-061 rather than the reverse, so the rule is built first and its
+consumers are written against it. FIN-061 therefore delivers **the decision, not an enforcement
+point** — recorded as limitation 52, not implied.
+
+### The policy
+
+| Verdict | Publishes? | When |
+|---|---|---|
+| `PASSED` | yes | every check that ran agreed |
+| `NOT_AVAILABLE` | yes, flagged | checks could not be made; what ran agreed |
+| `FAILED` | **no** | a check found a real disagreement |
+| `PENDING` | **no** | figures exist that nothing has verified |
+
+These are the four values `API_CONTRACT.md` already documents for its `reconciliation` field, so no
+vocabulary was invented (FIN-D-058). `NOT_AVAILABLE` publishes because no connector implements
+`sourceTotals()` — blocking on it would publish nothing, ever, while withholding correctly loaded
+figures; what is withheld is the *claim* of verification.
+
+**Blocking means "keep the previous figures", not "fail".** Per the architecture, a blocked period
+leaves the last good aggregates visible and marks the temple stale rather than wrong. The gate
+withholds a replacement; it holds no repository that could delete or restate anything.
+
+### Two scopes, because a period is not self-certifying
+
+A period publishes only if its own checks pass **and** every batch that fed it passed its
+batch-scoped checks. A batch that lost rows taints every period it contributed to, however well
+that period's totals agree — they are summed from the rows that arrived, so they always agree with
+themselves. A contributing batch that was never reconciled at all blocks the period outright; that
+is the state a batch leaves when it loads facts and then dies (FIN-D-059).
+
+Period verdicts supersede per question, so a corrected batch can clear an earlier variance. Batch
+verdicts do not supersede — each batch's own completeness stands on its record.
+
+### Authorization and override
+
+**None, deliberately** (FIN-D-060). No requirement documents an override; the pipeline has no
+authenticated entry point, since Phase 8 does not exist and RBAC is enforced at HTTP boundaries in
+the registry runtime; and nothing is blocked yet that would need releasing. An override added now
+would be reachable only from code with no principal attached. What it will need when it is real is
+written down in FIN-D-060.
+
+### Transactions, idempotency, concurrency
+
+Read-only and derived. `evaluate` writes nothing, takes no lock, and returns the same verdict for
+the same evidence however often it is called — asserted by a test that checks row counts are
+unchanged after three evaluations. Two threads deciding at once reach the same verdict, because
+neither mutates anything (FIN-D-057).
+
+### Tests
+
+16 in `ReconciliationGateTest`, MySQL 8.0 Testcontainer, real migrations: every check passed;
+unavailable checks publishing flagged; a failed period check; an incomplete contributing batch
+blocking a period whose totals agree; a suspected deletion blocking **while the facts stay
+untouched**; a contributing batch never reconciled; nothing reconciled at all; no facts at all; a
+later batch clearing an earlier variance; another source's failure not blocking this one; another
+year's failure not blocking this one; the guard throwing; the guard returning; idempotence over
+three calls; two threads agreeing; and the decision explaining itself in one line.
 
 ---
 
@@ -1642,10 +1722,11 @@ the same 4 report files).
    tests. The scheduled period re-verification the append-only history was designed for — the null
    `sync_batch_id` path (FIN-D-051) — has no caller, so the only rows written are batch-scoped.
 
-49. **A `RECONCILE_FAILED` batch blocks nothing yet.** The status and the `FAILED` result rows are
-   recorded; withholding aggregates from publication is FIN-061, and there are no aggregates to
-   withhold. Until FIN-061 exists, a disagreement is visible in the database and nowhere else — no
-   alert, no dashboard indicator, no API.
+49. **~~A `RECONCILE_FAILED` batch blocks nothing yet.~~ Partly closed by FIN-061.** The decision
+   now exists and is deterministic: `ReconciliationGate` refuses to publish a period whose checks
+   failed or whose figures nothing verified. What still does not exist is a *consumer* — see
+   limitation 52. A disagreement is still invisible outside the database: no alert, no dashboard
+   indicator, no API.
 
 50. **Reconciliation performance is untested at scale.** One `sourceTotals()` call per financial
    year per batch, and the first source has eight. Each is an aggregate query against a temple's
@@ -1657,6 +1738,22 @@ the same 4 report files).
    Nothing timed out in the FIN-060 run — all eight mutations returned exit 1 with a fresh report —
    so no recorded result depends on this. It cost this project a whole discarded mutation round
    once before, so it is written down rather than remembered.
+
+52. **The publication gate has no caller.** `ReconciliationGate` decides correctly and nothing asks
+   it. Its consumers are FIN-070/071 (aggregate writers, which must call `requirePublishable`
+   before replacing a period) and the Phase 8 APIs (which must report its status per period).
+   Until one exists, the gate is a rule that is tested but not yet enforced anywhere, exactly as
+   every pipeline stage was between FIN-053 and FIN-057.
+
+53. **No override exists, and the gate is therefore absolute** (FIN-D-060). A period blocked by a
+   variance stays blocked until the variance is corrected and a batch re-reconciles it. There is
+   no authenticated caller that could be authorized to force publication, because the finance
+   pipeline has no API. If an operational need appears before Phase 8, it needs an endpoint, a
+   `CAN_ACT_DC` guard, and an append-only record of who overrode what and why — not a flag.
+
+54. **The gate keeps no history of its own decisions.** It records what the evidence was, not what
+   the platform concluded at a past moment. "What did we believe on 3 March" is unanswerable
+   without a decision log, which was deliberately not built (FIN-D-057).
 
 ---
 
@@ -1712,39 +1809,38 @@ Do not repeat the architectural analysis. It is complete and in `docs/finance/`.
 
 ## NEXT ACTION
 
-The pipeline runs end to end and now checks itself. **Nothing fills it with real data, nothing
-triggers it, and nothing acts on what reconciliation finds.** Three problems, and the first still
-decides the order.
+The pipeline runs end to end, checks itself, and now knows what its own checks mean. **Nothing
+fills it with real data, and nothing calls the gate.**
 
-**FIN-043, the Kollur connector, is the single thing standing between this platform and a real
-figure** — and, since FIN-060, between it and a meaningful reconciliation. Everything downstream of
-a `Stream<RawRow>` exists and is tested. It is blocked on **Q4**. Whoever writes it should implement
-`sourceTotals()` at the same time and from a *separate* query (the contract says so and explains
-why), or the platform gains data it cannot verify.
+**FIN-070/071, the aggregates, are the recommended next task.** They are the gate's first consumer:
+an aggregate writer must call `ReconciliationGate.requirePublishable` before replacing a period, so
+that a blocked period keeps its previous figures rather than gaining corrupted ones. Building them
+turns FIN-061 from a tested rule into an enforced one (limitation 52), and FIN-072 then has both
+dependencies it needs.
 
-**FIN-061, the publication gate, is the recommended next task** if Q4 is still unanswered. It is
-unblocked, it is small, and it is the piece that makes a `RECONCILE_FAILED` batch mean something:
-today a disagreement is recorded in the database and nowhere else (limitation 49). It pairs
-naturally with FIN-070/071, since a gate with nothing to gate is hard to test honestly.
+Build them against the gate, not around it. The guard throws for exactly that reason: an aggregate
+writer that ignores a returned boolean is easy to write by accident, and one that swallows a
+`PublicationBlockedException` is not.
 
-Go in knowing what reconciliation can and cannot do: it proves stage-to-stage completeness
-authoritatively, and it cannot prove agreement with any temple until a connector answers
-`sourceTotals()` (limitation 44). Deletion detection is recorded as a suspicion and will stay one
-until the contract gains an authoritative snapshot (limitation 45).
+**FIN-043, the Kollur connector, remains the single thing between this platform and a real figure**
+— and, since FIN-060, between it and a meaningful reconciliation. It is blocked on **Q4**. Whoever
+writes it should implement `sourceTotals()` at the same time and from a separate query, or the
+platform gains data it cannot verify and every gate verdict stays `NOT_AVAILABLE`.
 
-Recommended order: FIN-061, then the aggregates (FIN-070/071) the API layer reads. FIN-043 slots in
-whenever Q4 is answered, and watermark advancement goes with it.
+Recommended order: FIN-070/071, then FIN-072, then the Phase 8 APIs. FIN-043 slots in whenever Q4
+is answered, and watermark advancement goes with it.
 
-Three things to decide rather than inherit:
+Four things to decide rather than inherit:
 
-- **Whether a fact records which staged rows produced it.** `NormalizedFact.stagedRowIds` carries
-  them in memory and then discards them; `fin_revenue_fact.source_record_ref` is deliberately
-  NULL for grouped facts (FIN-D-040). FIN-060 reconciles counts and amounts per period and
-  **cannot trace a canonical figure back to the source records behind it** — the gap is now
-  measured rather than predicted. A back-link table or V113's anticipated `loaded_fact_id` would
-  close it.
-- **Whether the canonical grain should include `source_system_id`** (limitation 47). It does not
-  today, so two sources reporting the same day and category overwrite each other. No temple has
-  two sources yet. One will.
+- **Whether an override is ever needed** (FIN-D-060, limitation 53). None exists, and none can be
+  authorized until Phase 8 gives the pipeline an authenticated caller. If an operational need
+  appears first, it needs an endpoint, a `CAN_ACT_DC` guard and an append-only record of who
+  overrode what and why — not a flag.
+- **Whether a fact records which staged rows produced it.** `fin_revenue_fact.source_record_ref` is
+  deliberately NULL for grouped facts (FIN-D-040), so reconciliation compares counts and amounts
+  per period and **cannot trace a figure to its source records**. The gate inherits that limit.
+- **Whether the canonical grain should include `source_system_id`** (limitation 47). It does not, so
+  two sources reporting the same day and category overwrite each other. No temple has two sources
+  yet. One will.
 - **Staging retention (Q7).** Still unanswered: rows stay `LOADED` forever, and at the first
   source's volumes `fin_stg_revenue` grows without bound.

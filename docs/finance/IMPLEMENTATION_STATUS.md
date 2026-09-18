@@ -647,6 +647,56 @@ Acting on a disagreement is FIN-061's.
 
 **Decisions.** FIN-D-050 … FIN-D-055.
 
+**FIN-061 — the platform decides what its own checks mean.** `ReconciliationGate` answers one
+question: may this temple's figures for this financial year be published? Until now a `FAILED`
+reconciliation and a clean one led to the same outcome, because nothing read either.
+
+**The scope needed resolving before any code.** The plan said "a FAILED result blocks aggregate
+publication" — and there are no aggregates, and no APIs. Since FIN-072 depends on FIN-061 rather
+than the reverse, the rule is built first and its consumers are written against it. So FIN-061 is
+**the decision, not an enforcement point**, and the missing caller is recorded as a limitation
+rather than implied.
+
+**Four outcomes, none of them invented.** `PASSED` and `NOT_AVAILABLE` publish; `FAILED` and
+`PENDING` do not. They are the four values the API contract already documents for the
+`reconciliation` field, so `PENDING` joined `ReconciliationStatus` rather than starting a parallel
+enum (FIN-D-058). `NOT_AVAILABLE` publishes because no connector implements `sourceTotals()` yet —
+blocking on it would publish nothing, ever, while withholding figures that loaded correctly. What
+is withheld is the claim of verification, which the status carries.
+
+**`PENDING` is the case worth building the gate for.** A batch that loads facts and then dies
+before reconciliation leaves figures nothing has verified, and a gate that only asks "did anything
+fail?" waves them straight through. Absence of a result is not absence of a problem.
+
+**A period is not self-certifying** (FIN-D-059). It publishes only if its own checks pass *and*
+every batch that fed it passed its batch-scoped checks. A batch that lost rows taints every period
+it contributed to, however well that period's totals agree — they are summed from the rows that
+arrived, so they always agree with themselves.
+
+**Derived, never stored** (FIN-D-057). No decision table, no status column, no migration. The
+verdict is computed from FIN-060's evidence each time, which makes it idempotent by construction
+and impossible to leave contradicting the evidence. Two callers asking at once cannot conflict
+because neither writes anything; no lock was needed.
+
+**No override** (FIN-D-060). Nothing documents one; the pipeline has no authenticated caller,
+because Phase 8 does not exist and RBAC is enforced at HTTP boundaries; and nothing is blocked yet
+that would need releasing. An override added now would be reachable only from code with no
+principal attached — an unauthenticated bypass of a financial control.
+
+**Blocking withholds a replacement; it destroys nothing.** The gate holds no repository that could
+delete or restate a fact, and a test asserts the canonical figures are untouched after a suspected
+deletion blocks a period. FIN-060's non-destructive guarantee survives intact.
+
+**Tests.** `ReconciliationGateTest` — 16 against MySQL 8.0 with the real migrations. Eleven are
+about refusing to publish, or about refusing to refuse for the wrong reason: another source's
+failure and another year's failure must both leave this period alone, and a corrected batch must be
+able to clear an earlier variance.
+
+**Remaining.** The gate has no caller — FIN-070/071 and the Phase 8 APIs are its consumers — and it
+keeps no history of its own decisions, only of the evidence.
+
+**Decisions.** FIN-D-057 … FIN-D-061.
+
 **Remaining.** None in this phase. Nothing writes to staging yet, so the whole pipeline runs
 today only against rows a test or an operator puts there, and no row of real temple financial
 data exists anywhere. The extraction that would fill staging is FIN-043, blocked on Q4.

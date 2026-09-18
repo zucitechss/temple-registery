@@ -1517,3 +1517,130 @@ load-bearing guarantee with a green suite.
 and failed on **H2** — `FinanceFoundationRepositoryTest` is one of the few finance tests not on
 Testcontainers, and the MySQL-based FIN-060 tests could not have caught it because every result
 they write has a check type. Two engines in one suite is why this surfaced before a commit.
+
+---
+
+## FIN-D-057 — The publication decision is derived, never stored
+
+**Date:** 2026-09-18 · **Affects:** `ReconciliationGate`
+
+**Decision.** There is no decision table, no decision status column and no migration. The verdict
+is computed from `fin_reconciliation_result` and `fin_revenue_fact` every time it is asked for.
+
+**Why.** A stored verdict is a second status system that must be kept in agreement with the first
+one by hand, and the first thing to go wrong with it is a period published under a verdict written
+before the batch that changed it. Deriving it makes the decision idempotent by construction,
+impossible to leave stale, and impossible to contradict its own evidence — which is a stronger
+guarantee than "we remember to recompute it".
+
+**What this means for the brief's "persist decisions transactionally".** The *evidence* is
+persisted transactionally, by FIN-060. The decision is a pure function of it. Two callers asking at
+once cannot create contradictory states because neither writes anything, so no lock was added;
+concurrency safety here is the absence of mutable state, not a mechanism.
+
+**Cost, stated.** There is no historical record of what the gate decided at a past moment — only of
+what the evidence was. If an audit ever needs "what did the platform believe on 3 March", that
+needs a decision log, and it should be added then rather than guessed at now.
+
+---
+
+## FIN-D-058 — Four publication outcomes, and the two that publish nothing new
+
+**Date:** 2026-09-18 · **Affects:** `ReconciliationGate`, `ReconciliationStatus.PENDING`
+
+**Decision.**
+
+| Verdict | Publishes? | Meaning |
+|---|---|---|
+| `PASSED` | yes | every check that ran agreed |
+| `NOT_AVAILABLE` | yes, flagged | checks could not be made; what did run agreed |
+| `FAILED` | **no** | a check found a real disagreement |
+| `PENDING` | **no** | figures exist that nothing has verified |
+
+**No new vocabulary was invented.** These are the four values `API_CONTRACT.md` already documents
+for the `reconciliation` field a finance response carries. `PENDING` was added to
+`ReconciliationStatus` rather than to a parallel enum, because two enums covering one documented
+vocabulary is exactly the duplicate status system worth more than the extra constant costs. It is
+**derived only** and is never written to `fin_reconciliation_result`.
+
+**`NOT_AVAILABLE` publishes** (following FIN-D-054). No production connector implements
+`sourceTotals()`, so blocking on it would publish nothing at all, forever, for every temple — while
+withholding figures that loaded correctly. What is withheld is the *claim* that they were verified,
+which the status carries.
+
+**`PENDING` does not publish.** Absence of a result is not absence of a problem. A batch that loads
+facts and then dies before reconciliation leaves precisely this state, and it is the one a naive
+"nothing failed, so publish" gate waves through.
+
+---
+
+## FIN-D-059 — A batch's completeness taints every period it fed
+
+**Date:** 2026-09-18 · **Affects:** `ReconciliationGate.evaluate`
+
+**Decision.** A period is publishable only if **both** its period-scoped checks pass **and** every
+batch that contributed facts to it passed its own batch-scoped checks. A contributing batch that
+was never reconciled at all blocks the period outright.
+
+**Why both scopes.** `STAGE_COMPLETENESS` and `REJECTION_ACCOUNTING` are recorded against a batch,
+not a period, because a batch that lost rows lost them from whichever periods those rows belonged
+to. Reading only the period's own totals would let a partial extraction publish as clean whenever
+the rows that *did* arrive happened to add up — which they always do, since they are summed from
+themselves.
+
+**Supersession is per question, not per period.** Two batches that both reconciled FY2025-26 each
+answered the same question; the later answer is the current truth. Without that, a variance could
+never be cleared by correcting it, only by deleting history. Batch-scoped answers are not
+superseded: each batch's own completeness stands on its own record.
+
+---
+
+## FIN-D-060 — No override, because there is nobody to authorize one
+
+**Date:** 2026-09-18 · **Affects:** FIN-061 scope
+
+**Decision.** FIN-061 implements no override, no force-publish and no approval workflow.
+
+**Why, in order of weight.**
+
+1. **No requirement documents one.** Nothing in the architecture, the reconciliation framework, the
+   report catalogue or the task plan describes an override. Inventing an authorization rule for a
+   financial control was explicitly out of bounds.
+2. **There is no authenticated caller to authorize.** The finance pipeline has no API — Phase 8 is
+   `NOT_STARTED` — and RBAC (`CAN_ACT_DC`: `SUPER_ADMIN`, `DISTRICT_COLLECTOR`) is enforced at HTTP
+   entry points in the registry runtime. An override added now would be reachable only from code
+   with no principal attached, which is an unauthenticated bypass of a financial control wearing
+   the word "override".
+3. **Nothing is blocked yet that needs releasing.** There are no aggregates to withhold, so an
+   override would today unblock nothing.
+
+**When it is needed, it needs:** a finance API endpoint, `CAN_ACT_DC` or stricter, the overriding
+user, timestamp and written justification persisted as an append-only record, and the override
+scoped to one temple, one source and one period — never a global switch. Recorded as a follow-up,
+not implemented as a guess.
+
+---
+
+## FIN-D-061 — The gate is not worker-only, and that is deliberate
+
+**Date:** 2026-09-18 · **Affects:** `com.templeregistry.service.finance.publication`
+
+**Decision.** `ReconciliationGate` is a plain `@Service` in a new `publication` package, available
+to both runtimes — unlike every pipeline stage, which is a `@Bean` registered only under the
+`sync-worker` profile (FIN-D-008).
+
+**Why it is safe.** ADR-001 forbids the registry runtime reaching a *temple source system*. The gate
+holds no connector, no registry, no credential provider and no source descriptor; it reads two
+central tables whose repositories are already component-scanned into both runtimes. It adds no
+capability that the registry runtime did not already have — only a correct reading of data it could
+already query.
+
+**Why it is necessary.** The API contract requires every finance response to carry a
+`reconciliation` status per period. That is served from the registry runtime. A worker-only gate
+would force the API to re-derive the same rule from the same rows, and two implementations of a
+publication rule will disagree eventually.
+
+**The package matters.** `service.finance.pipeline` and `service.finance.sync` are guarded by
+`FinanceIntegrationBoundaryTest`, which fails the build on a stereotype annotation there. Putting
+the gate in `service.finance.publication` keeps that guard meaningful rather than weakening it to
+accommodate a class that genuinely does not belong to it.

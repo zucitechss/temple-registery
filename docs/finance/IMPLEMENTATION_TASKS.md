@@ -598,7 +598,7 @@ The test found it; reasoning had not.
 | ID | Description | Status | Depends on |
 |---|---|---|---|
 | FIN-060 | Reconciliation service: completeness, consistency, and honest deletion handling | **COMPLETE** | FIN-056, FIN-057 |
-| FIN-061 | Publication gate — a FAILED result blocks aggregate publication | NOT_STARTED | FIN-060 |
+| FIN-061 | Publication gate — a FAILED or unverified result blocks publication | **COMPLETE** | FIN-060 |
 
 ### FIN-060 — Pre-implementation investigation
 
@@ -697,6 +697,42 @@ its `VALID` status and would otherwise have counted as lost (FIN-D-055); `uk_frf
 include `source_system_id`, so two sources writing one grain overwrite each other (limitation 47);
 and making `check_type` non-null broke two pre-existing H2 tests, which is recorded in HANDOFF.md
 rather than hidden -- along with the fact that the constraint had no test until this task added one.
+
+---
+
+### FIN-061 — Scope, confirmed against the plan
+
+The plan's one line was *"Publication gate — a FAILED result blocks aggregate publication"*, and
+FIN-072 depends on it. Reading the code found the tension that shapes this task:
+
+**There is nothing to gate yet.** FIN-070/071 (the aggregates) and Phase 8 (the APIs) are both
+`NOT_STARTED`, so no code publishes anything. Two readings were possible: defer FIN-061 until
+there is a consumer, or build the decision now so the consumer is written against it. The plan
+chose the second — FIN-072 lists FIN-061 as a dependency, not the reverse — and building the rule
+first is also what stops each future consumer inventing its own.
+
+So FIN-061 delivers **the decision, not an enforcement point**: a deterministic, tested answer to
+"may this temple's figures for this financial year be published?", plus a guard that throws. The
+callers are FIN-070/072 and the Phase 8 APIs. That boundary is recorded as limitation 52 rather
+than implied.
+
+**In scope:** the decision rule, its four outcomes, batch-and-period scoping, the guard.
+**Out of scope, deliberately:** aggregates, APIs, dashboard, scheduler, alerting, override
+(FIN-D-060), and any canonical restatement. Nothing in this task deletes or rewrites a fact.
+
+### Delivered
+
+`ReconciliationGate` in a new `service.finance.publication` package — a plain `@Service` available
+to both runtimes (FIN-D-061), plus `ReconciliationStatus.PENDING` and two repository queries. **No
+migration and no new table:** the decision is derived from evidence FIN-060 already persists
+(FIN-D-057).
+
+Verified by `ReconciliationGateTest`, 16 tests on MySQL 8.0.
+
+The finding that shaped the rule: a period is not trustworthy merely because its own totals agree.
+A batch that lost rows taints every period it fed, and a batch that loaded facts and then died
+before reconciliation leaves figures nothing has verified — the `PENDING` case, which a naive
+"nothing failed, so publish" gate waves through (FIN-D-059).
 
 ---
 

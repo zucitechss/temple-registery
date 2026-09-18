@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -95,4 +96,17 @@ public interface FinReconciliationResultRepository extends JpaRepository<FinReco
         findFirstByTempleIdAndSourceSystemIdAndCheckTypeAndMetricAndPeriodTypeAndPeriodKeyOrderByIdDesc(
             Long templeId, Long sourceSystemId, ReconciliationCheckType checkType, String metric,
             PeriodType periodType, String periodKey);
+
+    /**
+     * Every result any of these batches recorded (FIN-061).
+     *
+     * <p>Used by the publication gate to find a batch that contributed figures and was never
+     * reconciled at all -- the case a period-scoped query cannot see, because the evidence it
+     * would need is precisely what is missing.
+     */
+    List<FinReconciliationResult> findBySyncBatchIdInOrderByIdAsc(Collection<Long> syncBatchIds);
+
+    /** Every result recorded against one source's period, oldest first (FIN-061). */
+    List<FinReconciliationResult> findByTempleIdAndSourceSystemIdAndPeriodTypeAndPeriodKeyOrderByIdAsc(
+            Long templeId, Long sourceSystemId, PeriodType periodType, String periodKey);
 }
