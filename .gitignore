@@ -29,9 +29,10 @@ frontend/tsconfig.app.tsbuildinfo
 frontend/tsconfig.node.tsbuildinfo
 
 # ─── Frontend secrets & env ─────────────────────────────────
-frontend/.env
-frontend/.env.local
-frontend/.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
 
 # ─── Frontend log / debug dumps ─────────────────────────────
 frontend/dev_log.txt
@@ -52,6 +53,23 @@ backend/src/main/resources/keys/
 backend/src/main/resources/application-prod.yml
 backend/dev-secrets.properties
 backend/.env
+
+# Ad-hoc DB scratch/debug scripts that carried live credentials
+/VerifySeed2.java
+backend/TestDB.java
+backend/audit_proof.js
+e2e/_geo_dump.js
+e2e/_latest_decl_workflow_dump.js
+e2e/_table_probe.js
+e2e/audit_detail.js
+e2e/audit_proof.js
+e2e/check-db.js
+e2e/debug-all-tables.js
+e2e/debug-tables.js
+e2e/residue_proof.js
+
+# Stray log dump committed by accident (contained credentials)
+/logs.tsxt
 
 # ─── Backend — log files ────────────────────────────────────
 backend/app.log
