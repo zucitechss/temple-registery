@@ -192,3 +192,83 @@ No endpoint exposes: devotee names or contact details, receipt numbers, source t
 column names, source connection details, or credential references. None is required by any
 catalogued report, and excluding them keeps personal data out of the central platform
 altogether.
+
+---
+
+## 7. Administrative endpoints — source mapping (FIN-054A, IMPLEMENTED)
+
+Sections 1–6 describe *reporting* endpoints, none of which exist yet. These are
+**administrative** endpoints and are the first finance endpoints actually implemented. They
+configure how a source system's values translate to canonical revenue categories; they read no
+temple financial figure and publish none.
+
+`FinanceMappingController` · `MappingAdminServiceImpl` · base path `/api/v1/finance`.
+
+### 7.1 Endpoints
+
+| Method | Path | Purpose | Authorization |
+|---|---|---|---|
+| GET | `/finance/source-systems` | Source systems the caller may administer, with active rule counts | read |
+| GET | `/finance/source-systems/{id}/namespaces` | Staged field names this source has been observed to emit | read |
+| GET | `/finance/canonical-values` | The revenue categories a rule may name | read |
+| GET | `/finance/mapping-rules` | One source system's rules, paged and filtered | read |
+| GET | `/finance/mapping-rules/{id}` | One rule | read |
+| GET | `/finance/mapping-rules/unresolved` | What the newest batch could not classify, worst first | read |
+| POST | `/finance/mapping-rules` | Create a rule | `CAN_ACT_DC` |
+| PUT | `/finance/mapping-rules/{id}` | Update a rule | `CAN_ACT_DC` |
+| PATCH | `/finance/mapping-rules/{id}/status` | Retire or reinstate a rule | `CAN_ACT_DC` |
+
+Read = `CAN_READ_FINANCE_CONFIG` (`SUPER_ADMIN`, `DISTRICT_COLLECTOR`, `DC_STAFF`, `AUDITOR`).
+
+`GET /mapping-rules` requires `sourceSystemId`. Optional: `mappingType`, `active`,
+`canonicalValue`, `q`, `page`, `size`, `sort`. **`sort` accepts an allow-listed property name
+only** — `sourceValue`, `canonicalValue`, `mappingType`, `priority`, `active`, `updatedAt`,
+`createdAt`, each optionally `,asc` or `,desc`. Anything else is refused. No endpoint accepts SQL,
+a table name, a column name or an order-by fragment.
+
+### 7.2 The namespaced source value
+
+A rule is stored as one string, `SEVA_CODE:430`, whose first colon separates the **staged field
+the rule reads** from the **value it matches**. The API takes and returns the two halves
+separately (`namespace`, `sourceValue`) and also reports the stored string (`storedValue`) and
+whether it is readable (`wellFormed`).
+
+A malformed stored value is **refused on write** and **reported, not hidden, on read** — an
+existing rule that names no field can never match anything, and that is what an administrator
+opens this screen to find. See FIN-D-062.
+
+### 7.3 What a write does not do
+
+Every write response carries:
+
+```json
+{ "rule": { … }, "historicalEffect": "…", "warnings": [ … ] }
+```
+
+`historicalEffect` is a fixed sentence stating that the change applies to **future pipeline runs
+only** and that figures already published keep their classification until their batch is re-run.
+**No endpoint triggers re-processing.** A client must display this at the point of edit; a user who
+sees only "Saved" will reasonably conclude the dashboard has been corrected. See FIN-D-066.
+
+`warnings` carries things that are legal but probably wrong — chiefly a namespace no staged payload
+from that source has been observed to carry. Such a rule is saved and will never match anything
+until the source emits that field.
+
+### 7.4 Status codes
+
+| Situation | Status | Note |
+|---|---|---|
+| Created | 201 | |
+| Source system or rule outside the caller's scope | **404** | Never 403 — a distinguishable refusal enumerates every temple's integrations |
+| Source value already mapped | 409 | Names the existing rule |
+| Stale `version` | 409 | `OPTIMISTIC_LOCK_CONFLICT` |
+| Malformed namespace, unknown canonical value, inert mapping type, bad `sort` | 422 | Well-formed request, semantically refused |
+| Missing required field, bad length | 400 | Bean validation |
+| Role not permitted | 403 | |
+
+### 7.5 Excluded, deliberately
+
+No endpoint returns a credential reference, a source database name, a connector bean or any
+source-side connection detail, and none returns a temple financial figure. `DELETE` was not
+implemented: deactivation covers retirement, and soft delete would add a permission tier and an
+audit action no described flow needs.

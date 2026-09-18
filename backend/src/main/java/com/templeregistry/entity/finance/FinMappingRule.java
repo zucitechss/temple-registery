@@ -78,4 +78,22 @@ public class FinMappingRule extends BaseEntity {
 
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
+
+    /**
+     * Optimistic lock (FIN-054A).
+     *
+     * <p>A mapping rule decides which revenue category a temple's income lands in, so two
+     * administrators editing one rule from a list they each loaded a minute ago must not
+     * silently resolve to whichever saved second. Without this, the loser of that race gets a
+     * success response for a change that no longer exists, and the classification that reaches
+     * a published figure is decided by request ordering.
+     *
+     * <p>Declared here rather than on {@code BaseEntity}, because putting it there would add a
+     * lock to every audited entity in the application. The entities that need one declare it
+     * individually, as {@code Temple}, {@code Trust} and {@code AssetDeclaration} already do.
+     */
+    @Version
+    @Builder.Default
+    @Column(name = "version", nullable = false)
+    private Integer version = 0;
 }

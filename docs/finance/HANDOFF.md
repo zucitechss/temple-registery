@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-18 (FIN-061)
+**Updated:** 2026-09-18 (FIN-054A-BE)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,6 +12,7 @@
 
 | Task | Status |
 |---|---|
+| FIN-054A-BE — Source mapping administration API (the screen is FIN-054A-FE, not started) | **COMPLETE** |
 | FIN-061 — Publication gate (the decision; its callers are FIN-070/072) | **COMPLETE** |
 | FIN-060 — Reconciliation (completeness now; source agreement when a connector exists) | **COMPLETE** |
 | FIN-057 — Pipeline orchestrator (and the extraction stage nobody owned) | **COMPLETE** |
@@ -65,8 +66,129 @@ whatever connector a source names, but the only one that exists is a synthetic t
 outside tests. No credential exists anywhere -- and because reconciliation against a source needs
 a connector too, the one check that could catch a wrong extraction is `NOT_AVAILABLE` everywhere
 (limitation 44). The publication gate now decides correctly and **nothing calls it** (limitation
-52). Beyond that: no aggregation (FIN-070/071), no API, no scheduler, no retry driver, and no
-watermark advancement (FIN-D-049). The dashboard is still the static HTML file.
+52). Beyond that: no aggregation (FIN-070/071), **no reporting API**, no scheduler, no retry driver,
+and no watermark advancement (FIN-D-049). The dashboard is still the static HTML file.
+
+The one API that now exists is administrative, not reporting: FIN-054A-BE configures how a source
+system's values translate to canonical categories, and reads no temple financial figure. It has no
+screen (limitation 55).
+
+---
+
+## FIN-054A-BE — Source Mapping Administration API
+
+The finance pipeline's **first HTTP surface**, and therefore the first place finance authorization
+exists at all. Everything from FIN-050 to FIN-061 is invoked by a worker or a test.
+
+### Files
+
+| File | Change |
+|---|---|
+| `service/finance/pipeline/SourceValueKey.java` | new — one definition of a valid `source_value`, shared with the engine |
+| `service/finance/pipeline/MappingRuleResolver.java` | now parses through `SourceValueKey`; behaviour unchanged |
+| `service/finance/mapping/MappingAdminService.java` | new — the contract |
+| `service/impl/finance/MappingAdminServiceImpl.java` | new — authorization, scope, validation, audit |
+| `controller/finance/FinanceMappingController.java` | new — 9 endpoints, thin |
+| `dto/request/finance/` (3), `dto/response/finance/` (5) | new |
+| `entity/finance/FinMappingRule.java` | `@Version` |
+| `db/migration/V117__finance_mapping_rule_version.sql` | new — `version INT NOT NULL DEFAULT 0` |
+| `security/RoleConstants.java` | `CAN_READ_FINANCE_CONFIG` |
+| `repository/finance/` (4) | paged search, conflict lookup, latest-batch, field summary, payload sample, `findByDeletedFalse` |
+| `test/.../mapping/MappingAdminServiceTest.java` | new — 28 tests |
+| `test/.../mapping/MappingAdminSecurityTest.java` | new — 19 tests |
+| `test/.../mapping/FinanceApiTestBase.java`, `MappingAdminTestFixture.java` | new — shared container and seeding |
+
+### The three things worth knowing
+
+**1. `AuditService` was not reused, and that is the point.** It writes the right table but it is
+`@Async`, runs `REQUIRES_NEW`, and catches its own failures — correct for a declaration, wrong
+here. A change to how a temple's revenue is classified must not survive the loss of the record of
+who made it. The service writes `AuditDataEvent` through its repository in the caller's
+transaction, with no `try`/`catch` (FIN-D-063), and a test makes the audit insert fail on its own
+to prove the rule change goes with it.
+
+**2. Scope is resolved from the server's own data, and refused as 404.** A caller names a
+`sourceSystemId` and nothing else; the temple, and through it the district, is looked up here. A
+source system outside the caller's district is "not found", not "forbidden" — a distinguishable
+refusal enumerates every temple's integrations one id at a time.
+
+`JurisdictionGuard.assertDistrictScope` is reused for the traversal, but **only for
+`DISTRICT_COLLECTOR` and `DC_STAFF`**. It treats a null `districtId` on any other role as a
+corrupted token, and an `AUDITOR` is statewide and legitimately carries none. A test asserts that
+an auditor with no district claim is not treated as corrupted.
+
+**3. One definition of what can fire.** `SourceValueKey` is used by the API that validates a rule
+before saving it and by the engine that later matches it. Two copies would have been the real bug:
+an API that accepts what the engine rejects produces a rule that is saved, shows as active, and
+silently never matches — the exact failure this feature exists to prevent (FIN-D-062). A test
+creates a rule through the API and then resolves it through `MappingRuleResolver`.
+
+### What it refuses, and what it only warns about
+
+| Refused (422) | Warned about |
+|---|---|
+| a `source_value` naming no field | a namespace no staged payload has been observed to carry |
+| a field name containing the separator | |
+| a canonical value that is not a live category | |
+| creating or editing any type but `REVENUE_CATEGORY` | |
+| a `sort` key outside the allow-list | |
+
+The warning is not a refusal because **there is no registry of the fields a source emits** — the
+connector chooses them, and the only evidence is staged payloads. Refusing on that evidence would
+make a source impossible to configure before its first extraction and would start refusing correct
+namespaces the moment staging is purged (Q7 unresolved). See FIN-D-062 and limitation 58.
+
+### What it does not touch
+
+No canonical fact, no staged row, no staged decision, no pipeline run. Two tests assert directly
+that `fin_revenue_fact` is byte-identical after a successful edit and after a refused one, and a
+third that an existing `UNMAPPED` decision still says `UNMAPPED` after the missing rule is created.
+Every write response carries a fixed sentence saying published figures are unchanged until the
+batch is re-run (FIN-D-066) — because there is no re-run trigger, and adding one was refused
+(limitation 59).
+
+### Concurrency
+
+V117 adds `version`, and the service compares the submitted version against the loaded one
+**before** saving. Hibernate's own check would not catch this feature's actual race: the entity
+loaded inside the write transaction is fresh, so two administrators who opened the same list
+minutes apart would both succeed and the earlier one's change would vanish silently (FIN-D-064).
+
+### Tests
+
+**47, all passing**, MySQL 8.0 Testcontainer with real migrations. The finance regression is
+**408 run -- 0 failures -- 0 errors -- 0 skipped** (386 at FIN-061; the 22 added are these two
+classes, and no prior suite changed). `MappingRuleResolverTest` 16/16 and `RevenueMappingStageTest`
+22/22 are what make the resolver refactor safe to claim as behaviour-preserving.
+
+Full suite: **1,263 run -- 0 failures -- 18 errors** (1,216 at FIN-061). **No new failure.** All 18
+errors are FIN-X-001, unchanged in count, cause and location: `ApplicationContextIntegrationTest`
+(1) and `TrustIntegrationTest` (1 + 5 + 11), every one of them
+`missing column [field_names_json] in table [declaration_clarifications]`.
+
+- `MappingAdminServiceTest` — 28. Composition and read-back through the real resolver; every
+  refusal above; version increment and stale-version refusal; deactivation, including of an inert
+  type; facts untouched after a successful and a refused edit; staged decisions untouched; audit
+  rows written with actor and before/after; **audit failure rolling the change back**; paging,
+  filtering, search, sort allow-list both directions; a malformed existing rule listed and flagged;
+  unresolved values worst-first with the namespace to key on; newest batch only; no batch at all;
+  the namespace catalogue and all three warning cases.
+- `MappingAdminSecurityTest` — 19. Each of the four reading roles admitted and each of the two
+  excluded roles refused, by invoking the service rather than inspecting an annotation; every write
+  path refused for `DC_STAFF`, `AUDITOR`, `TEMPLE_AUTHORITY` and `VIEWER`; cross-district read,
+  edit and create all 404 with the other district's rule verifiably unchanged; unresolved values,
+  namespaces and single-rule reads scoped the same way; the source-system list filtered per
+  district; a statewide role seeing both; an auditor with no district claim not failing.
+
+`FinanceApiTestBase` does **not** extend `MySQLContainerBase`: that base sets `ddl-auto=validate`,
+which still fails on FIN-X-001, so these tests use `ddl-auto=none` like every finance pipeline
+suite. Consequence recorded as limitation 56. Its container is a started-once singleton rather
+than a `@Container` field, because Spring caches one context across both classes while a
+`@Container` field is stopped per class — the first attempt failed exactly that way.
+
+### Decisions
+
+FIN-D-062 … FIN-D-066.
 
 ---
 
@@ -1754,6 +1876,41 @@ the same 4 report files).
 54. **The gate keeps no history of its own decisions.** It records what the evidence was, not what
    the platform concluded at a past moment. "What did we believe on 3 March" is unanswerable
    without a decision log, which was deliberately not built (FIN-D-057).
+
+55. **There is no Source Mapper screen.** FIN-054A-BE built the API; FIN-054A-FE was not started
+   and no frontend file was created or modified. The unmapped list, which is the whole operational
+   point, is reachable only by an HTTP client until it is.
+
+56. **The finance admin tests do not validate the schema against the entities.** They run with
+   `ddl-auto=none`, like every finance pipeline suite, because `validate` fails on FIN-X-001 —
+   `declaration_clarifications.field_names_json`, which is missing from the schema and unrelated to
+   finance. A finance entity that drifts from its migration would therefore not be caught by these
+   tests. FIN-X-001 is still the reason 18 errors remain in the full suite.
+
+57. **The controller layer has no test.** Authorization, scope resolution and every refusal are
+   proven by invoking `MappingAdminService` as each role, which is where the guards are. What is
+   *not* covered is the HTTP mapping: that a `DuplicateResourceException` really surfaces as 409,
+   that `@Valid` really rejects a missing field as 400, that the JSON shape is what
+   [API_CONTRACT.md §7](API_CONTRACT.md) says. Those follow from `GlobalExceptionHandler`, which is
+   existing and unchanged, but they are inferred rather than observed.
+
+58. **A typo in a namespace is still possible to save** (FIN-D-062). The format is enforced, but a
+   field name no source emits is a warning in the response, not a refusal — there is no registry of
+   a source's field names to check against, only staged payloads, which may not exist yet. A client
+   that ignores `warnings` will let a user create a rule that never matches anything.
+
+59. **A mapping change still does not correct published figures, and there is no way to make it.**
+   `historicalEffect` says so on every write (FIN-D-066), but saying so is all the platform does:
+   no re-run trigger exists (plan decision D4), so correcting a misclassification requires somebody
+   to re-run the batch by other means.
+
+60. **No change history.** `fin_mapping_rule` keeps only the current row; what a rule said before an
+   edit survives only in the `audit_data_events` detail string, which is prose, not queryable state.
+   "What was this mapped to in March" remains unanswerable (plan decision D2).
+
+61. **V117 is unverified on TiDB**, as is every migration in this project. `ALTER TABLE ... ADD
+   COLUMN ... DEFAULT 0` is within the MySQL subset TiDB documents as supported, but it has not
+   been run there.
 
 ---
 

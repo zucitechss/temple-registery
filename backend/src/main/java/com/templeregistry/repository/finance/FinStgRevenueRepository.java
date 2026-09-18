@@ -100,4 +100,24 @@ public interface FinStgRevenueRepository extends JpaRepository<FinStgRevenue, Lo
                    @Param("next") StagingStatus next,
                    @Param("reason") String reason,
                    @Param("now") LocalDateTime now);
+
+    /**
+     * A bounded sample of a source system's most recent staged payloads (FIN-054A).
+     *
+     * <p>Used to answer the one question a mapping rule's namespace depends on: which fields does
+     * this source actually emit. There is no registry of those field names anywhere -- the
+     * connector chooses them and the resolver derives what it reads from the rules -- so the only
+     * evidence is the payloads themselves.
+     *
+     * <p>Newest first and capped by the caller, because the answer is a vocabulary rather than a
+     * census: the distinct keys stabilise after a handful of rows, and a source system with a
+     * first historical load has millions of them.
+     */
+    @Query("""
+        SELECT s.rawJson
+          FROM FinStgRevenue s
+         WHERE s.sourceSystemId = :sourceSystemId
+         ORDER BY s.id DESC
+        """)
+    List<String> samplePayloads(@Param("sourceSystemId") Long sourceSystemId, Pageable pageable);
 }

@@ -1644,3 +1644,138 @@ publication rule will disagree eventually.
 `FinanceIntegrationBoundaryTest`, which fails the build on a stereotype annotation there. Putting
 the gate in `service.finance.publication` keeps that guard meaningful rather than weakening it to
 accommodate a class that genuinely does not belong to it.
+
+---
+
+## FIN-D-062 — The namespace format is refused; an unrecognised namespace is only warned about
+
+**Date:** 2026-09-18 · **Affects:** `SourceValueKey`, `MappingAdminServiceImpl`, FIN-D-015
+
+A mapping rule matches `SEVA_CODE:430`, where `SEVA_CODE` names the staged field the rule reads.
+A rule whose stored value has no separator names no field: the database accepts it, the screen
+shows it as active, and it silently never matches anything. That is the worst failure this feature
+can produce, because the user has done the thing the screen asked of them and been told it worked.
+
+**Decision, in two halves.**
+
+*Format is a hard refusal.* No separator, an empty half, or a separator inside the field name —
+rejected before anything is saved. The rule is defined once, in `SourceValueKey`, and
+`MappingRuleResolver` now uses the same definition. Two copies of "what can fire" would have been
+the actual bug: an API that accepts what the engine rejects produces exactly the inert rule this
+decision exists to prevent.
+
+*An unrecognised field name is a warning, not a refusal.* **There is no registry of the fields a
+source emits.** The connector chooses them and the resolver derives what it reads from the rules
+themselves, so the only evidence available is the keys of staged payloads. Refusing on that
+evidence would mean:
+
+- a source system could not be configured before its first extraction — there is nothing staged,
+  so every namespace is unrecognised; and
+- purging staging would start refusing namespaces that are correct, and staging retention is still
+  unresolved (open question Q7).
+
+So the rule is saved and the response says, in words, that no staged record carries that field and
+the rule will not match anything until one does. `GET /finance/source-systems/{id}/namespaces`
+exposes the observed names so the correct value can be offered as a list rather than typed.
+
+**Rejected:** a hard-coded list of permitted namespaces. It would have to be maintained in step
+with every connector, and a platform whose whole design keeps source vocabulary out of generic code
+(ADR-004) must not acquire a table of it in a validator.
+
+---
+
+## FIN-D-063 — Mapping audit is written in the caller's transaction, not through `AuditService`
+
+**Date:** 2026-09-18 · **Affects:** `MappingAdminServiceImpl`, `AuditDataEvent`
+
+`AuditService` exists and writes `audit_data_events`, which is the right table. It was not reused.
+
+It is `@Async`, runs `REQUIRES_NEW`, and catches and logs its own failures. That is correct for what
+it was built for: a lost audit line must not fail a temple's declaration. It cannot satisfy the
+requirement here, which is the opposite — a change to how a temple's revenue is classified must not
+survive the loss of the record of who made it.
+
+**Decision.** `MappingAdminServiceImpl` writes `AuditDataEvent` through `AuditDataEventRepository`
+in the same transaction as the rule change, with no `try`/`catch`. A failed audit write rolls the
+change back.
+
+**This is reuse, not a second framework.** Same table, same entity, same repository, same actor and
+action vocabulary. What is not reused is one wrapper whose failure semantics are wrong for this
+caller. Changing `AuditService` itself was rejected: every existing caller depends on its
+fire-and-forget behaviour, and making audit failures fatal application-wide is a far larger change
+than this task.
+
+**Tested.** `should_rollBackRule_when_auditWriteFails` makes the audit insert fail on its own —
+not the rule insert — and asserts no rule survives.
+
+---
+
+## FIN-D-064 — `fin_mapping_rule` gets a version column, and the stale-read check is explicit
+
+**Date:** 2026-09-18 · **Affects:** V117, `FinMappingRule`, `MappingAdminServiceImpl`
+
+Until this task nothing outside a migration wrote `fin_mapping_rule`, so concurrency was not a
+question. An administrative API makes it one, on a row that decides which category a temple's income
+is counted under.
+
+**Decision.** V117 adds `version INT NOT NULL DEFAULT 0` and the entity carries `@Version`. Every
+write endpoint requires the version the caller loaded.
+
+**Additive and backward compatible.** Existing rows take 0, which is what Hibernate expects for a row
+it has not yet updated, so there is no backfill. The pipeline only reads these rows and is unaffected.
+Verified on MySQL 8.0 and H2. **Not verified on TiDB** — unchanged from every migration in this
+project.
+
+**Not on `BaseEntity`.** That would put a lock on every audited entity in the application. The
+entities that need one declare it individually, as `Temple`, `Trust`, `Notice`, `AssetDeclaration`
+and `WorkflowInstance` already do.
+
+**The explicit check matters more than the annotation.** The race this feature actually has is not
+two simultaneous commits — it is two administrators who opened the same list minutes apart. The
+entity loaded inside the write transaction is fresh, so Hibernate's own comparison would pass and the
+earlier reader's change would vanish with both callers told it succeeded. The service therefore
+compares the submitted version against the loaded one and refuses first.
+
+---
+
+## FIN-D-065 — Only `REVENUE_CATEGORY` can be written, and only the current batch is counted
+
+**Date:** 2026-09-18 · **Affects:** `MappingAdminServiceImpl`
+
+Two smaller decisions, both of the same kind: refusing to show a number or accept a value that
+would read as more than it is.
+
+**A rule may only be created or edited as `REVENUE_CATEGORY`.** `MappingType` declares six values
+and `RevenueMappingStage` reads one. Accepting a `PAYMENT_MODE` rule would let an administrator
+configure payment mode, see it listed as active, and conclude it had taken effect. Existing rules of
+the other types stay listed and can still be *deactivated* — retiring them is the one useful thing
+that can be done with a rule nothing reads, and hiding the two seeded `METAL_TYPE` rules would
+conceal limitation 24 rather than address it.
+
+**The unresolved-values list is scoped to the newest batch, and names it.** Aggregating across
+batches would be wrong, not merely expensive: re-extracting a period stages the same source records
+again, so a value present in three batches would be reported as costing three times the records it
+costs. When nothing has been mapped the response carries a null batch id, so an empty list can be
+read as "not measured" rather than "nothing unresolved" (ADR-007).
+
+---
+
+## FIN-D-066 — The screen tells the truth about what saving a rule does not do
+
+**Date:** 2026-09-18 · **Affects:** `MappingRuleMutationResponse`, FIN-055, FIN-056
+
+Editing a mapping rule changes how the *next* run classifies a value. Every figure already in
+`fin_revenue_fact` keeps the classification it was loaded with. Nothing in this API re-processes
+anything, and no trigger to do so exists.
+
+A user who corrects a misclassification and sees "Saved" will reasonably believe the published
+figures are now right. They are not.
+
+**Decision.** Every write response carries `historicalEffect`, a fixed sentence saying so, and the
+screen is required to show it at the point of edit. It is a field rather than documentation because
+documentation is not in front of the person clicking Save.
+
+**No re-run trigger, deliberately** (plan decision D4). Re-processing historical financial data on
+the strength of a dropdown change is a far worse failure than leaving a figure visibly wrong, and
+there is no authorization model for a pipeline trigger. Asserted by
+`should_leaveFactsUntouched_when_ruleIsEdited` and `should_leaveStagedDecisionsUntouched_when_ruleIsCreated`.

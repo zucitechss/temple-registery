@@ -52,6 +52,21 @@ public final class RoleConstants {
         public static final String ADMIN_ONLY = "hasRole('SUPER_ADMIN')";
 
         /**
+         * Read access to finance integration configuration -- source systems, mapping rules and
+         * the values a pipeline run could not classify (FIN-054A).
+         *
+         * <p>{@code CAN_READ_ALL} minus {@code VIEWER}. A mapping rule is not published information:
+         * it is the configuration that decides which category a temple's income is counted under,
+         * and the unmapped list beside it names income nobody has classified yet. Both belong to the
+         * people who administer the integration, not to statewide read-only browsing.
+         *
+         * <p>{@code TEMPLE_AUTHORITY} is absent for the stronger reason: see {@code CAN_ACT_DC},
+         * which governs the writes.
+         */
+        public static final String CAN_READ_FINANCE_CONFIG =
+                        "hasAnyRole('SUPER_ADMIN', 'DISTRICT_COLLECTOR', 'DC_STAFF', 'AUDITOR')";
+
+        /**
          * Strictly AUDITOR role — for audit-specific endpoints (compliance, audit trail).
          * NOTE: AUDITOR role is defined as read-only in the permission matrix for all
          * data mutation operations. The sole write exception is observation creation:

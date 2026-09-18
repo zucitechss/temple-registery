@@ -11,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -49,8 +50,13 @@ import java.util.stream.Collectors;
  */
 public final class MappingRuleResolver {
 
-    /** Separates a rule's field namespace from the value it matches. */
-    static final char NAMESPACE_SEPARATOR = ':';
+    /**
+     * Separates a rule's field namespace from the value it matches.
+     *
+     * <p>Defined by {@link SourceValueKey} so that the administrative API which validates a rule
+     * before saving it and the engine which later matches it cannot drift apart (FIN-054A).
+     */
+    static final char NAMESPACE_SEPARATOR = SourceValueKey.SEPARATOR;
 
     private final MappingType mappingType;
     /** Namespaced key -> rules keyed on it. A list, because several may share a key. */
@@ -78,9 +84,9 @@ public final class MappingRuleResolver {
 
         for (FinMappingRule rule : rules == null ? List.<FinMappingRule>of() : rules) {
             String sourceValue = rule.getSourceValue();
-            int separator = sourceValue == null ? -1 : sourceValue.indexOf(NAMESPACE_SEPARATOR);
+            Optional<SourceValueKey> key = SourceValueKey.parse(sourceValue);
 
-            if (separator <= 0 || separator == sourceValue.length() - 1) {
+            if (key.isEmpty()) {
                 // Nothing to read it from. Recorded rather than ignored: a rule that can never
                 // fire is a mistake somebody should be told about, not a silent no-op.
                 problems.add("rule " + rule.getId() + " has source_value [" + sourceValue
@@ -89,7 +95,7 @@ public final class MappingRuleResolver {
                 continue;
             }
 
-            fields.add(sourceValue.substring(0, separator));
+            fields.add(key.get().namespace());
             byKey.computeIfAbsent(sourceValue, k -> new ArrayList<>()).add(rule);
         }
 

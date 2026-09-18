@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-17 (FIN-054)
+**Updated:** 2026-09-18 (FIN-054A-BE)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -34,9 +34,9 @@ a connector and without an answer to Q4, which is the point of having built the 
 | Staging | **COMPLETE** | 100 | FIN-050 — `fin_stg_revenue`; other capabilities get their own staging tables with their phases |
 | Canonical Finance Data | **COMPLETE** | 100 | FIN-051, FIN-052 — revenue dimensions and the daily-grain fact; other canonical facts arrive with their phases |
 | Revenue Pipeline | COMPLETE | 100 | Staging through canonical load, end to end. No caller yet |
-| Reconciliation | NOT_STARTED | 0 | Tables exist; service does not |
+| Reconciliation | **COMPLETE** | 100 | FIN-060 records what was checked; FIN-061 decides what it means for publication. The gate has no caller yet (limitation 52) |
 | Aggregation | NOT_STARTED | 0 | |
-| Finance APIs | NOT_STARTED | 0 | Contract written, no code |
+| Finance APIs | IN_PROGRESS | 20 | **Administrative** endpoints exist (FIN-054A-BE, source mapping — API_CONTRACT.md §7). No *reporting* endpoint exists: FIN-080…084 unstarted |
 | Dashboard | NOT_STARTED | 0 | Still the static iframe |
 | Seva | NOT_STARTED | 0 | |
 | Precious Metals | NOT_STARTED | 0 | |
@@ -742,15 +742,52 @@ their exact outcomes — including which were previously reported without having
 
 **Decisions.** FIN-D-018 … FIN-D-027.
 
+
+---
+
+## Phase 8 — Finance APIs · IN_PROGRESS · 20%
+
+**FIN-054A-BE — Source mapping administration · COMPLETE.** The finance pipeline's first HTTP
+surface, and the first place finance authorization exists at all. Nine endpoints under
+`/api/v1/finance` (see [API_CONTRACT.md §7](API_CONTRACT.md)) let an authorized administrator
+browse a source system's mapping rules, see what the newest batch could not classify, and create
+or correct a rule.
+
+**What it establishes beyond the endpoints themselves:**
+
+- **Authorization on the service implementation**, not only the controller — `CAN_READ_FINANCE_CONFIG`
+  for reads, `CAN_ACT_DC` for writes. `TEMPLE_AUTHORITY` is excluded from both: a mapping rule
+  decides which category a temple's own income is counted under.
+- **Server-side scope resolution.** A caller names a `sourceSystemId`; the temple and district are
+  looked up here. A client-supplied temple id is never accepted, and a source system outside the
+  caller's district is a **404**, not a 403.
+- **Audit in the caller's transaction** (FIN-D-063). `AuditService` was not reused — it is
+  `@Async` and swallows its failures, which is right for a declaration and wrong for a change to
+  how revenue is classified. A failed audit write rolls the rule change back.
+- **Optimistic locking** (FIN-D-064, V117), with the stale-read check made explicitly rather than
+  left to Hibernate, because the real race is two administrators minutes apart, not two commits.
+- **One definition of a valid source value** (FIN-D-062). `SourceValueKey` is shared by the API
+  that validates a rule and the engine that later matches it, so the API cannot accept a rule the
+  pipeline would silently ignore.
+
+**What it deliberately does not do.** It writes no canonical fact, re-maps nothing already staged,
+and triggers no pipeline run. Every write response carries a fixed sentence saying that published
+figures keep their classification until their batch is re-run (FIN-D-066) — because no re-run
+trigger exists, and adding one on the strength of a dropdown change would be worse than leaving a
+figure visibly wrong.
+
+**Not delivered:** the screen itself (FIN-054A-FE, NOT_STARTED — no frontend file was touched),
+and every *reporting* endpoint (FIN-080…084). Sections 1–6 of the API contract remain unimplemented.
+
+**Decisions.** FIN-D-062 … FIN-D-066.
 ---
 
 ## Remaining Phases · NOT_STARTED
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
-FIN-054 (mapping, with unmapped source values routed to the seeded `UNMAPPED` category) is
-recommended next: it is the only stage whose inputs all exist — nine seeded mapping rules, the
-seeded canonical taxonomy, and validation now producing `VALID` rows to feed it — and it needs
-no connector, no credential and no answer to Q4.
+**FIN-054A-FE (the Source Mapper screen) is recommended next.** Its backend is complete and its
+inputs all exist; it needs no connector, no credential and no answer to Q4. After it, the
+*reporting* endpoints (FIN-080…084), which are what Phase 9 consumes.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
 Kollur database, and the connector cannot be tested without one. This is exactly the
@@ -765,8 +802,9 @@ connector implementation.
 
 ## Known Defects Outside Finance Scope
 
-The full suite reports **1,200 tests, 0 failures, 18 errors** (measured at FIN-060, after
-`mvn clean`; 1,142 at FIN-055 and 1,173 at FIN-057 — the count grows, the 18 do not). All 18 are in
+The full suite reports **1,263 tests, 0 failures, 18 errors** (measured at FIN-054A-BE;
+1,142 at FIN-055, 1,173 at FIN-057, 1,200 at FIN-060, 1,216 at FIN-061 — the count grows, the 18
+do not). All 18 are in
 `ApplicationContextIntegrationTest` (1) and `TrustIntegrationTest` (17), and all share one
 root cause: `ddl-auto: validate` rejecting
 `missing column [field_names_json] in table [declaration_clarifications]`.

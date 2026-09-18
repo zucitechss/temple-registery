@@ -59,4 +59,46 @@ public interface FinStgRevenueMappingRepository extends JpaRepository<FinStgReve
     List<Object[]> summariseBySourceValue(@Param("syncBatchId") Long syncBatchId,
                                           @Param("mappingType") MappingType mappingType,
                                           @Param("outcome") MappingOutcome outcome);
+
+    /**
+     * The most recent batch of this source system that has recorded decisions (FIN-054A).
+     *
+     * <p>The administrative unmapped view is scoped to one batch, and this is how it picks the
+     * one. Aggregating across batches would be wrong rather than merely expensive: re-extracting
+     * a period stages the same source records again, so a source value present in three batches
+     * would be counted three times and an operator would be shown a number that is not the number
+     * of records affected.
+     *
+     * @return empty when nothing has been mapped for this source system yet
+     */
+    @Query("""
+        SELECT MAX(m.syncBatchId)
+          FROM FinStgRevenueMapping m
+         WHERE m.sourceSystemId = :sourceSystemId
+           AND m.mappingType    = :mappingType
+        """)
+    Optional<Long> findLatestDecidedBatch(@Param("sourceSystemId") Long sourceSystemId,
+                                          @Param("mappingType") MappingType mappingType);
+
+    /**
+     * Unresolved source values in one batch, with the field each was read from, worst first.
+     *
+     * <p>{@link #summariseBySourceValue} answers the pipeline's question — which missing rule
+     * costs the most records. This answers the administrator's, which needs one thing more: the
+     * staged field the value came from. That field is the namespace the new rule must carry, and
+     * pre-filling it from an observed value is the whole mitigation for a rule that is accepted,
+     * shown as active, and silently never matches.
+     */
+    @Query("""
+        SELECT m.sourceField, m.sourceValue, COUNT(m), MAX(m.mappedAt)
+          FROM FinStgRevenueMapping m
+         WHERE m.syncBatchId = :syncBatchId
+           AND m.mappingType = :mappingType
+           AND m.outcome     = :outcome
+         GROUP BY m.sourceField, m.sourceValue
+         ORDER BY COUNT(m) DESC, m.sourceValue ASC
+        """)
+    List<Object[]> summariseByFieldAndSourceValue(@Param("syncBatchId") Long syncBatchId,
+                                                  @Param("mappingType") MappingType mappingType,
+                                                  @Param("outcome") MappingOutcome outcome);
 }

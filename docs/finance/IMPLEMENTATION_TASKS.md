@@ -755,6 +755,32 @@ before reconciliation leaves figures nothing has verified — the `PENDING` case
 | FIN-082 | Capabilities endpoint | NOT_STARTED | FIN-080 |
 | FIN-083 | Reconciliation endpoint | NOT_STARTED | FIN-060 |
 | FIN-084 | RBAC and DACVM wiring, reusing existing infrastructure | NOT_STARTED | FIN-081 |
+| FIN-054A-BE | Source Mapper **backend** — mapping administration API | **COMPLETE** | FIN-054 |
+| FIN-054A-FE | Source Mapper **screen** — the administrative UI itself | NOT_STARTED | FIN-054A-BE |
+
+### FIN-054A — Source Mapper
+
+Analysis in [FIN-054A_SOURCE_MAPPER_SCREEN_PLAN.md](FIN-054A_SOURCE_MAPPER_SCREEN_PLAN.md).
+Split into **FIN-054A-BE** (backend, complete) and **FIN-054A-FE** (screen, not started), because
+the backend is not a step towards the screen so much as the whole missing layer beneath it: the
+blocking dependency was never the mapping engine, which was already complete, but the absence of
+any finance API at all.
+
+**FIN-054A-BE delivers** nine endpoints under `/api/v1/finance` — see
+[API_CONTRACT.md §7](API_CONTRACT.md) — with authorization on the service implementation,
+server-side resolution of `sourceSystemId` to its temple and district, same-transaction audit,
+optimistic locking (V117), an allow-listed sort, and source-value format validation shared with the
+mapping engine.
+
+Decisions: FIN-D-062 (namespace validation), FIN-D-063 (audit in the caller's transaction),
+FIN-D-064 (optimistic locking), FIN-D-065 (writable mapping type, newest-batch counts),
+FIN-D-066 (a saved rule does not correct published figures).
+
+Of the plan's seven open decisions, five were resolved from existing requirements and the task's
+own conservative principles (D1, D2, D3, D5, D7); **D4** (a re-run trigger) and **D6** (editing
+source-of-truth declarations) remain deliberately out of scope and unimplemented.
+
+**FIN-054A-FE is not started.** No frontend file was created or modified.
 
 ---
 
