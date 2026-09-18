@@ -14,6 +14,42 @@
 #   APP_BASE_URL
 #   SMTP_HOST  EMAIL_USERNAME  EMAIL_PASSWORD
 #   APP_CORS_ALLOWED_ORIGINS
+#
+# ----------------------------------------------------------------------------
+# DEPLOYMENT TOPOLOGY: RUN EXACTLY ONE APPLICATION REPLICA (H-7)
+#
+# This application is safe to run as a SINGLE instance only. It holds state in
+# process that is not shared between instances, so a second replica does not
+# merely scale throughput — it produces duplicate, user-visible side effects.
+#
+# Running two or more replicas WILL cause:
+#   * Duplicate emails. EmailDeliveryService.processQueue (every 10s) and
+#     processRetries (every 5m) select PENDING/FAILED rows with a plain
+#     SELECT ... LIMIT and no row locking, so every replica claims the same
+#     rows and sends the same message.
+#   * Duplicate in-app notifications. NotificationRouter.dispatchPending
+#     (every 5s) and retryFailed (every 60s) have the same problem.
+#   * Duplicate deadline warnings. OverdueWorkflowScheduler.warnDeadlineApproaching
+#     applies WARN_DEADLINE_APPROACHING, which does not change workflow status,
+#     so no from-status guard prevents a second replica repeating it.
+#     (flagOverdueInstances is protected: it moves the instance to OVERDUE and
+#     WorkflowInstance carries an @Version column.)
+#   * Missed real-time updates. SSE emitters live in a ConcurrentHashMap inside
+#     SseNotificationService, so a push only reaches users connected to the
+#     replica that produced it. Notifications are persisted to the database
+#     first, so nothing is lost — the badge is just stale until the next load.
+#   * Stale authorization decisions. The DACVM policy cache is in-process
+#     Caffeine; @CacheEvict clears only the local replica, so others may serve
+#     revoked permissions for up to the 5-minute TTL.
+#   * Missing documents and failed downloads. See the storage note below.
+#
+# Multi-replica support is FUTURE WORK. Do not scale out until those
+# dependencies are addressed. See HLD section 9.2 for the full inventory.
+#
+# STORAGE: app.storage.base-dir and trm.export.base-dir MUST point at storage
+# that persists across restarts and redeployments — a mounted volume, not the
+# container filesystem. Both defaults are relative paths that resolve inside
+# the container's writable layer, where they are destroyed on every redeploy.
 # ============================================================================
 
 spring:
@@ -93,6 +129,9 @@ app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}
 
+  # Uploaded documents. MUST be a persistent, restart-surviving mount (H-7).
+  # LocalFileStorageServiceImpl writes to the local filesystem, so this path is
+  # also instance-local: a second replica cannot read what this one wrote.
   storage:
     base-dir: ${APP_STORAGE_BASE_DIR:./uploads}
 
@@ -117,6 +156,9 @@ app:
       password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:}
 
 trm:
+  # Generated export files. MUST be a persistent, restart-surviving mount (H-7).
+  # AsyncExportBean writes <jobId>.<ext> here and DcExportController reads it
+  # back by path, so on a second replica a completed job downloads as 404.
   export:
     base-dir: ${TRM_EXPORT_BASE_DIR:./exports}
 

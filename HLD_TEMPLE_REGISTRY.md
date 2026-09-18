@@ -425,12 +425,12 @@ TA Creates DRAFT → Submits → DC Reviews → UNDER_REVIEW
 
 | Concern | Current State | Future Path |
 |---|---|---|
-| Concurrent users | 100-500 (district-level rollout) | Horizontal scaling behind load balancer |
+| Concurrent users | 100-500 (district-level rollout), **single replica** | Horizontal scaling behind load balancer, after §9.2 is addressed |
 | Temple records | ~50,000 statewide | Indexed queries; search summary refresh scales linearly |
 | Declaration volume | ~50,000/year | Partitioned by financial year if needed |
 | Notification volume | ~200,000/year | Outbox pattern decouples dispatch from transactions |
 
-**Stateless design** enables horizontal scaling — JWT tokens contain all required claims; no server-side session state.
+**Authentication is stateless** — JWT tokens carry all required claims and there is no server-side session state, so no sticky sessions are needed for login. This is a prerequisite for horizontal scaling, not a guarantee of it: the application also holds in-process state that is not shared between instances, and **currently supports exactly one replica**. See §9.2.
 
 ---
 
@@ -1440,19 +1440,41 @@ The TRM is architected as a **well-structured Spring Boot monolith** with clear 
 
 ---
 
-### 9.2 Stateless Backend (Horizontal Scaling Ready)
+### 9.2 Deployment Topology — Single Replica
 
-The backend is **fully stateless**:
+> **The backend currently supports exactly ONE application replica.**
+> Running two or more instances produces duplicate, user-visible side effects.
+> Multi-replica support is future work — see the table below.
+
+**What is genuinely stateless:**
 - No `HttpSession` — `SessionCreationPolicy.STATELESS` enforced in Spring Security
-- No in-memory state between requests
-- JWT contains all required claims (userId, role, districtId, templeId)
-- Caffeine cache is process-local but swap-compatible with distributed Redis
+- JWT contains all required claims (userId, role, districtId, templeId), so authentication needs no sticky sessions
+- Workflow state, notifications and audit trails are persisted in the database
 
-**Horizontal scaling steps:**
-1. Deploy 2+ instances of the Spring Boot JAR
-2. Place Nginx (or AWS ALB) as load balancer in front
-3. Sessions automatically distributed since there are none
-4. Replace Caffeine cache with Redis for distributed caching
+**What is not — the in-process and instance-local state:**
+
+| # | Dependency | Where | Effect of a second replica |
+|---|---|---|---|
+| 1 | Unlocked email outbox pollers | `EmailDeliveryService.processQueue` (10s), `processRetries` (5m) | **Duplicate emails.** `findPendingBatch` / `findRetryableBatch` use a plain `SELECT … LIMIT` with no row locking, so every replica claims the same rows |
+| 2 | Unlocked notification outbox pollers | `NotificationRouter.dispatchPending` (5s), `retryFailed` (60s) | **Duplicate in-app notifications** and duplicate queued emails, same root cause |
+| 3 | Deadline warning sweep | `OverdueWorkflowScheduler.warnDeadlineApproaching` | **Duplicate warnings.** `WARN_DEADLINE_APPROACHING` leaves workflow status unchanged, so no from-status guard prevents a repeat |
+| 4 | SSE emitter registry | `SseNotificationService.emitters` (`ConcurrentHashMap`) | **Missed real-time pushes** — an emitter only exists on the instance that accepted the connection. Degraded only: the notification row is written to the database *before* the push, so nothing is lost |
+| 5 | DACVM authorization cache | In-process Caffeine (`CacheConfig`) | **Stale authorization** — `@CacheEvict` clears only the local replica, so others may honour a revoked permission for up to the 5-minute TTL |
+| 6 | Document storage | `LocalFileStorageServiceImpl` → `app.storage.base-dir` | **Missing documents** — files are on one instance's filesystem |
+| 7 | Export storage | `AsyncExportBean` → `trm.export.base-dir`, read back by path in `DcExportController` | **Failed downloads** — a job the database reports as complete returns 404 from another replica |
+
+`OverdueWorkflowScheduler.flagOverdueInstances` is *not* in this list: it transitions the instance to `OVERDUE` and `WorkflowInstance` carries an `@Version` column, so concurrent sweeps are rejected by optimistic locking.
+
+**Storage requirement (applies even with one replica):**
+`app.storage.base-dir` and `trm.export.base-dir` **must** be backed by storage that survives restarts and redeployments. Both default to relative paths (`./uploads`, `./exports`) which resolve inside the container's writable layer, where uploaded documents and generated exports are destroyed on every redeploy. Mount a persistent volume.
+
+**Future work — before enabling more than one replica**, each item above must be addressed. Indicative approaches, none of which are implemented today:
+- Items 1–3: claim rows with `SELECT … FOR UPDATE SKIP LOCKED`, or coordinate the schedulers (e.g. ShedLock)
+- Item 4: sticky sessions at the load balancer, or a shared pub/sub fan-out
+- Item 5: a distributed cache, or accept the bounded staleness window
+- Items 6–7: a shared volume, or object storage behind `FileStorageService`
+
+Note that a distributed cache such as Redis is **not** a prerequisite for any of this — the database-backed options above are sufficient.
 
 ---
 
