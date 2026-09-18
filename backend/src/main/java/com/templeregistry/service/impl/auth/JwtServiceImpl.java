@@ -5,6 +5,7 @@ import com.templeregistry.service.auth.JwtService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -34,7 +35,12 @@ public class JwtServiceImpl implements JwtService {
      * Production/Spring constructor. The keypair is resolved by
      * {@link JwtKeyProvider}, which prefers environment-supplied PEM values so
      * that no key material has to be committed to Git (C-1).
+     *
+     * <p>{@code @Autowired} is required, not decorative: this class has a second public
+     * constructor for tests, and with two candidates Spring cannot pick one implicitly. It
+     * fell back to a non-existent no-arg constructor and aborted startup.</p>
      */
+    @Autowired
     public JwtServiceImpl(
             JwtKeyProvider keyProvider,
             @Value("${app.jwt.access-token-expiry-ms:900000}") long accessTokenExpiryMs) {
