@@ -2,6 +2,7 @@ import { Page, Browser, request } from '@playwright/test';
 import { test as base } from './base.fixture';
 import { BaseFixtures } from './base.fixture';
 import { env } from '../setup/env';
+import { csrfHeader, fetchCsrfToken } from '../lib/csrf';
 
 type Role = 'DC' | 'TA' | 'ADMIN';
 
@@ -31,8 +32,14 @@ async function createAuthenticatedPage(
     extraHTTPHeaders: { 'Content-Type': 'application/json' }
   });
 
+  // Login is a POST and requires a CSRF token (H-5). Fetching it here also seeds the
+  // XSRF-TOKEN cookie, which storageState then carries into the browser context so the SPA
+  // starts out with the cookie half of the double submit already present.
+  const csrfToken = await fetchCsrfToken(requestContext);
+
   const loginResponse = await requestContext.post('/api/v1/auth/login', {
-    data: credentials
+    data: credentials,
+    headers: csrfHeader(csrfToken)
   });
 
   if (!loginResponse.ok()) {

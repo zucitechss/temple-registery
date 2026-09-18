@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures/data.fixture';
 import { env, RoleKey } from '../setup/env';
+import { csrfHeader, fetchCsrfToken } from '../lib/csrf';
 import {
   createAuthenticatedApiContext,
   parseApiEnvelope,
@@ -45,11 +46,15 @@ function declarationPayload(financialYear: string) {
 
 test.describe('Auth + Permission Contract', () => {
   test('should_set_cookie_paths_when_login_succeeds', async ({ request }) => {
+    // Login requires a CSRF token like every other unsafe method (H-5).
+    const csrfToken = await fetchCsrfToken(request, env.apiOrigin);
+
     const response = await request.post(`${env.apiOrigin}/api/v1/auth/login`, {
       data: {
         username: env.roles.SA.username,
         password: env.roles.SA.password,
       },
+      headers: csrfHeader(csrfToken),
     });
 
     expect(response.ok()).toBeTruthy();

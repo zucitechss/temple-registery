@@ -1,4 +1,5 @@
 import { request, APIRequestContext, APIResponse } from '@playwright/test';
+import { csrfHeader, currentCsrfToken } from './csrf';
 
 export interface ApiConfig {
   baseURL: string;
@@ -22,6 +23,16 @@ export class ApiClient {
     return this.context;
   }
 
+  /**
+   * CSRF token for unsafe methods (H-5), re-read before every call.
+   *
+   * It cannot be cached: the server rotates the token on each request that authenticates,
+   * so a value captured earlier is stale by the time the next call is made.
+   */
+  private async getCsrfToken(): Promise<string> {
+    return currentCsrfToken(await this.getContext());
+  }
+
   private resolveApiPath(path: string): string {
     if (/^https?:\/\//i.test(path)) {
       return path;
@@ -38,7 +49,8 @@ export class ApiClient {
   async login(username: string, password: string): Promise<{ success: boolean; message: string; data: any }> {
     const context = await this.getContext();
     const response = await context.post(this.resolveApiPath('/auth/login'), {
-      data: { username, password }
+      data: { username, password },
+      headers: csrfHeader(await this.getCsrfToken())
     });
     
     if (!response.ok()) {
@@ -54,7 +66,7 @@ export class ApiClient {
     const resolvedPath = this.resolveApiPath(path);
     const response = await context.post(resolvedPath, {
       data,
-      headers: headers ?? {}
+      headers: { ...csrfHeader(await this.getCsrfToken()), ...(headers ?? {}) }
     });
     
     return this.handleResponse<T>(response, 'POST', resolvedPath);
@@ -76,7 +88,7 @@ export class ApiClient {
     const resolvedPath = this.resolveApiPath(path);
     const response = await context.put(resolvedPath, {
       data,
-      headers: {}
+      headers: csrfHeader(await this.getCsrfToken())
     });
     
     return this.handleResponse<T>(response, 'PUT', resolvedPath);
@@ -86,7 +98,7 @@ export class ApiClient {
     const context = await this.getContext();
     const resolvedPath = this.resolveApiPath(path);
     const response = await context.delete(resolvedPath, {
-      headers: {}
+      headers: csrfHeader(await this.getCsrfToken())
     });
     
     return this.handleResponse<T>(response, 'DELETE', resolvedPath);
