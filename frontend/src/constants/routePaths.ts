@@ -83,6 +83,9 @@ export const ROUTE_PATHS = {
   VIEWER_AUDIT_TRAIL: '/viewer/audit-trail',
   VIEWER_EXPORT: '/viewer/export',
 
+  // Finance integration administration (FIN-054B)
+  FINANCE_SOURCE_MAPPER: '/finance/source-mapper',
+
   // Notifications (all authenticated users)
   NOTIFICATIONS: '/notifications',
   NOTIFICATION_PREFERENCES: '/notifications/preferences',

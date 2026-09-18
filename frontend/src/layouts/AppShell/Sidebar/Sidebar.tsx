@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Search, FileText, Users, Building2,
   ClipboardList, Download, Settings, LogOut, Shield, Clock, Activity, RefreshCw, ChevronLeft, ChevronRight,
-  Eye, ShieldCheck, History, Bell, AlertTriangle, Lock, Megaphone
+  Eye, ShieldCheck, History, Bell, AlertTriangle, Lock, Megaphone, ListTree
 } from 'lucide-react'
 import { useLogout } from '@/features/auth/authHooks'
 import { useAppSelector } from '@/app/store'
@@ -28,6 +28,7 @@ function getDcNavItems(): NavItem[] {
     { label: 'Notices',   to: ROUTE_PATHS.DC_NOTICES,   icon: <Megaphone size={16} /> },
     { label: 'Temples',   to: ROUTE_PATHS.DC_TEMPLES,   icon: <Search size={16} /> },
     { label: 'Export',    to: ROUTE_PATHS.DC_EXPORT,    icon: <Download size={16} />,       targetKey: TARGET_KEYS.PAGE_DC_EXPORT },
+    { label: 'Source Mapper', to: ROUTE_PATHS.FINANCE_SOURCE_MAPPER, icon: <ListTree size={16} /> },
     { label: 'Activity',  to: ROUTE_PATHS.DC_ACTIVITY,  icon: <Activity size={16} />,       targetKey: TARGET_KEYS.PAGE_DC_ACTIVITY },
   ]
 }
@@ -63,6 +64,7 @@ function getAdminNavItems(pendingCount?: number): NavItem[] {
     { label: 'Temple Search', to: ROUTE_PATHS.DC_TEMPLES, icon: <Search size={16} /> },
     { label: 'Declarations', to: ROUTE_PATHS.DC_DECLARATIONS, icon: <ClipboardList size={16} /> },
     { label: 'Export', to: ROUTE_PATHS.DC_EXPORT, icon: <Download size={16} /> },
+    { label: 'Source Mapper', to: ROUTE_PATHS.FINANCE_SOURCE_MAPPER, icon: <ListTree size={16} /> },
     { label: 'Compliance', to: ROUTE_PATHS.AUDITOR_COMPLIANCE, icon: <ShieldCheck size={16} /> },
   ]
 }
@@ -75,6 +77,7 @@ function getAuditorNavItems(): NavItem[] {
     { label: 'Observations', to: ROUTE_PATHS.AUDITOR_OBSERVATIONS,  icon: <Eye size={16} />,            targetKey: TARGET_KEYS.PAGE_AUDITOR_OBSERVATIONS },
     { label: 'Compliance',   to: ROUTE_PATHS.AUDITOR_COMPLIANCE,    icon: <ShieldCheck size={16} />,    targetKey: TARGET_KEYS.PAGE_AUDITOR_COMPLIANCE },
     { label: 'Audit Trail',  to: ROUTE_PATHS.AUDITOR_AUDIT_TRAIL,   icon: <History size={16} />,        targetKey: TARGET_KEYS.PAGE_AUDITOR_AUDIT_TRAIL },
+    { label: 'Source Mapper', to: ROUTE_PATHS.FINANCE_SOURCE_MAPPER, icon: <ListTree size={16} /> },
   ]
 }
 

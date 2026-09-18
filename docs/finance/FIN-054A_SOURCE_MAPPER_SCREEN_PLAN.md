@@ -570,3 +570,38 @@ Everything here is **proposed, not verified against a stated requirement**:
   surfaced, never defaulted).
 
 **FIN-054A is not implemented. This document is analysis and planning only.**
+
+---
+
+## 20. What was built — plan versus delivery (FIN-054A-BE, FIN-054B)
+
+This document was written as analysis. Both halves are now implemented. Where delivery differs from
+the plan, the reason is recorded rather than the plan quietly amended.
+
+| Plan | Delivered | Why it differs |
+|---|---|---|
+| 11 endpoints (A1…A11) | **9** | `DELETE` dropped — deactivation covers retirement and soft delete adds a permission tier no flow needed. A9 `/ambiguous` merged into `/unresolved?outcome=` |
+| §2.5 "audit via `AuditService`" | `AuditDataEvent` written directly | `AuditService` is `@Async` and swallows failures, so it cannot roll a change back (FIN-D-063) |
+| B3 "cross-batch unmapped query" | **newest batch only, batch named** | Cross-batch counts would double-count re-staged records. The plan's premise was wrong (FIN-D-065) |
+| §8.3 namespace: "reject a bad namespace" | **format rejected, unknown field warned** | No registry of a source's fields exists; rejecting would make a source unconfigurable before its first extraction (FIN-D-062) |
+| D3 optimistic locking | Implemented (V117), **plus an explicit stale-version check** | Hibernate's own check does not catch the race this feature has: two administrators minutes apart (FIN-D-064) |
+| §9.E history tab | **Not built** | As the plan recommended. No history exists to show |
+| D4 re-run trigger, D6 source-of-truth editing | **Not built** | Deliberately out of scope; unchanged |
+
+### Decisions D1–D7, resolved
+
+| # | Resolution |
+|---|---|
+| D1 permission matrix | Adopted as proposed. `TEMPLE_AUTHORITY` and `VIEWER` excluded from read and write |
+| D2 history | `audit_data_events` only; no history table, no history tab |
+| D3 optimistic locking | Yes — V117 |
+| D4 re-run trigger | **No.** Not implemented, and the screen says plainly that it cannot correct history |
+| D5 maker-checker | **No.** No documented requirement |
+| D6 source-of-truth editing | **No.** Separate task, needs its own approval flow |
+| D7 inert mapping types | **No.** Writes confined to `REVENUE_CATEGORY`; existing rules of other types stay visible and deactivatable |
+
+### §18 assumption, tested
+
+The plan flagged: *"if the requester intends structural source-to-staging mapping, this plan does
+not deliver it."* That remains true and is now enforced in code — no request in
+`financeRequests.ts` is named for a table, column, schema or connector, and a test asserts it.

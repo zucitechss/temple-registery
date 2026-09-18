@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-18 (FIN-054A-BE)
+**Updated:** 2026-09-18 (FIN-054B)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -37,7 +37,7 @@ a connector and without an answer to Q4, which is the point of having built the 
 | Reconciliation | **COMPLETE** | 100 | FIN-060 records what was checked; FIN-061 decides what it means for publication. The gate has no caller yet (limitation 52) |
 | Aggregation | NOT_STARTED | 0 | |
 | Finance APIs | IN_PROGRESS | 20 | **Administrative** endpoints exist (FIN-054A-BE, source mapping — API_CONTRACT.md §7). No *reporting* endpoint exists: FIN-080…084 unstarted |
-| Dashboard | NOT_STARTED | 0 | Still the static iframe |
+| Dashboard | NOT_STARTED | 0 | Still the static iframe. The Source Mapper (FIN-054B) is an administrative screen, not the dashboard |
 | Seva | NOT_STARTED | 0 | |
 | Precious Metals | NOT_STARTED | 0 | |
 | Nirantara | NOT_STARTED | 0 | |
@@ -745,7 +745,7 @@ their exact outcomes — including which were previously reported without having
 
 ---
 
-## Phase 8 — Finance APIs · IN_PROGRESS · 20%
+## Phase 8 — Finance APIs · IN_PROGRESS · 25%
 
 **FIN-054A-BE — Source mapping administration · COMPLETE.** The finance pipeline's first HTTP
 surface, and the first place finance authorization exists at all. Nine endpoints under
@@ -776,8 +776,25 @@ figures keep their classification until their batch is re-run (FIN-D-066) — be
 trigger exists, and adding one on the strength of a dropdown change would be worse than leaving a
 figure visibly wrong.
 
-**Not delivered:** the screen itself (FIN-054A-FE, NOT_STARTED — no frontend file was touched),
-and every *reporting* endpoint (FIN-080…084). Sections 1–6 of the API contract remain unimplemented.
+**FIN-054B — Source Mapper screen · COMPLETE.** Route `/finance/source-mapper`, feature module at
+`frontend/src/features/finance/`, guarded for the same four roles as the backend read expression
+with writes gated separately on `CAN_ACT_DC`.
+
+What it is careful about: **no metric is computed from a page of results** — active counts come from
+the server, unresolved counts are labelled with the batch they belong to, and a null batch reads as
+"not measured" rather than zero (ADR-007). An observed source value is carried into a new rule
+untouched, whitespace included, because matching is exact on the server. Every write reports that
+existing financial records were not changed, carrying the backend's own sentence.
+
+What it deliberately does not offer: structural source-to-staging mapping (ADR-004), SQL, a re-run
+trigger, a history tab, or any control that implies the dashboard has been corrected. Asserted over
+the whole request surface, not just one render.
+
+FIN-054B also added `FinanceMappingControllerTest` (22 HTTP contract tests), closing the status-code
+and JSON half of limitation 57.
+
+**Not delivered:** every *reporting* endpoint (FIN-080…084). Sections 1–6 of the API contract remain
+unimplemented, and no dashboard consumes any of this yet.
 
 **Decisions.** FIN-D-062 … FIN-D-066.
 ---
@@ -785,9 +802,9 @@ and every *reporting* endpoint (FIN-080…084). Sections 1–6 of the API contra
 ## Remaining Phases · NOT_STARTED
 
 See [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md) for the task-level breakdown.
-**FIN-054A-FE (the Source Mapper screen) is recommended next.** Its backend is complete and its
-inputs all exist; it needs no connector, no credential and no answer to Q4. After it, the
-*reporting* endpoints (FIN-080…084), which are what Phase 9 consumes.
+**The *reporting* endpoints (FIN-080…084) are recommended next**, which is what Phase 9 consumes.
+The Source Mapper (FIN-054A-BE, FIN-054B) is complete end to end, so the administrative half of
+Phase 8 is done and the reporting half is untouched.
 
 FIN-041 is blocked on **Q4** — there is no agreed network path from the platform to the
 Kollur database, and the connector cannot be tested without one. This is exactly the

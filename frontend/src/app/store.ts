@@ -21,6 +21,7 @@ import { viewerApi } from '@/features/viewer/viewerApi'
 import { timelineApi } from '@/features/timeline/timelineApi'
 import { accessControlApi } from '@/features/access-control/accessControlApi'
 import { noticeApi } from '@/features/notice/noticeApi'
+import { financeApi } from '@/features/finance/financeApi'
 
 /** Global RTK Query error logger middleware — handles 4xx and 5xx */
 const rtkQueryErrorLogger =
@@ -77,6 +78,7 @@ export const store = configureStore({
       timelineApi.middleware,
       accessControlApi.middleware,
       noticeApi.middleware,
+      financeApi.middleware,
     ),
 })
 
@@ -111,4 +113,5 @@ export const resetAllApiCaches = () => (dispatch: AppDispatch) => {
   dispatch(auditorApi.util.resetApiState())
   dispatch(viewerApi.util.resetApiState())
   dispatch(timelineApi.util.resetApiState())
+  dispatch(financeApi.util.resetApiState())
 }

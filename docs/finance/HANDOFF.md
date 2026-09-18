@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-18 (FIN-054A-BE)
+**Updated:** 2026-09-18 (FIN-054B)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,7 +12,8 @@
 
 | Task | Status |
 |---|---|
-| FIN-054A-BE — Source mapping administration API (the screen is FIN-054A-FE, not started) | **COMPLETE** |
+| FIN-054B — Source Mapper screen (the UI over FIN-054A-BE) | **COMPLETE** |
+| FIN-054A-BE — Source mapping administration API | **COMPLETE** |
 | FIN-061 — Publication gate (the decision; its callers are FIN-070/072) | **COMPLETE** |
 | FIN-060 — Reconciliation (completeness now; source agreement when a connector exists) | **COMPLETE** |
 | FIN-057 — Pipeline orchestrator (and the extraction stage nobody owned) | **COMPLETE** |
@@ -71,9 +72,102 @@ and no watermark advancement (FIN-D-049). The dashboard is still the static HTML
 
 The one API that now exists is administrative, not reporting: FIN-054A-BE configures how a source
 system's values translate to canonical categories, and reads no temple financial figure. It has no
-screen (limitation 55).
+screen until FIN-054B, which now provides one.
 
 ---
+
+## FIN-054B — Source Mapper Screen
+
+The administrative UI over FIN-054A-BE. **Semantic mapping only** — what a source *value* means.
+
+### Files
+
+| File | Change |
+|---|---|
+| `frontend/src/features/finance/financeTypes.ts` | new — DTOs mirrored from the Java records, not from the prose contract |
+| `frontend/src/features/finance/financeRequests.ts` | new — every request the feature can make, as pure functions |
+| `frontend/src/features/finance/financeApi.ts` | new — RTK Query slice delegating to `financeRequests` |
+| `frontend/src/features/finance/financeErrors.ts` | new — one reading of 400/401/403/404/409/422/5xx/offline |
+| `frontend/src/features/finance/financePermissions.ts` | new — mirrors `CAN_READ_FINANCE_CONFIG` / `CAN_ACT_DC` |
+| `frontend/src/features/finance/components/NamespacedValue.tsx` | new — shows the two halves of `SEVA_CODE:430` |
+| `frontend/src/features/finance/components/MappingRuleDrawer.tsx` | new — create / edit |
+| `frontend/src/features/finance/components/UnresolvedValuesPanel.tsx` | new — what a batch could not classify |
+| `frontend/src/features/finance/pages/SourceMapperPage/SourceMapperPage.tsx` | new — the screen |
+| `frontend/src/features/finance/__tests__/` (6 files) | new — 82 tests |
+| `app/rootReducer.ts`, `app/store.ts`, `test/utils/renderWithProviders.tsx` | `financeApi` registered |
+| `constants/routePaths.ts`, `routes/index.tsx`, `layouts/AppShell/Sidebar/Sidebar.tsx` | route and navigation |
+| `backend/.../controller/finance/FinanceMappingControllerTest.java` | new — 22 HTTP contract tests |
+
+**No backend production code was changed by FIN-054B.**
+
+### Four things it is careful about
+
+**1. No metric is computed from a page of results.** Active rules come from the server's
+`activeRuleCount`; inactive rules from a `size=1` query read for `totalElements` alone; unmapped
+and ambiguous counts from the unresolved endpoint, **labelled with the batch id they belong to**.
+A total derived from twenty rows out of two hundred is a wrong number presented confidently, and
+an unresolved count with no batch named reads as a live figure it is not.
+
+**2. "Not measured" is distinguished from "nothing wrong".** A null `syncBatchId` means nothing has
+been mapped for that source yet. The panel says so in those words rather than showing a zero
+(ADR-007).
+
+**3. The observed value is carried through untouched.** Create-from-unresolved pre-fills the
+namespace and the value exactly as staged, including surrounding whitespace, because matching is
+exact on the server. Trimming for tidiness would create a rule for a different value than the one
+the operator was looking at. Asserted directly.
+
+**4. Nothing claims to fix history.** There is no re-run button, no "recalculate", no fact
+mutation — and no endpoint that could do any of them, which is asserted over the whole request
+surface rather than over one render. Every successful write reports *"Existing financial records
+were not changed"* and carries the backend's own `historicalEffect` sentence.
+
+### Errors
+
+`financeErrors.ts` maps each status once: 409 with `OPTIMISTIC_LOCK_CONFLICT` asks the user to
+refresh and **disables the save button**, so a second click cannot clobber a newer version; a plain
+409 keeps the backend's wording because it names the conflicting rule; 422 messages are shown
+verbatim because they are written for the person reading them; a 404 is worded so it does not leak
+whether the rule is missing or merely out of the caller's jurisdiction; **nothing from a 5xx is
+shown**, since it may carry a stack trace. A refused save keeps the drawer open and every typed
+value.
+
+### Permissions
+
+`financePermissions.ts` mirrors the backend exactly: read for SUPER_ADMIN, DISTRICT_COLLECTOR,
+DC_STAFF, AUDITOR; write for SUPER_ADMIN and DISTRICT_COLLECTOR. `TEMPLE_AUTHORITY` and `VIEWER`
+get nothing. **This is UX, not security** — every rule is enforced on `MappingAdminServiceImpl`,
+and a request that got past the frontend would be refused with 403. A test asserts write is never
+granted without read.
+
+### Tests
+
+**82 frontend tests, all passing** (`vitest`). The full frontend suite is **560 run -- 557 passed --
+3 failed**, and all three failures are pre-existing and outside finance (limitation 64):
+
+- `financeRequests.test.ts` (22) — exact URLs, methods and params; sort keys confined to the
+  backend allow-list; and the financial-safety assertions over the **whole** request surface: no
+  re-run, no fact mutation, no DELETE, nothing outside `/finance/`, no structurally-named request.
+- `financeErrors.test.ts` (8) — every status, including that a 5xx body never reaches the screen.
+- `financePermissions.test.ts` (7) — the matrix, and the invariant that write implies read.
+- `SourceMapperPage.test.tsx` (24) — honest metrics, loading/empty/error/retry, the role matrix by
+  rendering, server-side search/sort/paging, unresolved values, and the absence of any historical
+  control.
+- `MappingRuleDrawer.test.tsx` (21) — validation, the namespace warning in all three states,
+  request bodies, version handling, every failure mode, and exact prefill from an unresolved value.
+
+**22 backend HTTP contract tests, all passing** (`FinanceMappingControllerTest`), closing what
+FIN-054A-BE recorded as limitation 57: status codes for 201/400/404/409/422, the pagination
+envelope, the JSON shape, `historicalEffect` actually being in the payload, and that source
+connection details are absent from the source-system response.
+
+The finance backend regression is **430 run -- 0 failures -- 0 errors -- 0 skipped** (408 at
+FIN-054A-BE; the 22 added are the controller tests, and no prior suite changed).
+
+**Authorization is still not covered at the HTTP layer** — that test excludes the security
+auto-configuration, as every controller test in this project does, so `@PreAuthorize` does not run.
+Who may do what is proven where it is enforced, in `MappingAdminSecurityTest`.
+
 
 ## FIN-054A-BE — Source Mapping Administration API
 
@@ -1877,9 +1971,10 @@ the same 4 report files).
    the platform concluded at a past moment. "What did we believe on 3 March" is unanswerable
    without a decision log, which was deliberately not built (FIN-D-057).
 
-55. **There is no Source Mapper screen.** FIN-054A-BE built the API; FIN-054A-FE was not started
-   and no frontend file was created or modified. The unmapped list, which is the whole operational
-   point, is reachable only by an HTTP client until it is.
+55. **The screen exists (FIN-054B), but it has never been used against real source data.** No
+   connector is implemented and `fin_revenue_fact` is empty outside tests, so the unmapped list it
+   is built to surface will be empty until Q4 is answered and FIN-043 lands. The screen cannot be
+   validated against a real temple's vocabulary before then.
 
 56. **The finance admin tests do not validate the schema against the entities.** They run with
    `ddl-auto=none`, like every finance pipeline suite, because `validate` fails on FIN-X-001 —
@@ -1887,12 +1982,12 @@ the same 4 report files).
    finance. A finance entity that drifts from its migration would therefore not be caught by these
    tests. FIN-X-001 is still the reason 18 errors remain in the full suite.
 
-57. **The controller layer has no test.** Authorization, scope resolution and every refusal are
-   proven by invoking `MappingAdminService` as each role, which is where the guards are. What is
-   *not* covered is the HTTP mapping: that a `DuplicateResourceException` really surfaces as 409,
-   that `@Valid` really rejects a missing field as 400, that the JSON shape is what
-   [API_CONTRACT.md §7](API_CONTRACT.md) says. Those follow from `GlobalExceptionHandler`, which is
-   existing and unchanged, but they are inferred rather than observed.
+57. **HTTP-level authorization is still untested.** FIN-054B added `FinanceMappingControllerTest`
+   (22 tests), which closes the status-code and JSON-contract half of this gap. It cannot close the
+   other half: `` excludes the security auto-configuration in this project, so
+   `` does not run there and a 403 assertion would be testing the mock. Who may do
+   what is proven at the service layer in `MappingAdminSecurityTest`. What remains unobserved is
+   that the security filter chain is wired to this controller in a running application.
 
 58. **A typo in a namespace is still possible to save** (FIN-D-062). The format is enforced, but a
    field name no source emits is a warning in the response, not a refusal — there is no registry of
@@ -1911,6 +2006,31 @@ the same 4 report files).
 61. **V117 is unverified on TiDB**, as is every migration in this project. `ALTER TABLE ... ADD
    COLUMN ... DEFAULT 0` is within the MySQL subset TiDB documents as supported, but it has not
    been run there.
+
+62. **A missing required query parameter answers 500, not 400 — application-wide.**
+   `GlobalExceptionHandler` has no handler for `MissingServletRequestParameterException`,
+   `HttpRequestMethodNotSupportedException` or `NoResourceFoundException`, so the catch-all
+   `@ExceptionHandler(Exception.class)` claims all three. `GET /finance/mapping-rules` with no
+   `sourceSystemId` therefore returns 500. This is true of every controller in the application and
+   predates finance work; `FinanceMappingControllerTest` records the real behaviour rather than
+   asserting the ideal, and the fix belongs to a task that can re-run the whole suite behind it.
+
+63. **`npm run lint` cannot be run in this environment.** `eslint-plugin-react-hooks` is declared in
+   `package.json` but absent from the installed `node_modules`, so ESLint fails to load its config.
+   Pre-existing and unrelated to finance. FIN-054B was verified by `tsc -b` and the test suite
+   instead; the lint status of the new frontend code is **unknown, not clean**.
+
+64. **Three frontend tests fail on this branch, none of them finance.** `UserFormDialog` (1) and
+   `TempleLocationPicker` (2). Confirmed pre-existing by stashing the FIN-054B changes and
+   re-running those two suites: identical failures.
+
+65. **The Source Mapper has no history view**, because no history exists to show (plan decision D2).
+   `created_by` / `updated_by` / `updated_at` are displayed; what a rule said before an edit lives
+   only in the `audit_data_events` detail string, which is prose rather than queryable state.
+
+66. **The screen offers no way to correct published figures**, because the platform has none. It
+   says so at the point of edit rather than leaving the user to infer it — but a user who needs a
+   historical correction still has to arrange a batch re-run by other means (limitation 59).
 
 ---
 

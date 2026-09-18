@@ -23,6 +23,7 @@ import notificationReducer from '@/features/notification/notificationSlice'
 import { templeApi } from '@/features/temple-profile/hooks/templeApi'
 import { accessControlApi } from '@/features/access-control/accessControlApi'
 import { noticeApi } from '@/features/notice/noticeApi'
+import { financeApi } from '@/features/finance/financeApi'
 
 export const rootReducer = combineReducers({
   // RTK Query caches
@@ -46,6 +47,7 @@ export const rootReducer = combineReducers({
   [timelineApi.reducerPath]: timelineApi.reducer,
   [accessControlApi.reducerPath]: accessControlApi.reducer,
   [noticeApi.reducerPath]: noticeApi.reducer,
+  [financeApi.reducerPath]: financeApi.reducer,
 
   // UI slices
   auth: authReducer,

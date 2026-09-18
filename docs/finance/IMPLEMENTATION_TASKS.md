@@ -1,6 +1,6 @@
 # Finance Implementation Tasks
 
-**Updated:** 2026-09-17 (FIN-054)
+**Updated:** 2026-09-18 (FIN-054B)
 **Branch:** `feature/db-integration`
 
 Statuses: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `COMPLETE` · `NEEDS_REVIEW`
@@ -756,12 +756,12 @@ before reconciliation leaves figures nothing has verified — the `PENDING` case
 | FIN-083 | Reconciliation endpoint | NOT_STARTED | FIN-060 |
 | FIN-084 | RBAC and DACVM wiring, reusing existing infrastructure | NOT_STARTED | FIN-081 |
 | FIN-054A-BE | Source Mapper **backend** — mapping administration API | **COMPLETE** | FIN-054 |
-| FIN-054A-FE | Source Mapper **screen** — the administrative UI itself | NOT_STARTED | FIN-054A-BE |
+| FIN-054A-FE / FIN-054B | Source Mapper **screen** — the administrative UI itself | **COMPLETE** | FIN-054A-BE |
 
 ### FIN-054A — Source Mapper
 
 Analysis in [FIN-054A_SOURCE_MAPPER_SCREEN_PLAN.md](FIN-054A_SOURCE_MAPPER_SCREEN_PLAN.md).
-Split into **FIN-054A-BE** (backend, complete) and **FIN-054A-FE** (screen, not started), because
+Split into **FIN-054A-BE** (backend) and **FIN-054B** (screen), both complete, because
 the backend is not a step towards the screen so much as the whole missing layer beneath it: the
 blocking dependency was never the mapping engine, which was already complete, but the absence of
 any finance API at all.
@@ -780,7 +780,16 @@ Of the plan's seven open decisions, five were resolved from existing requirement
 own conservative principles (D1, D2, D3, D5, D7); **D4** (a re-run trigger) and **D6** (editing
 source-of-truth declarations) remain deliberately out of scope and unimplemented.
 
-**FIN-054A-FE is not started.** No frontend file was created or modified.
+**FIN-054B delivers the screen.** Route `/finance/source-mapper`, guarded by `RoleRoute` for
+SUPER_ADMIN, DISTRICT_COLLECTOR, DC_STAFF and AUDITOR — the same four roles as the backend read
+expression, with write controls gated separately on `CAN_ACT_DC`. Feature module at
+`frontend/src/features/finance/`.
+
+The screen offers **semantic mapping only**. There is no structural source-to-staging UI, no SQL,
+no re-run trigger and no history tab, because the architecture supports none of them (ADR-004) and
+offering one would promise something the platform does not do. Every write path states, at the
+point of edit, that published figures keep their classification until their batch is processed
+again.
 
 ---
 

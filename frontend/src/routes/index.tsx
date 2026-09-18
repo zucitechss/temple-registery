@@ -62,6 +62,7 @@ const TaTempleDetailPage = lazy(() => import('@/features/ta/pages/TaTempleDetail
 const AccessControlPage = lazy(() => import('@/features/access-control/pages/AccessControlPage/AccessControlPage').then(m => ({ default: m.AccessControlPage })))
 const DcNoticesPage = lazy(() => import('@/features/notice/pages/DcNoticesPage/DcNoticesPage').then(m => ({ default: m.DcNoticesPage })))
 const AdminNoticesPage = lazy(() => import('@/features/notice/pages/AdminNoticesPage/AdminNoticesPage').then(m => ({ default: m.AdminNoticesPage })))
+const SourceMapperPage = lazy(() => import('@/features/finance/pages/SourceMapperPage/SourceMapperPage').then(m => ({ default: m.SourceMapperPage })))
 
 const PageLoader = () => (
   <div className="flex h-64 items-center justify-center">
@@ -93,6 +94,15 @@ const router = createBrowserRouter([
               { path: ROUTE_PATHS.DC_EXPORT, element: <Suspense fallback={<PageLoader />}><DcExportPage /></Suspense> },
               { path: ROUTE_PATHS.DC_WORKFLOW_DASHBOARD, element: <Suspense fallback={<PageLoader />}><DcWorkflowDashboardPage /></Suspense> },
               { path: ROUTE_PATHS.DC_ACTIVITY, element: <Suspense fallback={<PageLoader />}><DcActivityPage /></Suspense> },
+            ],
+          },
+          // Finance integration administration (FIN-054B) — mirrors the backend's
+          // CAN_READ_FINANCE_CONFIG exactly: DC roles plus AUDITOR, never TEMPLE_AUTHORITY or
+          // VIEWER. Write actions inside the page are gated separately on CAN_ACT_DC.
+          {
+            element: <RoleRoute allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.DISTRICT_COLLECTOR, USER_ROLES.DC_STAFF, USER_ROLES.AUDITOR]} />,
+            children: [
+              { path: ROUTE_PATHS.FINANCE_SOURCE_MAPPER, element: <Suspense fallback={<PageLoader />}><SourceMapperPage /></Suspense> },
             ],
           },
           // Temple search and profile — DC roles + TEMPLE_AUTHORITY (read-only view for TA)

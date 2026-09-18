@@ -272,3 +272,22 @@ No endpoint returns a credential reference, a source database name, a connector 
 source-side connection detail, and none returns a temple financial figure. `DELETE` was not
 implemented: deactivation covers retirement, and soft delete would add a permission tier and an
 audit action no described flow needs.
+
+### 7.6 Frontend consumer (FIN-054B)
+
+`frontend/src/features/finance/` consumes §7 at `/finance/source-mapper`. Two notes for anyone
+changing the contract:
+
+- **`historicalEffect` is displayed, not paraphrased.** The screen shows the backend's sentence as
+  the confirmation description. Changing its wording changes what operators are told.
+- **`syncBatchId: null` is load-bearing.** It is how the screen distinguishes "not measured" from
+  "nothing unresolved" and must not be omitted from the JSON when null.
+
+`sort` is confined client-side to the same allow-list the service enforces, so a 422 for a bad sort
+key should never be reachable from the screen.
+
+**Known contract defect, application-wide:** a missing required query parameter (for example
+`GET /finance/mapping-rules` with no `sourceSystemId`) returns **500, not 400**, because
+`GlobalExceptionHandler` has no handler for `MissingServletRequestParameterException`. Same for an
+unsupported method and an unmatched path. Recorded as HANDOFF limitation 62; not fixed here because
+it affects every controller in the application.
