@@ -4,15 +4,21 @@
 # Run dev: docker run -p 8080:8080 --env-file .env temple-registry-backend
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Required environment variables (must be provided at runtime):
-# DB_URL              jdbc:mysql://mysql:3306/temple_registry?...
-# DB_USERNAME         <db user>
-# DB_PASSWORD         <db password>
-# JWT_ACCESS_SECRET   (not used — key material is mounted from /app/keys/)
-# ENCRYPTION_KEY      32-char AES key (hex or plain — must be exactly 32 bytes)
-# AWS_REGION          ap-south-1
-# S3_BUCKET_NAME      temple-registry-docs-<env>
-# CORS_ALLOWED_ORIGINS https://portal.temple-registry.gov.in
+# Required environment variables (must be provided at runtime — see the
+# Dockerfile's own header comment and backend/.env.example for the full,
+# authoritative list):
+# DB_URL                    jdbc:mysql://<host>:<port>/<db>?...
+# DB_USERNAME, DB_PASSWORD
+# APP_ENCRYPTION_KEY        32 bytes (AES)
+# APP_HMAC_KEY              32 bytes
+# APP_JWT_PRIVATE_KEY       PEM contents, RS256 (C-1) — this image ships no
+# APP_JWT_PUBLIC_KEY        key file; the build fails if one ever reaches the jar (H-8)
+# APP_BASE_URL
+# APP_CORS_ALLOWED_ORIGINS  exact SPA origin, e.g. https://temple-registery.vercel.app (H-1)
+# SMTP_HOST, EMAIL_USERNAME, EMAIL_PASSWORD
+#
+# There is no S3/AWS integration in this codebase — uploads and exports are
+# local-filesystem only (see PERSISTENT STORAGE below, H-3).
 
 # For local dev, override via docker-compose or application-dev.yml.
 

@@ -1729,7 +1729,11 @@ temple-registery.vercel.app  ------>  temple-registry.onrender.com
 
 ---
 
-### 11.2 Production Deployment Architecture
+### 11.2 Production Deployment Architecture (Target — Not Currently Built)
+
+> As noted in §11.1a, this multi-instance diagram was never implemented. It
+> describes a possible future architecture, not the current one — see §11.1a
+> for what is actually deployed today.
 
 ```mermaid
 graph TB
@@ -1763,24 +1767,25 @@ graph TB
 
 ### 11.3 Docker Support
 
-The backend includes a production-grade multi-stage Dockerfile:
+The backend includes a production-grade multi-stage Dockerfile (see
+`backend/Dockerfile`, hardened under H-8):
 
 ```
-Stage 1: eclipse-temurin:21-jdk-alpine (builder)
-    → Maven build: mvn package -DskipTests
-    → Extracts Spring Boot layered JAR
+Stage 1: maven:3.9.9-eclipse-temurin-21 (builder)
+    → mvn clean package -DskipTests
+    → Fails the build if any .pem file reaches the jar (H-8 regression guard)
 
-Stage 2: eclipse-temurin:21-jre-alpine (runtime)
-    → Non-root user (UID 1001)
-    → Copies only application layers
+Stage 2: eclipse-temurin:21-jre-jammy (runtime)
+    → Non-root user, fixed uid/gid 10001
+    → Ships only the jar — no key material, no build tooling
     → EXPOSE 8080
-    → ENTRYPOINT ["java", "-jar", "app.jar"]
+    → CMD ["java", "-jar", "app.jar"]
 ```
 
 **Security hardening in Dockerfile:**
-- Non-root user prevents privilege escalation
-- JRE-only runtime (no JDK) reduces attack surface
-- Alpine base image minimizes OS vulnerabilities
+- Non-root, fixed-uid user prevents privilege escalation
+- JRE-only runtime (no JDK, no Maven) reduces attack surface
+- Build-time check refuses to ship an image containing a `.pem` file (H-8)
 
 ---
 

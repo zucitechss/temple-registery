@@ -144,4 +144,63 @@ class DocumentServiceImplTest {
                     .isInstanceOf(FileValidationException.class);
         }
     }
+
+    /**
+     * VAL-004 — "Document upload — file type | PDF only (MIME: application/pdf); enforced
+     * client + server". Every document-upload UI in the frontend (TaDocumentsPage,
+     * DeclarationCreatePage, ContractorFormPage) restricts to application/pdf only, but this
+     * service used to accept image/jpeg and image/png as well — a direct API call, bypassing
+     * the UI, could upload an image where the product only ever intended a PDF document.
+     * Temple/TA profile photographs (VAL-006) are a separate upload path, unaffected by this.
+     */
+    @Nested
+    class MimeTypeValidation {
+
+        @Test
+        void should_rejectDocument_when_mimeTypeIsJpeg() {
+            MultipartFile file = mock(MultipartFile.class);
+            when(file.isEmpty()).thenReturn(false);
+            when(file.getContentType()).thenReturn("image/jpeg");
+
+            assertThatThrownBy(() -> documentService.upload("TEMPLE", 1L, null, "Deed", file))
+                    .isInstanceOf(FileValidationException.class)
+                    .hasMessageContaining("PDF");
+        }
+
+        @Test
+        void should_rejectDocument_when_mimeTypeIsPng() {
+            MultipartFile file = mock(MultipartFile.class);
+            when(file.isEmpty()).thenReturn(false);
+            when(file.getContentType()).thenReturn("image/png");
+
+            assertThatThrownBy(() -> documentService.upload("TEMPLE", 1L, null, "Deed", file))
+                    .isInstanceOf(FileValidationException.class)
+                    .hasMessageContaining("PDF");
+        }
+
+        @Test
+        void should_rejectExternallyRegisteredDocument_when_mimeTypeIsAnImage() {
+            assertThatThrownBy(() -> documentService.registerExternalUpload(
+                    "TEMPLE", 1L, "Deed", "k", "image/jpeg", 10L, "deed.jpg"))
+                    .isInstanceOf(FileValidationException.class)
+                    .hasMessageContaining("PDF");
+        }
+
+        @Test
+        void should_acceptDocument_when_mimeTypeIsPdf() {
+            Document saved = Document.builder()
+                    .ownerType("TEMPLE").ownerId(1L).originalFilename("deed.pdf")
+                    .s3Key("k").mimeType("application/pdf").fileSizeBytes(10L).build();
+            saved.setId(3L);
+            MultipartFile file = mock(MultipartFile.class);
+            when(file.isEmpty()).thenReturn(false);
+            when(file.getContentType()).thenReturn("application/pdf");
+            lenient().when(file.getSize()).thenReturn(10L);
+            when(fileStorageService.upload(anyString(), any(MultipartFile.class))).thenReturn("k");
+            when(documentRepository.save(any(Document.class))).thenReturn(saved);
+
+            assertThatCode(() -> documentService.upload("TEMPLE", 1L, null, "Deed", file))
+                    .doesNotThrowAnyException();
+        }
+    }
 }
