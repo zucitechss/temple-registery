@@ -38,7 +38,7 @@ public class DcExportController {
     private final DcExportService dcExportService;
     private final ExportJobRecordRepository exportJobRecordRepository;
 
-    @Value("${trm.export.base-dir:/data/exports}")
+    @Value("${trm.export.base-dir:./exports}")
     private String exportBaseDir;
 
     @PostMapping("/temples")

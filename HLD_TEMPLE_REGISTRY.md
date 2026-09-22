@@ -1468,6 +1468,17 @@ The TRM is architected as a **well-structured Spring Boot monolith** with clear 
 **Storage requirement (applies even with one replica):**
 `app.storage.base-dir` and `trm.export.base-dir` **must** be backed by storage that survives restarts and redeployments. Both default to relative paths (`./uploads`, `./exports`) which resolve inside the container's writable layer, where uploaded documents and generated exports are destroyed on every redeploy. Mount a persistent volume.
 
+**Resolved for the actual topology (H-3):** there is no cloud storage integration in this
+codebase — `LocalFileStorageServiceImpl` and `AsyncExportBean` write to the local
+filesystem only (see §11.1a for the topology this decision assumes). On Render, attach a
+Disk to the service and set `APP_STORAGE_BASE_DIR` / `TRM_EXPORT_BASE_DIR` to its mount
+path (see `backend/.env.example`). H-8 already creates `/app/uploads` and `/app/exports`
+inside the image, owned by the non-root container user, so a disk mounted at either path
+needs no further permission changes. A Render Disk attaches to exactly one instance,
+which is what this application's single-replica requirement above assumes — it is not a
+path to items 6–7 in the table becoming safe under multiple replicas; that still needs
+shared/object storage, as noted below.
+
 **Future work — before enabling more than one replica**, each item above must be addressed. Indicative approaches, none of which are implemented today:
 - Items 1–3: claim rows with `SELECT … FOR UPDATE SKIP LOCKED`, or coordinate the schedulers (e.g. ShedLock)
 - Item 4: sticky sessions at the load balancer, or a shared pub/sub fan-out
