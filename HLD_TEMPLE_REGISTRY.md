@@ -1380,7 +1380,7 @@ No try-catch blocks in controllers. No business logic in exception handlers.
 
 ### 8.7 Authentication in API
 
-- JWT delivered via `httpOnly`, `SameSite=Lax` cookie named `access_token`
+- JWT delivered via `httpOnly`, `Secure`, `SameSite=None` cookie named `access_token` (production topology is cross-origin — SPA on Vercel, API on Render — so `SameSite=None` is required, not a relaxed default; see §11.1a)
 - Fallback: `Authorization: Bearer <token>` header for non-browser clients
 - Access token expiry: 2 hours
 - Refresh via `POST /api/v1/auth/refresh` (uses httpOnly refresh token cookie)
@@ -1627,7 +1627,7 @@ Sensitive fields encrypted using **AES-256-GCM** before persistence:
 |---|---|
 | **SQL Injection** | Spring Data JPA parameterized queries; no raw SQL in application code (only Flyway migrations) |
 | **XSS** | React escapes all rendered values by default; no `dangerouslySetInnerHTML` usage |
-| **CSRF** | Disabled (`csrf.disable()`) because API is stateless with JWT; SameSite=Lax on cookies provides additional CSRF protection |
+| **CSRF** | Stateless double-submit token (`CookieCsrfTokenRepository`) on every unsafe method (H-5). The auth cookies are `SameSite=None` for the cross-origin topology, so `SameSite` provides no CSRF protection here — the token is the actual control, not a documentation nicety |
 | **Unauthorized Access** | Deny-by-default security filter; `@PreAuthorize` on every service method |
 | **Mass Assignment** | DTOs explicitly define accepted fields; entities never deserialized from request body |
 | **Path Traversal** | File paths validated; `s3_key` stored as opaque reference, never user-controlled |
@@ -1640,8 +1640,8 @@ Sensitive fields encrypted using **AES-256-GCM** before persistence:
 ### 10.7 Session Management
 
 - **No server-side sessions** — `SessionCreationPolicy.STATELESS`
-- Access token delivered as `httpOnly`, `SameSite=Lax` cookie — inaccessible to JavaScript
-- `accessToken` also stored in Redux memory (volatile) for `Authorization: Bearer` header use in non-cookie scenarios
+- Access token delivered as `httpOnly`, `Secure`, `SameSite=None` cookie — inaccessible to JavaScript and to cross-origin CSS/image requests, but sent by the browser on the cross-origin XHR/fetch calls this deployment makes
+- `accessToken` is **not** stored in Redux or any client-side state (`authSlice.ts` keeps a stub field that is always null) — the `Authorization: Bearer` path in `JwtAuthenticationFilter` exists for non-browser API clients (E2E tests, scripts), not for the SPA itself
 - Refresh token is httpOnly cookie only — never in localStorage or Redux
 - Token revocation: refresh token revoked on logout; access tokens are self-expiring (2 hours)
 
@@ -1688,6 +1688,33 @@ Developer Machine
     └── Backend: Spring Boot :8080 (TiDB Cloud DB)
     └── File Storage: ./uploads/ (local)
 ```
+
+---
+
+### 11.1a Current Production Topology (Resolved — H-1)
+
+> The diagram in §11.2 below describes a target multi-instance AWS architecture
+> that was never built (see the H-7 note on that section: this application
+> currently supports exactly one replica). What is **actually deployed** today:
+
+```
+SPA (Vercel)                          API (Render)
+temple-registery.vercel.app  ------>  temple-registry.onrender.com
+                              <cross-origin, credentials: include>
+```
+
+- **Cross-origin.** The frontend and backend are on different domains, so the
+  browser only attaches the httpOnly auth cookies when the SPA sends
+  `credentials: 'include'` (it does — see `baseQueryWithReauth.ts` /
+  `baseQueryV2WithReauth.ts`) and the cookies are `SameSite=None; Secure`.
+- **`SameSite=None` is a requirement of this topology, not a weaker default.**
+  A same-origin deployment could use `Lax`, but that is a deliberate future
+  change (see `APP_CORS_ALLOWED_ORIGINS` in `backend/.env.example`), and CSRF
+  protection does not depend on it either way.
+- **CSRF is handled by a stateless double-submit token** (H-5), independent of
+  the `SameSite` value, because `SameSite=None` on its own provides none.
+- `APP_CORS_ALLOWED_ORIGINS` must be set to the exact SPA origin — see
+  `backend/.env.example`.
 
 ---
 
