@@ -1,0 +1,90 @@
+name: CI
+
+# Until this workflow existed, nothing in CI ran a test. The only workflow built the
+# backend with -DskipTests and had no frontend job at all, so 936 backend tests, 523
+# frontend tests, eslint and tsc had never executed on a pull request (H-2).
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Surefire only: these need neither Docker nor a database, so they stay fast
+      # and are safe to gate every pull request on.
+      - name: Unit tests
+        run: mvn -B -f backend/pom.xml test
+
+      # Testcontainers-backed integration tests (H-9). Deliberately NOT gating yet:
+      # they currently produce 26 errors, every one of them the pre-existing schema
+      # drift (missing column field_names_json in declaration_clarifications).
+      #
+      # They are wired here rather than omitted so the gap is visible and runnable
+      # on demand. Delete the `if:` once TODO 10 fixes the drift, and they gate too.
+      - name: Integration tests (manual until schema drift is fixed — TODO 10)
+        if: github.event_name == 'workflow_dispatch'
+        run: mvn -B -f backend/pom.xml verify
+
+  frontend:
+    name: Frontend (lint, types, unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # `npx tsc --noEmit` is a NO-OP in this project and always exits 0: tsconfig.json
+      # is a solution-style file with "files": [] and only references, so bare tsc has
+      # nothing to check. `npm run build` is `tsc -b && vite build`, which follows the
+      # references and additionally proves the production bundle still builds.
+      - name: Type check and build
+        run: npm run build
+
+      # One test in UserFormDialog.test.tsx fails for a pre-existing reason (audit
+      # finding M-7). Excluding that single file keeps the other 515 tests gating,
+      # rather than leaving the whole suite unrun because of one known failure.
+      # Drop the exclusion when TODO 7 fixes M-7; the step below covers it meanwhile.
+      - name: Unit tests
+        run: npx vitest run --exclude '**/node_modules/**' --exclude '**/dist/**' --exclude '**/UserFormDialog.test.tsx'
+
+      - name: Full unit suite (manual until M-7 is fixed — TODO 7)
+        if: github.event_name == 'workflow_dispatch'
+        run: npx vitest run
