@@ -46,16 +46,28 @@ SOURCE:
      { accessToken, expiresIn: 900 }
      - accessToken: RS256 JWT, 15-minute TTL
      - refreshToken: opaque UUID, stored as SHA-256 hash in DB
-     - DECISION (RESOLVED): refreshToken is stored in an HttpOnly cookie.
-       Cookie attributes: HttpOnly; Secure; SameSite=Strict; Path=/api/auth/refresh
-       Access token is returned in the response body and stored in React memory
-       (NOT localStorage, NOT sessionStorage).
-       CSRF analysis: SameSite=Strict blocks cross-origin requests to /api/auth/refresh.
-       No CSRF token required for the refresh endpoint since it uses HttpOnly cookie
-       with SameSite=Strict (not a standard form POST from a different origin).
-       For all other mutating endpoints (POST/PUT/DELETE on /api/**), CSRF is not a
-       risk because they use the Authorization: Bearer header (not cookie-based auth).
-       The access token is in memory and unreachable from cross-site scripts.
+     - DECISION (RESOLVED, corrected H-1 — superseded the block below as
+       originally written; production is cross-origin, not same-origin):
+       BOTH accessToken and refreshToken are stored in HttpOnly cookies
+       (AuthController.addCookie), not one cookie plus response-body/memory
+       storage as originally planned here.
+       Cookie attributes: HttpOnly; Secure; SameSite=None; Path scoped per
+       cookie (/api/v1 for access_token, /api/v1/auth/refresh for
+       refresh_token).
+       SameSite=None, not Strict: the SPA (Vercel) and the API (Render) are
+       different origins, so a Strict or Lax cookie would never be sent on the
+       SPA's own cross-origin requests. See HLD §11.1a for the topology.
+       CSRF analysis (revised — H-5): SameSite=None on its own provides NO
+       CSRF protection, cross-origin or same-origin. Every unsafe method
+       (POST/PUT/PATCH/DELETE), including /api/v1/auth/refresh, requires a
+       stateless double-submit token: the value of the readable XSRF-TOKEN
+       cookie echoed back in the X-XSRF-TOKEN header (CookieCsrfTokenRepository
+       in SecurityConfig). This is enforced for every endpoint, with no
+       exemption for login, MFA, refresh or logout.
+       The Authorization: Bearer header path in JwtAuthenticationFilter is a
+       genuine second entry point, but it is for non-browser API clients
+       (E2E tests, scripts) — the SPA itself is cookie-only and never stores
+       either token in memory, Redux or any browser storage.
 
    3.2 TOKEN REFRESH FLOW
 
@@ -249,7 +261,11 @@ SOURCE:
    - Access token: 15-minute TTL; Refresh token: 7-day TTL, single-use rotation
    - MFA is mandatory for ALL users; no bypass endpoint exists
    - Aadhaar eKYC only at registration; not at every login
-   - RESOLVED: refreshToken stored in HttpOnly cookie (SameSite=Strict; Secure); access token in memory only
+   - RESOLVED (corrected H-1): BOTH access token and refresh token stored in
+     HttpOnly cookies (SameSite=None; Secure) — production is cross-origin
+     (SPA on Vercel, API on Render), so Strict/Lax would never be sent on the
+     SPA's own requests. CSRF is a stateless double-submit token instead (H-5),
+     not a property of SameSite. See Section 3, Step 4.
    - RESOLVED: token_revoked_before enforced in JwtAuthenticationFilter; DC district transfer invalidates tokens instantly
    - MFA recovery codes: 8 codes generated at setup; bcrypt-hashed; single-use; force re-enrollment after use
    - RESOLVED: mfa_reenrollment_required = 1 blocks all write operations (except /api/auth/mfa-setup*) at filter layer. User is shown a banner on login that explains they must re-configure MFA. Reenrollment is done in the same session via the MFA setup flow (see Section 3.5a).
@@ -292,6 +308,7 @@ SOURCE:
 
    - All auth endpoints are under /api/auth/** (unauthenticated)
    - All other endpoints require a valid access token
-   - Frontend stores access token in memory (not localStorage); refresh
-     token in HttpOnly cookie (SameSite=Strict; Secure; Path=/api/auth/refresh)
+   - Frontend stores neither token anywhere client-side (not memory, not
+     localStorage); both access and refresh tokens are HttpOnly cookies
+     (SameSite=None; Secure) — corrected H-1, see Section 3, Step 4
    - mfa_reenrollment_required column added to users table in future migration if needed
