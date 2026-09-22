@@ -62,7 +62,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -87,28 +86,6 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
         working-directory: e2e
-
-      # C-1 removed the committed JWT keypair and made JwtKeyProvider abort startup
-      # when neither a PEM value nor a readable key file is available. The keys are not
-      # in Git, and this workflow supplied no APP_JWT_* variables, so the backend could
-      # not boot and the job died at "Wait for backend" (H-2).
-      #
-      # A throwaway keypair generated per run is better than a repository secret here:
-      # nothing long-lived exists to leak, and tokens signed during one run are
-      # worthless in the next.
-      - name: Generate an ephemeral JWT keypair
-        run: |
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-private.pem
-          openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem
-          {
-            echo "APP_JWT_PRIVATE_KEY<<JWT_PEM_EOF"
-            cat jwt-private.pem
-            echo "JWT_PEM_EOF"
-            echo "APP_JWT_PUBLIC_KEY<<JWT_PEM_EOF"
-            cat jwt-public.pem
-            echo "JWT_PEM_EOF"
-          } >> "$GITHUB_ENV"
-          rm -f jwt-private.pem jwt-public.pem
 
       - name: Start backend
         run: |

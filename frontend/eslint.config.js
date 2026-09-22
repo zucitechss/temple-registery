@@ -35,16 +35,6 @@ export default [
       ...tsPlugin.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
       'no-undef': 'off',
-      // The codebase uses the `const X = {...} as const` + `type X = (typeof X)[keyof
-      // typeof X]` enum idiom, where a value and a type deliberately share a name. Both
-      // the base rule and its TypeScript-aware version report that as a redeclaration —
-      // ignoreDeclarationMerge only covers interface/namespace merging, not a value
-      // paired with a type alias. It was the only thing stopping lint from gating CI.
-      //
-      // Turning it off loses nothing: `tsc --noEmit` runs in the same CI job and reports
-      // a genuine redeclaration as TS2451, with the type checker's full view.
-      'no-redeclare': 'off',
-      '@typescript-eslint/no-redeclare': 'off',
       'react-refresh/only-export-components': 'off',
       'react-hooks/exhaustive-deps': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
