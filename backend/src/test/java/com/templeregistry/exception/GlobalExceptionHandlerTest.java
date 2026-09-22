@@ -502,4 +502,42 @@ class GlobalExceptionHandlerTest {
             assertThat(response.getBody().getErrorCode()).isEqualTo("INTERNAL_ERROR");
         }
     }
+
+    // ─── NoResourceFoundException (unmatched path) ─────────────────────────────
+    //
+    // Found while verifying H-6: an AUTHENTICATED request to a path that matches no
+    // controller and no static resource returned 500 INTERNAL_ERROR instead of 404.
+    // NoResourceFoundException is thrown by ResourceHttpRequestHandler for exactly this
+    // case; before a dedicated handler existed here, the plain @ExceptionHandler(
+    // Exception.class) catch-all matched it (most specific handler always wins, but
+    // nothing more specific than Exception.class was registered for it), producing a
+    // 500 for what is, from the client's point of view, an ordinary "no such endpoint".
+    @Nested
+    class NoResourceFoundHandling {
+        @Test
+        void should_return404_when_pathMatchesNoHandler() {
+            org.springframework.web.servlet.resource.NoResourceFoundException ex =
+                    new org.springframework.web.servlet.resource.NoResourceFoundException(
+                            org.springframework.http.HttpMethod.GET, "no-such-endpoint");
+
+            ResponseEntity<ApiResponse<Void>> response = handler.handleNoResourceFound(ex);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            assertThat(response.getBody().isSuccess()).isFalse();
+            assertThat(response.getBody().getErrorCode()).isEqualTo("NOT_FOUND");
+        }
+
+        @Test
+        void should_notLeakTheRequestPath_inTheResponseMessage() {
+            // The path is attacker-controlled input; echoing it back unfiltered would be
+            // a reflected-content smell for no operational benefit.
+            org.springframework.web.servlet.resource.NoResourceFoundException ex =
+                    new org.springframework.web.servlet.resource.NoResourceFoundException(
+                            org.springframework.http.HttpMethod.GET, "admin/../../etc/passwd");
+
+            ResponseEntity<ApiResponse<Void>> response = handler.handleNoResourceFound(ex);
+
+            assertThat(response.getBody().getMessage()).doesNotContain("etc/passwd");
+        }
+    }
 }

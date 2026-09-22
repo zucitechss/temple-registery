@@ -271,6 +271,27 @@ public class GlobalExceptionHandler {
         log.debug("SSE client disconnected (expected): {}", ex.getMessage());
     }
 
+    /**
+     * Thrown by {@code ResourceHttpRequestHandler} when a request matches no controller
+     * and no static resource. Without this handler, an authenticated request to an
+     * unknown path fell through to {@link #handleUnexpected}, returning 500
+     * INTERNAL_ERROR for what is, from the client's point of view, an ordinary
+     * "no such endpoint" — found while verifying H-6, where every documentation path
+     * answered this way once springdoc was disabled without this handler present.
+     *
+     * <p>Registered as its own handler rather than folded into the generic one because
+     * Spring resolves by most-specific exception type: without a dedicated handler here,
+     * {@code Exception.class} is the closest match and wins regardless of declaration
+     * order.</p>
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        log.debug("No handler for request path (expected for unknown endpoints)");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("The requested resource was not found.", "NOT_FOUND"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception ex) {
         log.error("Unexpected error: {}", ex.getMessage(), ex);
