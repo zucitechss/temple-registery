@@ -52,8 +52,15 @@ public class DocumentServiceImpl implements DocumentService {
      * whether the bytes arrived through this service or through a pre-signed upload (H-4).</p>
      */
     private static final long MAX_SIZE_BYTES = 10 * 1024 * 1024L; // 10 MB (VAL-005)
-    private static final Set<String> ALLOWED_MIME = Set.of(
-            "image/jpeg", "image/png", "application/pdf");
+
+    /**
+     * VAL-004: "Document upload — file type | PDF only (MIME: application/pdf); enforced
+     * client + server". This used to also accept image/jpeg and image/png — conflated with
+     * VAL-006 (temple/TA profile photograph, a separate upload path) — so a direct API call
+     * could upload an image where every document-upload UI in the frontend only ever offers
+     * a PDF picker.
+     */
+    private static final Set<String> ALLOWED_MIME = Set.of("application/pdf");
 
     private final DocumentRepository documentRepository;
     private final DocumentAccessLogRepository accessLogRepository;
@@ -248,7 +255,7 @@ public class DocumentServiceImpl implements DocumentService {
 
     private void validateExternalUpload(String mimeType, long fileSizeBytes) {
         if (!ALLOWED_MIME.contains(mimeType)) {
-            throw new FileValidationException("Unsupported file type. Allowed: PDF, JPEG, PNG.");
+            throw new FileValidationException("Unsupported file type. Allowed: PDF.");
         }
         if (fileSizeBytes > MAX_SIZE_BYTES) {
             throw new FileValidationException("File exceeds maximum allowed size of 10 MB.");
@@ -263,7 +270,7 @@ public class DocumentServiceImpl implements DocumentService {
             throw new FileValidationException("File must not be empty.");
         }
         if (!ALLOWED_MIME.contains(file.getContentType())) {
-            throw new FileValidationException("Unsupported file type. Allowed: PDF, JPEG, PNG.");
+            throw new FileValidationException("Unsupported file type. Allowed: PDF.");
         }
         if (file.getSize() > MAX_SIZE_BYTES) {
             throw new FileValidationException("File exceeds maximum allowed size of 10 MB.");

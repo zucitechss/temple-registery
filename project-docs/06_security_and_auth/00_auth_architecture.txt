@@ -43,8 +43,9 @@ SOURCE:
      - On failure: log to audit_auth_events; count MFA failures separately
 
    Step 4: Token Response
-     { accessToken, expiresIn: 900 }
-     - accessToken: RS256 JWT, 15-minute TTL
+     { accessToken, expiresIn: 7200 }
+     - accessToken: RS256 JWT, 2-hour TTL (app.jwt.access-token-expiry-ms,
+       application.yml)
      - refreshToken: opaque UUID, stored as SHA-256 hash in DB
      - DECISION (RESOLVED, corrected H-1 — superseded the block below as
        originally written; production is cross-origin, not same-origin):
@@ -255,10 +256,12 @@ SOURCE:
 
 4. DECISIONS LOCKED
 
-   - RS256 (asymmetric) for JWT signing; private key stored securely per
-     environment (production: AWS Secrets Manager; local dev: classpath
-     resource /keys/jwt-private.pem excluded from git via .gitignore)
-   - Access token: 15-minute TTL; Refresh token: 7-day TTL, single-use rotation
+   - RS256 (asymmetric) for JWT signing; private key supplied via the
+     APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY environment variables (PEM
+     contents, C-1) — platform-agnostic, not tied to a specific secret store;
+     local dev alternative: classpath resource /keys/jwt-private.pem excluded
+     from git via .gitignore
+   - Access token: 2-hour TTL; Refresh token: 7-day TTL, single-use rotation
    - MFA is mandatory for ALL users; no bypass endpoint exists
    - Aadhaar eKYC only at registration; not at every login
    - RESOLVED (corrected H-1): BOTH access token and refresh token stored in
@@ -287,8 +290,9 @@ SOURCE:
      client receipt results in the client having neither old nor new token.
      Implement a grace window: the old token remains valid for 60 seconds
      after rotation to allow for retry.
-   - RS256 private key compromise: rotate immediately via Secrets Manager;
-     all active tokens become invalid (users re-login).
+   - RS256 private key compromise: generate a new keypair and rotate the
+     APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY values immediately; all active
+     tokens become invalid (users re-login).
    - Pre-signed document URL TTL: 15-minute TTL may be insufficient for
      large PDF downloads over slow rural/government network connections.
      MITIGATION: Frontend generates the download token immediately before the

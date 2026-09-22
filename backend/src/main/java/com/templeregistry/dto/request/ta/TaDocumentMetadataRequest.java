@@ -27,12 +27,13 @@ public class TaDocumentMetadataRequest {
 
     /**
      * MIME type of the uploaded file.
-     * Server enforces: application/pdf, image/jpeg, image/png (VAL-004, VAL-006).
+     * Server enforces: application/pdf only (VAL-004). Temple/TA profile photographs
+     * (VAL-006) are a separate upload path with their own JPEG/PNG validation.
      */
     @NotBlank(message = "mimeType must not be blank")
     @Pattern(
-        regexp = "application/pdf|image/jpeg|image/png",
-        message = "Allowed MIME types: application/pdf, image/jpeg, image/png"
+        regexp = "application/pdf",
+        message = "Allowed MIME type: application/pdf"
     )
     private String mimeType;
 
