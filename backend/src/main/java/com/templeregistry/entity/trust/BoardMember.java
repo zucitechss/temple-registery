@@ -15,7 +15,7 @@ import java.time.LocalDate;
         @Index(name = "idx_board_members_trust_id", columnList = "trust_id")
 })
 @SQLRestriction("is_deleted = false")
-@SQLDelete(sql = "UPDATE board_members SET is_deleted = true, updated_at = NOW(6) WHERE id = ?")
+@SQLDelete(sql = "UPDATE board_members SET is_deleted = true, updated_at = NOW(6) WHERE id = ? AND lock_version = ?")
 @Getter @Setter @SuperBuilder @NoArgsConstructor @AllArgsConstructor
 public class BoardMember extends BaseEntity {
 
