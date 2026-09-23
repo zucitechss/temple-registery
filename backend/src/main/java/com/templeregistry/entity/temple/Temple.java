@@ -16,7 +16,7 @@ import org.hibernate.annotations.SQLRestriction;
         @Index(name = "idx_temples_registration",  columnList = "registration_number")
 })
 @SQLRestriction("is_deleted = false")
-@SQLDelete(sql = "UPDATE temples SET is_deleted = true, updated_at = NOW(6) WHERE id = ?")
+@SQLDelete(sql = "UPDATE temples SET is_deleted = true, updated_at = NOW(6) WHERE id = ? AND version = ?")
 @Getter @Setter @SuperBuilder @NoArgsConstructor @AllArgsConstructor
 public class Temple extends BaseEntity {
 
