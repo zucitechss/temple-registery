@@ -59,10 +59,6 @@ export function EmployeeDetailPage() {
           <h1 className="text-xl font-bold text-foreground">Employee Profile</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Complete employee information and details</p>
         </div>
-        <Button onClick={() => navigate('/employees')} className="bg-gradient-gold shadow-gold" size="sm">
-          <Briefcase className="size-3.5 mr-1.5" />
-          Back to List
-        </Button>
       </div>
 
       {/* Profile Header Card */}

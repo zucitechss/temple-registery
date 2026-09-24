@@ -51,6 +51,7 @@ backend/BOOT-INF/
 backend/src/main/resources/keys/
 backend/src/main/resources/application-prod.yml
 backend/dev-secrets.properties
+backend/.env
 
 # ─── Backend — log files ────────────────────────────────────
 backend/app.log
@@ -184,6 +185,7 @@ uploads/
 e2e/node_modules/
 e2e/playwright-report/
 e2e/test-results/
+e2e/.env
 e2e/cookies_ta.txt
 e2e/run_auth.log
 e2e/run_closure-runtime-proof.log
@@ -199,7 +201,4 @@ e2e/notification_inbox_test.log
 *.log
 *.pid
 *.tmp
-<<<<<<< HEAD
  
-=======
->>>>>>> fa3ba8b57563b4b041932fb9a7193b651c55551c

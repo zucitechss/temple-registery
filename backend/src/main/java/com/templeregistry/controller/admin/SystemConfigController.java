@@ -47,6 +47,10 @@ public class SystemConfigController {
             @PathVariable String key,
             @Valid @RequestBody UpdateSystemConfigRequest rq,
             @AuthenticationPrincipal ScopeHelper.Claims claims) {
+        if (claims == null) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.error("Unauthorized: Invalid or missing authentication token.", "UNAUTHORIZED"));
+        }
         return ResponseEntity.ok(ApiResponse.success("Config updated.",
                 systemConfigService.update(key, rq, claims.userId())));
     }

@@ -31,6 +31,9 @@ export interface CreateUserRequest {
   createTemple?: boolean
   /** Required when createTemple = true */
   templeName?: string
+  /** Optional geo placement for the auto-created temple (createTemple = true) */
+  talukId?: number
+  hobliId?: number
   /** Required when createTemple = false */
   existingTempleId?: number
   /** Optional designation for TEMPLE_AUTHORITY users (e.g. "Trust Secretary") */

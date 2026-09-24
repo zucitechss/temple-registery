@@ -1,37 +1,25 @@
-# ─── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine AS builder
+# Stage 1: Build
+FROM maven:3.9.9-eclipse-temurin-21 AS build
 
-WORKDIR /build
 
-# Cache dependencies before copying source
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
-RUN ./mvnw dependency:go-offline -q
-
-# Build (skip tests — tests run in CI pipeline, not in image build)
-COPY src/ src/
-RUN ./mvnw package -DskipTests -q
-
-# ─── Stage 2: Runtime ──────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine AS runtime
-
-# Security: run as non-root
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
 
-# Copy the fat JAR from the builder stage
-COPY --from=builder /build/target/*.jar app.jar
+# Copy pom and download dependencies
+COPY pom.xml .
+RUN mvn -B dependency:go-offline
 
-# Keys directory — populated at deploy time via Kubernetes Secret / volume mount
-RUN mkdir -p /app/keys && chown -R appuser:appgroup /app
+# Copy source and build
+COPY src ./src
+RUN mvn clean package -DskipTests
 
-USER appuser
+# Stage 2: Run
+FROM eclipse-temurin:21-jdk-jammy
+
+WORKDIR /app
+
+# Copy jar from build stage
+COPY --from=build /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-# JVM tuning for containers; actuator graceful shutdown enabled in application.yml
-ENTRYPOINT ["java", \
-  "-XX:+UseContainerSupport", \
-  "-XX:MaxRAMPercentage=75.0", \
-  "-Djava.security.egd=file:/dev/./urandom", \
-  "-jar", "app.jar"]
+CMD ["java", "-jar", "app.jar"]

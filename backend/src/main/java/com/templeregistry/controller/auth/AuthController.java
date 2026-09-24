@@ -16,14 +16,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -37,7 +36,6 @@ public class AuthController {
     private final AuthService authService;
     private final UserProfileService userProfileService;
     private final PolicyEvaluationService policyEvaluationService;
-    private final Environment environment;
 
     @PostMapping("/login")
     @Operation(summary = "Step 1: Authenticate with username+password. Returns MFA challenge or sets auth cookies directly when MFA is disabled.")
@@ -47,7 +45,8 @@ public class AuthController {
         Object result = authService.login(request);
         if (result instanceof AuthTokenResponse tokens) {
             setAuthCookies(httpResponse, tokens);
-            return ResponseEntity.ok(ApiResponse.success("Authentication successful.", sanitize(tokens)));
+            // Return FULL tokens in body for cross-domain setups where cookies won't work
+            return ResponseEntity.ok(ApiResponse.success("Authentication successful.", tokens));
         }
         return ResponseEntity.ok(ApiResponse.success("MFA challenge issued.", result));
     }
@@ -59,21 +58,33 @@ public class AuthController {
             HttpServletResponse httpResponse) {
         AuthTokenResponse tokens = authService.verifyMfa(request);
         setAuthCookies(httpResponse, tokens);
-        return ResponseEntity.ok(ApiResponse.success("Authentication successful.", sanitize(tokens)));
+        // Return FULL tokens in body for cross-domain setups where cookies won't work
+        return ResponseEntity.ok(ApiResponse.success("Authentication successful.", tokens));
     }
 
     @PostMapping("/refresh")
-    @Operation(summary = "Rotate refresh token via httpOnly cookie; sets new auth cookies.")
+    @Operation(summary = "Rotate refresh token via cookie or request body; returns new tokens in response.")
     public ResponseEntity<ApiResponse<?>> refresh(
-            HttpServletRequest request, HttpServletResponse httpResponse) {
+            HttpServletRequest request, 
+            @RequestBody(required = false) Map<String, String> body,
+            HttpServletResponse httpResponse) {
+        // Try to get refresh token from cookie first (same-domain)
         String refreshToken = readCookie(request, "refresh_token");
+        
+        // Fall back to request body (cross-domain, token passed explicitly)
+        if (refreshToken == null && body != null && body.containsKey("refreshToken")) {
+            refreshToken = body.get("refreshToken");
+        }
+        
         if (refreshToken == null) {
             return ResponseEntity.status(401)
                     .body(ApiResponse.error("No refresh token provided.", "UNAUTHORIZED"));
         }
+        
         AuthTokenResponse tokens = authService.refresh(refreshToken);
         setAuthCookies(httpResponse, tokens);
-        return ResponseEntity.ok(ApiResponse.success("Token refreshed.", sanitize(tokens)));
+        // Return FULL tokens in body for cross-domain setups
+        return ResponseEntity.ok(ApiResponse.success("Token refreshed.", tokens));
     }
 
     @PostMapping("/logout")
@@ -99,6 +110,10 @@ public class AuthController {
     @Operation(summary = "Get the effective DACVM permissions and field masks for the current user.")
     public ResponseEntity<ApiResponse<EffectivePermissionsResponse>> myPermissions(
             @AuthenticationPrincipal ScopeHelper.Claims claims) {
+        if (claims == null) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.error("Unauthorized: Invalid or missing authentication token.", "UNAUTHORIZED"));
+        }
         EffectivePermissionsResponse permissions = policyEvaluationService
                 .getEffectivePermissions(claims.role(), claims.userId());
         return ResponseEntity.ok(ApiResponse.success("Permissions retrieved.", permissions));
@@ -125,13 +140,13 @@ public class AuthController {
 
     private void setAuthCookies(HttpServletResponse response, AuthTokenResponse tokens) {
         clearLegacyAuthCookies(response);
-        addCookie(response, "access_token",  tokens.getAccessToken(),  "/api",                ACCESS_MAX_AGE);
+        addCookie(response, "access_token",  tokens.getAccessToken(),  "/api/v1",            ACCESS_MAX_AGE);
         addCookie(response, "refresh_token", tokens.getRefreshToken(), "/api/v1/auth/refresh", REFRESH_MAX_AGE);
     }
 
     private void clearAuthCookies(HttpServletResponse response) {
         clearLegacyAuthCookies(response);
-        addCookie(response, "access_token",  "", "/api",                0);
+        addCookie(response, "access_token",  "", "/api/v1",            0);
         addCookie(response, "refresh_token", "", "/api/v1/auth/refresh", 0);
     }
 
@@ -146,13 +161,17 @@ public class AuthController {
 
     private void addCookie(HttpServletResponse response, String name, String value,
                            String path, int maxAge) {
-        Cookie cookie = new Cookie(name, value);
-        cookie.setHttpOnly(true);
-        cookie.setSecure(!environment.acceptsProfiles(Profiles.of("dev", "local")));
-        cookie.setPath(path);
-        cookie.setMaxAge(maxAge);
-        cookie.setAttribute("SameSite", "Strict");
-        response.addCookie(cookie);
+        // Construct Set-Cookie header with all required attributes for cross-domain access.
+        // SameSite=None is required for credentials: 'include' to work across domains.
+        StringBuilder setCookieBuilder = new StringBuilder();
+        setCookieBuilder.append(name).append("=").append(value);
+        setCookieBuilder.append("; Path=").append(path);
+        setCookieBuilder.append("; Max-Age=").append(maxAge);
+        setCookieBuilder.append("; HttpOnly");
+        setCookieBuilder.append("; Secure");
+        setCookieBuilder.append("; SameSite=None");
+        
+        response.addHeader("Set-Cookie", setCookieBuilder.toString());
     }
 
     private String readCookie(HttpServletRequest request, String name) {

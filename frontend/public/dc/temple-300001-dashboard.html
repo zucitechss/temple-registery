@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kollur Sri Mookambika Devi Temple (300001) - DC Office Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root{
+    --surface-0:#1a1917;
+    --surface-1:#211f1c;
+    --border:#34322c;
+    --text-primary:#f2f1ec;
+    --text-secondary:#a6a49c;
+    --text-muted:#78766e;
+    --text-accent:#f2b53a;
+    --bg-success:rgba(31,157,120,0.16);
+    --text-success:#4bd6ac;
+    --bg-warning:rgba(201,138,26,0.18);
+    --text-warning:#f0b23f;
+    --bg-danger:rgba(192,57,43,0.18);
+    --text-danger:#ff8272;
+    --font-voice:'Inter', -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:#161513;
+    color:var(--text-primary);
+    font-family:-apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    padding:24px;
+  }
+  /* Full width: the embedding tab supplies the outer gutter, so the content lines up with the tab bar. */
+  .dash-container{ width:100%; margin:0 auto; }
+  .sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="dash-container">
+
+<h2 class="sr-only">Temple oversight dashboard for Kollur Sri Mookambika Devi Temple (Temple ID 300001), with gauges, donut chart, drillable DC approved fund tracking by year, and donation trend charts, for the District Collector's office.</h2>
+
+<!-- Temple identity header intentionally omitted: the temple detail page already shows it above this tab. -->
+
+<div style="border-radius:12px;padding:14px 16px;margin-bottom:1.5rem;display:flex;align-items:center;gap:10px;background:rgba(76,143,224,0.16);">
+  <i class="ti ti-info-circle" style="font-size:20px;color:#6faeef;" aria-hidden="true"></i>
+  <span style="color:#6faeef;font-size:14px;">This temple has some digital data being tracked. The figures below are a sample of realistic data, not confirmed actuals.</span>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:1.75rem;">
+  <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1rem;">
+    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 2px;">Total money collected</p>
+    <p id="revBig" style="font-size:26px;font-weight:500;margin:0 0 1px;font-family:var(--font-voice);"></p>
+    <p id="revCaption" style="font-size:11px;color:var(--text-muted);margin:0 0 6px;"></p>
+    <div style="position:relative;width:100%;height:44px;"><canvas id="sparkline"></canvas></div>
+  </div>
+  <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1rem;">
+    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 2px;">Money collected, month on month</p>
+    <p id="monthlyCaption" style="font-size:11px;color:var(--text-muted);margin:0 0 6px;"></p>
+    <div style="position:relative;width:100%;height:44px;"><canvas id="monthlySparkline"></canvas></div>
+  </div>
+  <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1rem;text-align:center;">
+    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 4px;">Paid in cash</p>
+    <div style="position:relative;width:100%;height:88px;"><canvas id="cashGauge"></canvas></div>
+    <div id="cashGaugeLabel" style="margin-top:-8px;"></div>
+  </div>
+  <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1rem;text-align:center;">
+    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 4px;">DC approved funds used overall</p>
+    <div style="position:relative;width:100%;height:88px;"><canvas id="budgetGauge"></canvas></div>
+    <div id="budgetGaugeLabel" style="margin-top:-8px;"></div>
+  </div>
+</div>
+
+<div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.25rem;">
+  <p style="font-size:15px;font-weight:600;margin:0 0 2px;display:flex;align-items:center;gap:8px;"><i class="ti ti-chart-donut" style="font-size:18px;" aria-hidden="true"></i>Where the money comes from</p>
+  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">Share of total income by source, all years combined</p>
+  <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+    <div style="position:relative;width:160px;height:160px;flex-shrink:0;"><canvas id="donutChart"></canvas></div>
+    <div id="donutLegend" style="flex:1;min-width:180px;"></div>
+  </div>
+</div>
+
+<div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.25rem;">
+  <p style="font-size:15px;font-weight:600;margin:0 0 2px;display:flex;align-items:center;gap:8px;"><i class="ti ti-receipt-2" style="font-size:18px;" aria-hidden="true"></i>Where the money goes: expenditures</p>
+  <p id="expSubtitle" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;"></p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:16px;">
+    <div style="background:var(--surface-0);border-radius:10px;padding:10px 12px;">
+      <p style="font-size:11px;color:var(--text-muted);margin:0 0 2px;">Income (register)</p>
+      <p id="expIncomeBig" style="font-size:18px;font-weight:600;margin:0;font-family:var(--font-voice);"></p>
+    </div>
+    <div style="background:var(--surface-0);border-radius:10px;padding:10px 12px;">
+      <p style="font-size:11px;color:var(--text-muted);margin:0 0 2px;">Total expenditure</p>
+      <p id="expTotalBig" style="font-size:18px;font-weight:600;margin:0;font-family:var(--font-voice);"></p>
+    </div>
+    <div style="background:var(--surface-0);border-radius:10px;padding:10px 12px;">
+      <p style="font-size:11px;color:var(--text-muted);margin:0 0 2px;">Net surplus</p>
+      <p id="expNetBig" style="font-size:18px;font-weight:600;margin:0;font-family:var(--font-voice);"></p>
+    </div>
+  </div>
+  <div style="display:flex;gap:20px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:260px;">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;">Spend by category</p>
+      <div style="position:relative;width:100%;height:220px;">
+        <canvas id="expCategoryChart" role="img" aria-label="Bar chart of expenditure by category"></canvas>
+      </div>
+    </div>
+    <div style="flex:1;min-width:260px;">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;">Largest individual line items</p>
+      <div id="expTopItemsList"></div>
+    </div>
+  </div>
+</div>
+
+<div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.25rem;">
+  <p style="font-size:15px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:8px;"><i class="ti ti-report-money" style="font-size:18px;" aria-hidden="true"></i>DC Approved Funds: approved vs. spent (last 5 years)</p>
+  <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px;">Grade A temple - showing sanction order, approving authority and category for each fund. Showing this year's utilization by default - click "View previous 4 years" for full history.</p>
+  <div id="govFundsList"></div>
+  <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+    <p style="font-size:14px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:8px;"><i class="ti ti-crane" style="font-size:17px;" aria-hidden="true"></i>Ongoing Works</p>
+    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;">Sample of works currently in progress at the temple, funded from DC Approved Funds (illustrative)</p>
+    <div id="ongoingWorksList"></div>
+  </div>
+</div>
+
+<div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.25rem;">
+  <p style="font-size:15px;font-weight:600;margin:0 0 2px;display:flex;align-items:center;gap:8px;"><i class="ti ti-diamond" style="font-size:18px;" aria-hidden="true"></i>Gold &amp; silver donated by devotees</p>
+  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;">Number of items received per year, and their estimated value and weight. (The temple's system only logs item counts - value and weight use flat assumptions of Rs 12,000 and 15g per item, not real appraisals.)</p>
+  <p style="font-size:12px;color:var(--text-muted);margin:0 0 4px;">Items donated</p>
+  <div style="position:relative;width:100%;height:190px;margin-bottom:16px;">
+    <canvas id="donationChart" role="img" aria-label="Line chart of gold and silver items donated per year"></canvas>
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);margin:0 0 4px;">Estimated value (assumed Rs 12,000 per item)</p>
+  <div style="position:relative;width:100%;height:190px;margin-bottom:16px;">
+    <canvas id="donationValueChart" role="img" aria-label="Bar chart of estimated value of gold and silver items donated per year"></canvas>
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);margin:0 0 4px;">Estimated weight (assumed 15g per item)</p>
+  <div style="position:relative;width:100%;height:190px;">
+    <canvas id="donationWeightChart" role="img" aria-label="Bar chart of estimated weight of gold and silver items donated per year"></canvas>
+  </div>
+</div>
+
+<div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:1.25rem;">
+  <p style="font-size:15px;font-weight:600;margin:0 0 12px;display:flex;align-items:center;gap:8px;"><i class="ti ti-star" style="font-size:18px;" aria-hidden="true"></i>Special / high-value sevas</p>
+  <div id="specialSevaList"></div>
+</div>
+
+</div>
+
+<script>
+// Static DC Office dashboard for the existing Temple ID 300001. All values below are
+// hard-coded - nothing here reads from the application's backend or database.
+const TEMPLE_ID = '300001';
+const YEARS = ['2019-20','2020-21','2021-22','2022-23','2023-24','2024-25','2025-26','2026-27*'];
+const GOV_YEARS = ['2021-22','2022-23','2023-24','2024-25','2025-26'];
+const CURRENT_FY_MONTHS = ['Apr','May','Jun','Jul','Aug'];
+const muted='#78766e';
+const palette=['#4c8fe0','#f0824f','#33c491','#f2b53a','#a79af0'];
+// Illustrative assumptions for turning "items donated" into a rupee/weight figure - the
+// temple's system only records item counts, never a per-item valuation or weight.
+const ASSUMED_VALUE_PER_ITEM_RS = 12000;
+const ASSUMED_WEIGHT_PER_ITEM_GRAMS = 15;
+
+const TEMPLE = {
+  id: TEMPLE_ID,
+  code: 'KA-TMP-29D0887C',
+  name: 'Kollur Sri Mookambika Devi Temple',
+  deity: 'Sri Mookambika Devi',
+  location: 'Kollur, Kundapura Taluk, Udupi District, Karnataka',
+  grade: 'A',
+  status: 'ACTIVE',
+  verificationStatus: 'VERIFIED',
+
+  // Last entry (current/most-recent year) matches expenditure.totalIncomeRegisterCr below
+  // (Rs 84.01 Cr) - both describe the same temple's most recent total income, and "Total money
+  // collected" is required to agree exactly with the expenditure section's "Income (register)".
+  totalRevCr: [53.0,28.6,37.3,77.8,84.2,85.3,92.9,84.01],
+  // Illustrative month-by-month split of the current year's total - the temple's system reports
+  // revenue by financial year only, never by month. Sums exactly to 84.01 Cr.
+  monthlyCr: [16.2,18.4,15.9,17.1,16.41],
+  cashSharePct: 99.999,
+
+  topSevas: [
+    {name:'Hundi (donation box)', cr:73.9},
+    {name:'Laddu (prasadam)', cr:39.6},
+    {name:'Cloth bag', cr:35.6},
+    {name:'Anna santarpana (food donation)', cr:30.9},
+    {name:'Ghee lamp', cr:23.7}
+  ],
+
+  // Real FY 2025-26 income-expenditure register (Jama-Kharch), translated from the temple's own
+  // Expenditure.pdf (Kannada) - 103 income and 75 expenditure line items, totals reconcile to the
+  // paisa. This register is a separate accounting view from the revenue figures shown elsewhere on
+  // this page, so the two won't sum to the same "total revenue".
+  expenditure: {
+    fy: '2025-26',
+    totalIncomeRegisterCr: 84.01,
+    totalExpenditureCr: 51.25,
+    netSurplusCr: 32.76,
+    categories: [
+      { name: 'Staff salaries & benefits', cr: 11.84 },
+      { name: 'Ritual & seva expenses', cr: 9.48 },
+      { name: 'Infrastructure, utilities & maintenance', cr: 8.07 },
+      { name: 'Central stores (rice & provisions)', cr: 7.22 },
+      { name: 'Education institutions (school/college/hostel)', cr: 7.15 },
+      { name: 'Administration, welfare & other', cr: 4.67 },
+      { name: 'Statutory dues, taxes & compliance', cr: 2.82 }
+    ],
+    topItems: [
+      { desc: 'Staff salary', amountL: 756.05 },
+      { desc: 'Central stores - rice & grocery/provisions purchase', amountL: 721.75 },
+      { desc: 'For development', amountL: 638.997 },
+      { desc: 'Seva expenses', amountL: 396.53 },
+      { desc: 'High school staff salary', amountL: 376.82 },
+      { desc: 'General reserve fund (transfer)', amountL: 313.52 },
+      { desc: 'Annasantarpane (free meals) expense', amountL: 170.05 },
+      { desc: 'Outsourced/contract staff salary', amountL: 169.62 },
+      { desc: 'TDS deducted on matured fixed deposits', amountL: 161.19 },
+      { desc: 'Laddu (prasadam) expense', amountL: 132.50 }
+    ]
+  },
+
+  // DC approved funds are illustrative. Grade A temples carry 4 funds, each with its sanction
+  // order, approving authority, category and a sample utilization proof for its best-spending year.
+  govFunds: [
+    {
+      name: "Chief Minister's Temple Infrastructure Programme",
+      category: 'Infrastructure',
+      sanctionOrderNo: 'DC/UDP/MUZ/2021/412',
+      approvingAuthority: 'Office of the Deputy Commissioner, Udupi',
+      approvedByYear:[180.0,210.0,240.0,260.0,300.0], spentByYear:[150.0,195.0,200.0,230.0,90.0],
+      proof: { bestIdx:3, year:'2024-25', amountL:230.0, invoiceNo:'INV-202425-1043',
+               description:'Renovation of temple gopuram and courtyard' }
+    },
+    {
+      name: 'Heritage Structure Conservation Grant',
+      category: 'Heritage Conservation',
+      sanctionOrderNo: 'DC/UDP/MUZ/2022/537',
+      approvingAuthority: 'Karnataka Dept. of Religious Endowments (Muzrai)',
+      approvedByYear:[90.0,95.0,100.0,110.0,120.0], spentByYear:[20.0,25.0,80.0,95.0,15.0],
+      proof: { bestIdx:3, year:'2024-25', amountL:95.0, invoiceNo:'INV-202425-1078',
+               description:'Restoration of stone mantapa pillars' }
+    },
+    {
+      name: 'Muzrai Temple Development Grant',
+      category: 'Infrastructure',
+      sanctionOrderNo: 'DC/UDP/MUZ/2023/268',
+      approvingAuthority: 'Office of the Deputy Commissioner, Udupi',
+      approvedByYear:[140.0,160.0,175.0,190.0,210.0], spentByYear:[120.0,150.0,160.0,185.0,60.0],
+      proof: { bestIdx:3, year:'2024-25', amountL:185.0, invoiceNo:'INV-202425-1112',
+               description:'Repair of temple tank (kalyani) steps' }
+    },
+    {
+      name: 'Temple Tank (Kalyani) Restoration Scheme',
+      category: 'Sanitation & Amenities',
+      sanctionOrderNo: 'DC/UDP/MUZ/2024/731',
+      approvingAuthority: 'Office of the Deputy Commissioner, Dakshina Kannada',
+      approvedByYear:[60.0,65.0,70.0,75.0,80.0], spentByYear:[55.0,60.0,68.0,70.0,25.0],
+      proof: { bestIdx:3, year:'2024-25', amountL:70.0, invoiceNo:'INV-202425-1156',
+               description:'LED lighting retrofit along the approach road' }
+    }
+  ],
+
+  // Sample of works currently in progress, funded from DC Approved Funds - illustrative only.
+  ongoingWorks: [
+    {
+      title: 'New community hall (Kalyana Mantapa) - north wing addition',
+      description: 'Construction of an additional multi-purpose hall to ease pilgrim overcrowding during festival season.',
+      approvedL: 450, spentL: 275,
+      startDate: 'Jan 2025', expectedCompletion: 'Mar 2026',
+      statusNote: 'In progress - roofing & finishing stage',
+      invoiceNo: 'INV-KMB-OW-01', billDescription: 'North wing hall - roofing and civil work (running bill)', fy: '2025-26'
+    },
+    {
+      title: 'Repair of rain-damaged compound wall & storm-water drain, east side',
+      description: 'Monsoon 2025 rains breached a 40-metre stretch of the compound wall and clogged the adjoining storm-water drain near the east gopuram; emergency repair sanctioned.',
+      approvedL: 85, spentL: 63,
+      startDate: 'Jul 2025', expectedCompletion: 'Nov 2025',
+      statusNote: 'Near completion - final plastering & painting',
+      invoiceNo: 'INV-KMB-OW-02', billDescription: 'Compound wall reconstruction and drain clearing (running bill)', fy: '2025-26'
+    },
+    {
+      title: 'Renovation & waterproofing of temple tank (Kalyani) steps',
+      description: 'Re-laying of cracked granite steps and waterproofing of the temple tank to prevent seepage into the adjoining prakara.',
+      approvedL: 120, spentL: 48,
+      startDate: 'Mar 2025', expectedCompletion: 'Sep 2026',
+      statusNote: 'In progress - stone masonry stage',
+      invoiceNo: 'INV-KMB-OW-03', billDescription: 'Kalyani steps - granite re-laying and waterproofing (running bill)', fy: '2025-26'
+    }
+  ],
+
+  donationYears: ['2015-16','2016-17','2017-18','2018-19','2019-20','2020-21','2022-23','2023-24','2024-25'],
+  donationCounts: [0,28,46,37,65,105,0,164,39],
+
+  specialSevas: [
+    {name:'Ashtabandaha Gold Kalasha', amount:500000},
+    {name:'Shata Chandi Havana Sthala Kanike', amount:125000},
+    {name:'Sahasra Chandi Havana Sthala Kanike', amount:50000},
+    {name:'Navagrahapoorva Chandi Yaga', amount:40000},
+    {name:'Udayastamana Pooja (Golden Chariot)', amount:20000}
+  ]
+};
+
+// Formats a Rupee-Lakh amount as Lakh or Crore, switching to Crore once it exceeds 99 L.
+function fmtAmt(valueL){
+  return valueL > 99 ? (valueL/100).toFixed(2)+' Cr' : valueL.toFixed(1)+' L';
+}
+
+// Sample paper-receipt + placeholder-photo mockup, so it's unmistakably an illustrative
+// visual, not an actual scanned document or photograph.
+function receiptPhotoVisualHtml(item){
+  return '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;">'+
+    '<div style="background:#f3ede0;color:#3a3630;border-radius:6px;padding:12px 14px;font-family:\'Courier New\',monospace;font-size:10.5px;line-height:1.5;width:220px;box-shadow:0 2px 8px rgba(0,0,0,0.35);">'+
+      '<div style="text-align:center;font-weight:700;letter-spacing:0.4px;border-bottom:1px dashed #b8ae98;padding-bottom:5px;margin-bottom:5px;">UTILIZATION RECEIPT</div>'+
+      '<div>Invoice: #'+item.invoiceNo+'</div>'+
+      '<div>FY: '+item.year+'</div>'+
+      '<div style="margin-top:3px;">Work: '+item.description+'</div>'+
+      '<div style="border-top:1px dashed #b8ae98;margin-top:6px;padding-top:5px;display:flex;justify-content:space-between;font-weight:700;">'+
+        '<span>AMOUNT</span><span>Rs '+item.amountL.toFixed(1)+'L</span>'+
+      '</div>'+
+      '<div style="text-align:center;margin-top:6px;font-size:9px;color:#8a8272;">*** SAMPLE / ILLUSTRATIVE ONLY ***</div>'+
+    '</div>'+
+    '<div style="width:180px;aspect-ratio:4/3;border-radius:6px;background:linear-gradient(135deg,#5c5240,#8a7b5c 60%,#3c3628);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:rgba(255,255,255,0.9);">'+
+      '<i class="ti ti-camera" style="font-size:26px;" aria-hidden="true"></i>'+
+      '<span style="font-size:10px;text-align:center;padding:0 10px;">Sample site photo (illustrative placeholder)</span>'+
+    '</div>'+
+  '</div>';
+}
+
+// NOTE: only draws when a chart explicitly opts in via _showPointLabels,
+// so it never touches the gauge doughnuts.
+const pointLabelPlugin = {
+  id:'pointLabel',
+  afterDatasetsDraw(chart){
+    if(!chart.config._showPointLabels) return;
+    const {ctx} = chart;
+    const meta = chart.getDatasetMeta(0);
+    ctx.save();
+    ctx.textAlign='center';
+    ctx.font='500 11px Helvetica, Arial, sans-serif';
+    ctx.fillStyle = chart.config._labelColor || '#a6a49c';
+    meta.data.forEach((pt,i)=>{
+      const v = chart.data.datasets[0].data[i];
+      ctx.fillText(v, pt.x, pt.y-10);
+    });
+    ctx.restore();
+  }
+};
+Chart.register(pointLabelPlugin);
+
+function gauge(canvasId, pct, color){
+  const track = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#39362f';
+  return new Chart(document.getElementById(canvasId), {
+    type:'doughnut',
+    data:{datasets:[{data:[pct,100-pct], backgroundColor:[color,track], borderWidth:0}]},
+    options:{responsive:true, maintainAspectRatio:false, circumference:180, rotation:270, cutout:'72%',
+      plugins:{legend:{display:false}, tooltip:{enabled:false}}}
+  });
+}
+
+function gaugeLabelHtml(pct, color, sub){
+  return '<div style="font-size:22px;font-weight:600;line-height:1.1;color:'+color+';font-family:var(--font-voice);">'+pct.toFixed(1)+'%</div>'+
+    '<div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">'+sub+'</div>';
+}
+
+let fundCharts = {};
+let fundYearData = {};
+
+function toggleFund(id){
+  const el = document.getElementById(id);
+  const chev = document.getElementById(id+'-chev');
+  const wasOpen = el.style.display === 'block';
+  el.style.display = wasOpen ? 'none' : 'block';
+  if(chev) chev.style.transform = wasOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+  if(!wasOpen && !fundCharts[id]){
+    const fd = fundYearData[id];
+    if(fd){
+      fundCharts[id] = new Chart(document.getElementById('chart-'+id), {
+        type:'bar',
+        data:{labels:fd.labels, datasets:[
+          {label:'Approved', data:fd.approved, backgroundColor:'#39362f', borderRadius:4, maxBarThickness:26},
+          {label:'Spent', data:fd.spent, backgroundColor:fd.color, borderRadius:4, maxBarThickness:26}
+        ]},
+        options:{responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{display:true, position:'top', align:'end', labels:{boxWidth:10,font:{size:10},color:muted}}, tooltip:{callbacks:{label:(c)=>c.dataset.label+': Rs '+c.parsed.y.toFixed(1)+' L'}}},
+          scales:{x:{ticks:{color:muted,font:{size:10}}, grid:{display:false}}, y:{ticks:{color:muted,font:{size:9}}, grid:{color:'#2c2a25'}, title:{display:true,text:'Rs Lakh',color:muted,font:{size:9}}}}}
+      });
+    }
+  }
+}
+window.toggleFund = toggleFund;
+
+function render(){
+  const d = TEMPLE;
+  const lastIdx = d.totalRevCr.length - 1;
+  const currentYearCr = d.totalRevCr[lastIdx];
+  // The current-year label follows the expenditure register's FY (2025-26) since that's the
+  // complete-year figure "Total money collected" matches exactly.
+  const currentYearLabel = d.expenditure.fy;
+  document.getElementById('revBig').textContent = 'Rs ' + currentYearCr.toFixed(2) + ' Cr';
+  document.getElementById('revCaption').textContent = 'FY ' + currentYearLabel + ' (matches income-expenditure register total)';
+
+  const pointRadii = YEARS.map((y, i) => i === lastIdx ? 4 : 0);
+  const pointColors = YEARS.map((y, i) => i === lastIdx ? '#f2b53a' : '#4c8fe0');
+  new Chart(document.getElementById('sparkline'), {
+    type:'line',
+    data:{labels:YEARS, datasets:[{data:d.totalRevCr, borderColor:'#4c8fe0', backgroundColor:'rgba(76,143,224,0.16)', fill:true, tension:0.3, pointRadius:pointRadii, pointBackgroundColor:pointColors, pointBorderColor:'#211f1c', pointBorderWidth:1.5, borderWidth:2}]},
+    options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{enabled:true, callbacks:{title:(items)=> items[0].dataIndex===lastIdx ? currentYearLabel : items[0].label.replace('*',' (till date)'), label:(c)=>'Rs '+c.parsed.y.toFixed(1)+' Cr'}}},
+      scales:{x:{display:false}, y:{display:false}}}
+  });
+
+  document.getElementById('monthlyCaption').textContent = 'FY ' + currentYearLabel + ', ' + CURRENT_FY_MONTHS[0] + '-' + CURRENT_FY_MONTHS[CURRENT_FY_MONTHS.length-1] + ' (illustrative monthly split of the FY total)';
+  new Chart(document.getElementById('monthlySparkline'), {
+    type:'bar',
+    data:{labels:CURRENT_FY_MONTHS, datasets:[{data:d.monthlyCr, backgroundColor:'#33c491', borderRadius:3, maxBarThickness:22}]},
+    options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{enabled:true, callbacks:{label:(c)=>'Rs '+c.parsed.y.toFixed(1)+' Cr'}}},
+      scales:{x:{display:false}, y:{display:false}}}
+  });
+
+  const cashColor = d.cashSharePct>98 ? '#c0392b' : (d.cashSharePct>90 ? '#c98a1a' : '#1f9d78');
+  gauge('cashGauge', d.cashSharePct, cashColor);
+  const cashAmountCurrentCr = currentYearCr * d.cashSharePct/100;
+  document.getElementById('cashGaugeLabel').innerHTML = gaugeLabelHtml(d.cashSharePct, cashColor, 'Rs '+cashAmountCurrentCr.toFixed(1)+' Cr of Rs '+currentYearCr.toFixed(1)+' Cr, FY '+currentYearLabel);
+
+  const exp = d.expenditure;
+  document.getElementById('expSubtitle').textContent = 'Real FY '+exp.fy+' income-expenditure register (Jama-Kharch), translated from the temple\'s Expenditure.pdf - full 75-line breakdown in Expenditure_Translated_FY2025-26.xlsx';
+  document.getElementById('expIncomeBig').textContent = 'Rs '+exp.totalIncomeRegisterCr.toFixed(2)+' Cr';
+  document.getElementById('expTotalBig').textContent = 'Rs '+exp.totalExpenditureCr.toFixed(2)+' Cr';
+  const netEl = document.getElementById('expNetBig');
+  netEl.textContent = 'Rs '+Math.abs(exp.netSurplusCr).toFixed(2)+' Cr '+(exp.netSurplusCr>=0?'surplus':'deficit');
+  netEl.style.color = exp.netSurplusCr>=0 ? '#1f9d78' : '#c0392b';
+
+  const sortedCats = [...exp.categories].sort((a,b)=>b.cr-a.cr);
+  new Chart(document.getElementById('expCategoryChart'), {
+    type:'bar',
+    data:{labels:sortedCats.map(c=>c.name), datasets:[{data:sortedCats.map(c=>c.cr), backgroundColor:palette[1], borderRadius:4, maxBarThickness:22}]},
+    options:{indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>'Rs '+c.parsed.x.toFixed(2)+' Cr ('+Math.round(c.parsed.x/exp.totalExpenditureCr*100)+'%)'}}},
+      scales:{x:{beginAtZero:true, ticks:{color:muted,font:{size:9}}, grid:{color:'#2c2a25'}, title:{display:true,text:'Rs Cr',color:muted,font:{size:9}}},
+        y:{ticks:{color:muted,font:{size:10}}, grid:{display:false}}}}
+  });
+
+  const maxTopItem = Math.max(...exp.topItems.map(it=>it.amountL));
+  document.getElementById('expTopItemsList').innerHTML = exp.topItems.slice(0,8).map((it,i)=>{
+    const w = Math.round(it.amountL/maxTopItem*100);
+    return '<div style="margin-bottom:8px;">'+
+      '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;gap:8px;">'+
+      '<span>'+(i===0?'<i class="ti ti-trending-up" style="font-size:13px;color:var(--text-accent);margin-right:4px;" aria-hidden="true"></i>':'')+it.desc+'</span>'+
+      '<span style="font-weight:500;white-space:nowrap;">Rs '+it.amountL.toFixed(1)+' L</span></div>'+
+      '<div style="height:5px;background:var(--surface-0);border-radius:3px;overflow:hidden;"><div style="height:100%;width:'+w+'%;background:'+palette[1]+';"></div></div></div>';
+  }).join('') + '<p style="font-size:10.5px;color:var(--text-muted);margin:8px 0 0;">Top 8 of 75 real line items - see Expenditure_Translated_FY2025-26.xlsx for the full register</p>';
+
+  const totApprovedL = d.govFunds.reduce((a,f)=>a+f.approvedByYear.reduce((x,y)=>x+y,0),0);
+  const totSpentL = d.govFunds.reduce((a,f)=>a+f.spentByYear.reduce((x,y)=>x+y,0),0);
+  const pctUsed = totSpentL/totApprovedL*100;
+  const budgetSub = 'Rs '+fmtAmt(totSpentL)+' of Rs '+fmtAmt(totApprovedL)+' approved';
+  const lastGovIdx = GOV_YEARS.length - 1;
+  const currentGovYear = GOV_YEARS[lastGovIdx];
+
+  function proofBlockHtml(item){
+    if(!item){
+      return '<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-danger);margin-top:6px;"><i class="ti ti-file-off" style="font-size:13px;" aria-hidden="true"></i>No utilization proof found</div>';
+    }
+    return '<div style="margin-top:8px;">'+
+      '<p style="font-size:11px;color:var(--text-muted);margin:0 0 6px;">Utilization proof on file (sample) - FY '+item.year+'</p>'+
+      '<div style="font-size:12.5px;color:var(--text-primary);margin-bottom:6px;">'+item.description+'</div>'+
+      receiptPhotoVisualHtml(item)+
+    '</div>';
+  }
+
+  document.getElementById('govFundsList').innerHTML = d.govFunds.map((f,fi)=>{
+    const curApproved = f.approvedByYear[lastGovIdx];
+    const curSpent = f.spentByYear[lastGovIdx];
+    const curPct = Math.round(curSpent/curApproved*1000)/10;
+    const barColor = palette[fi % palette.length];
+    const proofItem = f.proof;
+    const isCurrentYearBest = proofItem && proofItem.bestIdx === lastGovIdx;
+    const defaultProofHtml = isCurrentYearBest ? proofBlockHtml(proofItem) : (proofItem ? '' : proofBlockHtml(null));
+    const expandProofHtml = (proofItem && !isCurrentYearBest) ? proofBlockHtml(proofItem) : '';
+
+    const detailId = 'fund-detail-'+fi;
+    fundYearData[detailId] = {labels:GOV_YEARS.slice(0,lastGovIdx), approved:f.approvedByYear.slice(0,lastGovIdx), spent:f.spentByYear.slice(0,lastGovIdx), color:barColor};
+
+    return '<div style="margin-bottom:16px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:2px;">'+
+        '<span>'+f.name+'</span>'+
+        '<span style="font-weight:500;">Rs '+curSpent.toFixed(1)+'L of Rs '+curApproved.toFixed(1)+'L ('+curPct.toFixed(1)+'%)</span>'+
+      '</div>'+
+      '<p style="font-size:10.5px;color:var(--text-muted);margin:0 0 4px;">FY '+currentGovYear+'</p>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:14px;margin:4px 0 6px;font-size:11px;color:var(--text-secondary);">'+
+        '<span><i class="ti ti-file-certificate" style="font-size:12px;margin-right:3px;" aria-hidden="true"></i>Sanction: '+f.sanctionOrderNo+'</span>'+
+        '<span><i class="ti ti-stamp" style="font-size:12px;margin-right:3px;" aria-hidden="true"></i>'+f.approvingAuthority+'</span>'+
+        '<span><i class="ti ti-tag" style="font-size:12px;margin-right:3px;" aria-hidden="true"></i>'+f.category+'</span>'+
+      '</div>'+
+      '<div style="height:6px;background:var(--surface-0);border-radius:3px;overflow:hidden;">'+
+        '<div style="height:100%;width:'+Math.max(curPct,1)+'%;background:'+barColor+';"></div>'+
+      '</div>'+
+      defaultProofHtml+
+      '<div onclick="toggleFund(\''+detailId+'\')" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:5px 12px;background:var(--surface-0);border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--text-secondary);">'+
+        '<i id="'+detailId+'-chev" class="ti ti-chevron-down" style="font-size:13px;transition:transform 0.15s;" aria-hidden="true"></i>View previous 4 years'+
+      '</div>'+
+      '<div id="'+detailId+'" style="display:none;background:var(--surface-0);border-radius:8px;padding:10px 12px 4px;margin-top:8px;">'+
+        '<div style="position:relative;width:100%;height:160px;"><canvas id="chart-'+detailId+'"></canvas></div>'+
+        expandProofHtml+
+      '</div>'+
+      '</div>';
+  }).join('');
+
+  document.getElementById('ongoingWorksList').innerHTML = d.ongoingWorks.map((w,wi)=>{
+    const wPct = Math.round(w.spentL/w.approvedL*1000)/10;
+    const wColor = palette[wi % palette.length];
+    return '<div style="margin-bottom:20px;padding:12px;background:var(--surface-0);border-radius:10px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px;flex-wrap:wrap;">'+
+        '<span style="font-size:13px;font-weight:600;">'+w.title+'</span>'+
+        '<span style="font-size:11px;color:var(--text-secondary);white-space:nowrap;">'+w.statusNote+'</span>'+
+      '</div>'+
+      '<p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">'+w.description+'</p>'+
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:2px;flex-wrap:wrap;gap:6px;">'+
+        '<span><i class="ti ti-calendar-event" style="font-size:13px;margin-right:4px;" aria-hidden="true"></i>'+w.startDate+' – '+w.expectedCompletion+'</span>'+
+        '<span style="font-weight:500;">Rs '+fmtAmt(w.spentL)+' of Rs '+fmtAmt(w.approvedL)+' ('+wPct+'%)</span>'+
+      '</div>'+
+      '<div style="height:6px;background:var(--surface-1);border-radius:3px;overflow:hidden;margin-bottom:2px;">'+
+        '<div style="height:100%;width:'+Math.max(wPct,1)+'%;background:'+wColor+';"></div>'+
+      '</div>'+
+      receiptPhotoVisualHtml({invoiceNo:w.invoiceNo, year:w.fy, description:w.billDescription, amountL:w.spentL})+
+    '</div>';
+  }).join('');
+
+  const budgetColor = pctUsed<20 ? '#c0392b' : (pctUsed<70 ? '#c98a1a' : '#1f9d78');
+  gauge('budgetGauge', pctUsed, budgetColor);
+  document.getElementById('budgetGaugeLabel').innerHTML = gaugeLabelHtml(pctUsed, budgetColor, budgetSub);
+
+  new Chart(document.getElementById('donutChart'), {
+    type:'doughnut',
+    data:{labels:d.topSevas.map(s=>s.name), datasets:[{data:d.topSevas.map(s=>s.cr), backgroundColor:palette, borderWidth:2, borderColor:'#211f1c'}]},
+    options:{responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>c.label+': Rs '+c.parsed+' Cr'}}}}
+  });
+  const total = d.topSevas.reduce((a,b)=>a+b.cr,0);
+  document.getElementById('donutLegend').innerHTML = d.topSevas.map((s,i)=>
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;">'+
+    '<span style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:'+palette[i]+';"></span>'+s.name+'</span>'+
+    '<span style="color:var(--text-secondary);">'+Math.round(s.cr/total*100)+'%</span></div>'
+  ).join('');
+
+  new Chart(document.getElementById('donationChart'), {
+    type:'line',
+    data:{labels:d.donationYears, datasets:[{data:d.donationCounts, borderColor:'#a79af0', backgroundColor:'rgba(167,154,240,0.18)', fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:'#a79af0', pointBorderColor:'#211f1c', pointBorderWidth:1.5, borderWidth:2}]},
+    options:{responsive:true, maintainAspectRatio:false, layout:{padding:{top:20}},
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>c.parsed.y+' items'}}},
+      scales:{y:{beginAtZero:true, ticks:{color:muted}, grid:{color:'#2c2a25'}, title:{display:true,text:'Items donated',color:muted,font:{size:10}}},
+        x:{ticks:{color:muted, font:{size:10}}, grid:{display:false}}}},
+    _showPointLabels:true,
+    _labelColor:'#a6a49c'
+  });
+
+  const donationValuesL = d.donationCounts.map(c => Math.round(c*ASSUMED_VALUE_PER_ITEM_RS/1000)/100);
+  new Chart(document.getElementById('donationValueChart'), {
+    type:'bar',
+    data:{labels:d.donationYears, datasets:[{data:donationValuesL, backgroundColor:'#f2b53a', borderRadius:4, maxBarThickness:34}]},
+    options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>'Rs '+c.parsed.y.toFixed(1)+' L (estimated)'}}},
+      scales:{y:{beginAtZero:true, ticks:{color:muted}, grid:{color:'#2c2a25'}, title:{display:true,text:'Estimated value (Rs Lakh)',color:muted,font:{size:10}}},
+        x:{ticks:{color:muted, font:{size:10}}, grid:{display:false}}}}
+  });
+
+  const donationWeightsKg = d.donationCounts.map(c => Math.round(c*ASSUMED_WEIGHT_PER_ITEM_GRAMS/10)/100);
+  new Chart(document.getElementById('donationWeightChart'), {
+    type:'bar',
+    data:{labels:d.donationYears, datasets:[{data:donationWeightsKg, backgroundColor:'#a79af0', borderRadius:4, maxBarThickness:34}]},
+    options:{responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>c.parsed.y.toFixed(2)+' kg (estimated)'}}},
+      scales:{y:{beginAtZero:true, ticks:{color:muted}, grid:{color:'#2c2a25'}, title:{display:true,text:'Estimated weight (kg)',color:muted,font:{size:10}}},
+        x:{ticks:{color:muted, font:{size:10}}, grid:{display:false}}}}
+  });
+
+  const maxSeva = Math.max(...d.specialSevas.map(s=>s.amount));
+  document.getElementById('specialSevaList').innerHTML = d.specialSevas.map((s,i)=>{
+    const w = Math.round(s.amount/maxSeva*100);
+    return '<div style="margin-bottom:10px;">'+
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">'+
+      '<span>'+(i===0?'<i class="ti ti-crown" style="font-size:14px;color:var(--text-accent);margin-right:5px;" aria-hidden="true"></i>':'')+s.name+'</span>'+
+      '<span style="font-weight:500;">Rs '+s.amount.toLocaleString()+'</span></div>'+
+      '<div style="height:6px;background:var(--surface-0);border-radius:3px;overflow:hidden;"><div style="height:100%;width:'+w+'%;background:var(--text-accent);"></div></div></div>';
+  }).join('');
+}
+
+render();
+</script>
+</body>
+</html>

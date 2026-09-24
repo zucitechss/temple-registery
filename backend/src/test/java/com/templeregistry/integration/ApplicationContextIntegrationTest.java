@@ -35,8 +35,10 @@ class ApplicationContextIntegrationTest {
         registry.add("spring.datasource.username", mysql::getUsername);
         registry.add("spring.datasource.password", mysql::getPassword);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
-        registry.add("app.jwt.private-key-path", () -> "classpath:keys/private.pem");
-        registry.add("app.jwt.public-key-path", () -> "classpath:keys/public.pem");
+        // Drop the TiDB-only init SQL from application-dev.yml — plain MySQL rejects it
+        registry.add("spring.datasource.hikari.connection-init-sql", () -> "SELECT 1");
+        registry.add("app.jwt.private-key-path", () -> "classpath:keys/jwt-private.pem");
+        registry.add("app.jwt.public-key-path", () -> "classpath:keys/jwt-public.pem");
         registry.add("cloud.aws.s3.bucket-name", () -> "test-bucket");
         registry.add("cloud.aws.region.static", () -> "ap-south-1");
         registry.add("app.encryption.aes-key", () -> "12345678901234567890123456789012");

@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { extractApiErrorMessage } from '@/lib/apiError'
 import {
-  ChevronLeft, AlertTriangle, MapPin, FileText, Info, Shield, Users, Briefcase, Clock
+  ChevronLeft, AlertTriangle, MapPin, FileText, Info, Shield, Users, Briefcase, Clock, IndianRupee
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CardSkeleton, Skeleton } from '@/components/feedback/Skeleton/Skeleton'
@@ -109,6 +109,10 @@ import {
   DocumentsTab,
   TimelineTab,
 } from './tabs'
+
+/** Kollur Sri Mookambika Devi Temple — the only temple with a prepared static finance dashboard. */
+const FINANCE_DASHBOARD_TEMPLE_ID = 300001
+const FINANCE_DASHBOARD_SRC = '/dc/temple-300001-dashboard.html'
 
 export function DcTempleProfilePage() {
   const { templeId } = useParams<{ templeId: string }>()
@@ -376,6 +380,7 @@ export function DcTempleProfilePage() {
               {(
                 [
                   { v: 'overview',     label: 'Overview',      icon: <Info size={14} />,        count: null,                    targetKey: TARGET_KEYS.TAB_DC_TEMPLE_OVERVIEW },
+                  { v: 'finance',      label: 'Finance Dashboard', icon: <IndianRupee size={14} />, count: null,               targetKey: TARGET_KEYS.TAB_DC_TEMPLE_FINANCE },
                   { v: 'declarations', label: 'Declarations',  icon: <FileText size={14} />,    count: declarations?.length ?? 0, targetKey: TARGET_KEYS.TAB_DC_TEMPLE_DECLARATIONS },
                   { v: 'trust',        label: 'Trust & Board', icon: <Shield size={14} />,      count: boardMemberCount,          targetKey: TARGET_KEYS.TAB_DC_TEMPLE_TRUST },
                   { v: 'staff',        label: 'Staff',         icon: <Users size={14} />,       count: employees?.length ?? 0,    targetKey: TARGET_KEYS.TAB_DC_TEMPLE_STAFF },
@@ -384,6 +389,8 @@ export function DcTempleProfilePage() {
                   { v: 'timeline',     label: 'Timeline',      icon: <Clock size={14} />,       count: null,                    targetKey: TARGET_KEYS.TAB_DC_TEMPLE_TIMELINE },
                 ] as const
               ).filter((tab) => tab.v !== 'timeline' || showProfileGovernance || canAct)
+              // Static oversight dashboard exists only for Kollur Sri Mookambika Devi Temple.
+              .filter((tab) => tab.v !== 'finance' || id === FINANCE_DASHBOARD_TEMPLE_ID)
               .filter((tab) => can(tab.targetKey))
               .map((tab) => (
                 <TabsTrigger
@@ -574,6 +581,17 @@ export function DcTempleProfilePage() {
               ? <TimelineTab templeId={id} />
               : null
             }
+          </TabsContent>
+          )}
+
+          {id === FINANCE_DASHBOARD_TEMPLE_ID && can(TARGET_KEYS.TAB_DC_TEMPLE_FINANCE) && (
+          <TabsContent value="finance" className="mt-0 focus-visible:outline-none animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Full-bleeed: the static page carries its own 24px gutter, matching the tab bar's px-6. */}
+            <iframe
+              src={FINANCE_DASHBOARD_SRC}
+              title="Finance Dashboard — Kollur Sri Mookambika Devi Temple"
+              className="block w-full border-0 bg-[#161513] h-[calc(100vh-7rem)]"
+            />
           </TabsContent>
           )}
         </div>

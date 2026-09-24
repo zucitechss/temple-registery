@@ -1,1 +1,0 @@
-{"query":"SELECT id, entity_type, entity_id, status, district_id, temple_id, version_number, lock_version, current_actor_role, created_by_user_id FROM workflow_instances WHERE id = 6"}

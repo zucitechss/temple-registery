@@ -4,7 +4,7 @@ import { SectionCard, DetailItem, KpiCard } from '../components'
 import { GovernanceActionPanel } from '@/features/dc/components/GovernanceActionPanel/GovernanceActionPanel'
 import { ProfileGovernanceSectionSkeleton } from '@/features/dc/components/DcSkeletons/DcSkeletons'
 import { Button } from '@/components/ui/button'
-import { formatList } from '../utils'
+import { formatList, formatCurrency } from '../utils'
 import type { TempleFullProfileResponse, ProfileStagingResponse, ProfileCurrentResponse } from '@/features/dc/dcTypes'
 import { DcTempleImageGallery } from '@/features/dc/components/DcTempleImageGallery'
 
@@ -35,7 +35,7 @@ export function OverviewTab({
   onEditProfile,
   isRefetching = false,
 }: OverviewTabProps) {
-  const { temple, trust, declarations, trustFinancials, hobliName, talukName, districtName, cityName } = profile
+  const { temple, trust, declarations, hobliName, talukName, districtName, cityName } = profile
   const currentProfile = profile.currentProfile
 
   const pendingGovernance = pendingStaging?.governanceStatus
@@ -101,6 +101,15 @@ export function OverviewTab({
   const effectiveAddressLine1 = displayPendingStaging?.addressLine1 || temple.street || null
   const effectivePinCode = displayPendingStaging?.pinCode || temple.pinCode || null
 
+  // Government-administered structures (Endowment boards, Devaswom boards) are
+  // distinguished from privately-managed trusts for display purposes.
+  const GOVERNMENT_TRUST_TYPES = ['ENDOWMENT', 'DEVASWOM']
+  const trustStatusLabel = !trust
+    ? 'Individual'
+    : GOVERNMENT_TRUST_TYPES.includes(trust.trustType ?? '')
+      ? 'Government'
+      : 'Trust'
+
   const pendingReviewDecls = useMemo(() =>
     declarations.filter((d) => ['SUBMITTED', 'UNDER_REVIEW', 'CLARIFICATION_RESPONDED'].includes(d.status)),
     [declarations]
@@ -140,14 +149,14 @@ export function OverviewTab({
         />
         <KpiCard
           label="Incomes Tracked"
-          value={trustFinancials.length}
+          value={formatCurrency(trust?.annualIncome, true)}
           icon={<TrendingUp size={18} />}
-          variant="success"
+          variant={trust?.annualIncome != null ? 'success' : 'neutral'}
           className="shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
         />
         <KpiCard
-          label="Trust Status"
-          value={trust ? 'Managed' : 'Individual'}
+          label="Managed By"
+          value={trustStatusLabel}
           icon={<Shield size={18} />}
           variant={trust ? 'success' : 'warning'}
           className="shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1"

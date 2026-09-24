@@ -48,6 +48,7 @@ export const TARGET_KEYS = {
   TAB_DC_TEMPLE_CONTRACTORS:     'tab.dc.temple.contractors',
   TAB_DC_TEMPLE_DOCUMENTS:       'tab.dc.temple.documents',
   TAB_DC_TEMPLE_TIMELINE:        'tab.dc.temple.timeline',
+  TAB_DC_TEMPLE_FINANCE:         'tab.dc.temple.finance',
   TAB_DC_TEMPLE_PROFILE_HISTORY: 'tab.dc.temple.profile_history',
 
   // ── TA own-temple page tabs ───────────────────────────────────────────────

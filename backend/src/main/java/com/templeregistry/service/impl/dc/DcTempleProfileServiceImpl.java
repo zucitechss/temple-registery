@@ -149,6 +149,39 @@ public class DcTempleProfileServiceImpl implements DcTempleProfileService {
                                 .map(City::getName)
                                 .orElse(null);
 
+                // Geo fallback from pending staging: when the temple entity lacks hobliId
+                // (first-time profile submissions set hobliId only in staging —
+                // promoteToTemple writes it to the Temple entity only on approval),
+                // resolve geo names from the latest SUBMITTED/UNDER_REVIEW/RESUBMITTED
+                // staging so DC sees correct City and Hobli values before approving.
+                if (hobliName == null) {
+                        com.templeregistry.entity.geo.Hobli stagingHobli =
+                                profileStagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
+                                        templeId,
+                                        java.util.List.of(
+                                                com.templeregistry.entity.workflow.WorkflowStatus.SUBMITTED,
+                                                com.templeregistry.entity.workflow.WorkflowStatus.UNDER_REVIEW,
+                                                com.templeregistry.entity.workflow.WorkflowStatus.RESUBMITTED))
+                                .map(TempleProfileStaging::getHobliId)
+                                .filter(Objects::nonNull)
+                                .flatMap(hobliRepository::findWithGeoById)
+                                .orElse(null);
+                        if (stagingHobli != null) {
+                                hobliName = stagingHobli.getName();
+                                if (stagingHobli.getTaluk() != null) {
+                                        talukName = stagingHobli.getTaluk().getName();
+                                        if (stagingHobli.getTaluk().getDistrict() != null) {
+                                                districtName = stagingHobli.getTaluk().getDistrict().getName();
+                                                if (stagingHobli.getTaluk().getDistrict().getCity() != null) {
+                                                        cityName = stagingHobli.getTaluk().getDistrict().getCity().getName();
+                                                }
+                                        }
+                                }
+                                log.debug("Geo names resolved from pending staging for templeId={}: hobli={}, taluk={}, district={}, city={}",
+                                        templeId, hobliName, talukName, districtName, cityName);
+                        }
+                }
+
                 // Governance visibility — TEMPLE_AUTHORITY may only see governance data for
                 // their own temple. For any other temple, governance fields are stripped so
                 // internal review state never leaks to TAs.

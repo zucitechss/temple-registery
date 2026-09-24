@@ -145,7 +145,7 @@ public final class PdfDesignSystem {
 
         // Left: system branding
         Cell leftCell = new Cell()
-            .add(new Paragraph("Government of Tamil Nadu")
+            .add(new Paragraph("Government of Karnataka")
                 .setFont(regular).setFontSize(FONT_SMALL).setFontColor(COLOR_ACCENT)
                 .setMarginBottom(1f))
             .add(new Paragraph("Temple Registry Management System")
@@ -406,7 +406,7 @@ public final class PdfDesignSystem {
             .setFontAndSize(regular, FONT_TINY)
             .setFillColor(COLOR_TEXT_MUTED)
             .moveText(left, bottom)
-            .showText("Temple Registry Management System — Government of Tamil Nadu")
+            .showText("Temple Registry Management System — Government of Karnataka")
             .endText()
             .beginText()
             .setFontAndSize(regular, FONT_TINY)

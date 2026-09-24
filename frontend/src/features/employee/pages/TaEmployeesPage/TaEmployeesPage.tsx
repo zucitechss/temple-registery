@@ -465,7 +465,7 @@ export function TaEmployeesPage() {
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          onClick={() => navigate(`/employees/${emp.id}`)}
+                          onClick={() => navigate(`/ta/employees/${emp.id}`)}
                           className="h-8 w-8 p-0"
                         >
                           <Eye className="size-4" />

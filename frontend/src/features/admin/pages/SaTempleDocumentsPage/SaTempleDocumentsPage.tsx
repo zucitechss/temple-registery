@@ -7,13 +7,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/feedback/Skeleton/Skeleton'
 import { Input } from '@/components/ui/input'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
 import { ROUTE_PATHS } from '@/constants/routePaths'
 import {
   useListDocumentsQuery,

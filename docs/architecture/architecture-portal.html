@@ -1,0 +1,2070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Temple Registry Backend - Architecture Portal</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0f172a;
+            --bg-surface: #1e293b;
+            --bg-card: #334155;
+            --primary: #3b82f6;
+            --secondary: #8b5cf6;
+            --accent: #06b6d4;
+            --success: #10b981;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #475569;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 100;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-header {
+            padding: 2rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .sidebar-subtitle {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .nav-menu {
+            list-style: none;
+            padding: 1rem 0;
+        }
+
+        .nav-item {
+            margin: 0.25rem 0;
+        }
+
+        .nav-link {
+            display: block;
+            padding: 0.75rem 1.5rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+            font-size: 0.9375rem;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary);
+            border-left-color: var(--primary);
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: 280px;
+            flex: 1;
+            padding: 2rem;
+            max-width: calc(100vw - 280px);
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 1rem;
+            padding: 3rem;
+            margin-bottom: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 500px;
+            height: 500px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-title {
+            font-size: 3rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            color: white;
+        }
+
+        .hero-subtitle {
+            font-size: 1.25rem;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 0.5rem;
+        }
+
+        .hero-meta {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.2s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        /* Section */
+        .section {
+            margin-bottom: 4rem;
+            opacity: 0;
+            animation: fadeIn 0.6s ease forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        .section-header {
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        .section-description {
+            font-size: 1.125rem;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        /* Card */
+        .card {
+            background: var(--bg-surface);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 8px 30px rgba(59, 130, 246, 0.15);
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        .card-content {
+            color: var(--text-muted);
+        }
+
+        /* Mermaid Diagram Container */
+        .diagram-container {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: white;
+            border-radius: 0.5rem;
+            padding: 2rem;
+        }
+
+        /* Insights Card */
+        .insights {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+            border-left: 4px solid var(--primary);
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .insights-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .insights-list {
+            list-style: none;
+            color: var(--text-muted);
+        }
+
+        .insights-list li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .insights-list li::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        /* Table Styles */
+        .table-container {
+            overflow-x: auto;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border);
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9375rem;
+        }
+
+        .data-table thead {
+            background: var(--bg-card);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .data-table th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text);
+            border-bottom: 2px solid var(--border);
+        }
+
+        .data-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        .data-table tbody tr {
+            transition: background 0.2s ease;
+        }
+
+        .data-table tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .data-table tbody tr:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        /* Search Input */
+        .search-container {
+            margin-bottom: 1.5rem;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text);
+            font-size: 1rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--primary);
+            color: white;
+        }
+
+        .badge-secondary {
+            background: var(--secondary);
+        }
+
+        .badge-success {
+            background: var(--success);
+        }
+
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .grid-2 {
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        }
+
+        /* Mobile Menu Toggle */
+        .menu-toggle {
+            display: none;
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 200;
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1.25rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.active {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+                max-width: 100vw;
+            }
+
+            .menu-toggle {
+                display: block;
+            }
+
+            .hero-title {
+                font-size: 2rem;
+            }
+
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .main-content {
+                padding: 1rem;
+            }
+
+            .hero {
+                padding: 2rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section-title {
+                font-size: 1.5rem;
+            }
+        }
+
+        /* Code block styles */
+        code {
+            background: var(--bg-card);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            color: var(--accent);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-surface);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary);
+        }
+    </style>
+</head>
+<body>
+    <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+    
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">Temple Registry</div>
+                <div class="sidebar-subtitle">Backend Architecture</div>
+            </div>
+            <nav>
+                <ul class="nav-menu">
+                    <li class="nav-item"><a href="#overview" class="nav-link active">Overview</a></li>
+                    <li class="nav-item"><a href="#package-architecture" class="nav-link">Package Architecture</a></li>
+                    <li class="nav-item"><a href="#request-flow" class="nav-link">Request Flow</a></li>
+                    <li class="nav-item"><a href="#security" class="nav-link">Security Architecture</a></li>
+                    <li class="nav-item"><a href="#domain-model" class="nav-link">Domain Model</a></li>
+                    <li class="nav-item"><a href="#service-dependencies" class="nav-link">Service Dependencies</a></li>
+                    <li class="nav-item"><a href="#workflow-engine" class="nav-link">Workflow Engine</a></li>
+                    <li class="nav-item"><a href="#notification-pipeline" class="nav-link">Notification Pipeline</a></li>
+                    <li class="nav-item"><a href="#database-er" class="nav-link">Database ER Diagram</a></li>
+                    <li class="nav-item"><a href="#scheduled-jobs" class="nav-link">Scheduled Jobs</a></li>
+                    <li class="nav-item"><a href="#feature-flows" class="nav-link">Feature Flows</a></li>
+                    <li class="nav-item"><a href="#inventory" class="nav-link">Component Inventory</a></li>
+                    <li class="nav-item"><a href="#traceability" class="nav-link">Traceability Matrix</a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Hero Section -->
+            <section class="hero">
+                <div class="hero-content">
+                    <h1 class="hero-title">Temple Registry Backend</h1>
+                    <p class="hero-subtitle">Current Architecture Documentation</p>
+                    <p class="hero-meta">Generated from Source Code Analysis | June 2, 2026</p>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value">38</div>
+                            <div class="stat-label">Controllers</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">70+</div>
+                            <div class="stat-label">Services</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">60+</div>
+                            <div class="stat-label">Repositories</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">100+</div>
+                            <div class="stat-label">Entities</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">7</div>
+                            <div class="stat-label">Security Components</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Overview Section -->
+            <section id="overview" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Architecture Overview</h2>
+                    <p class="section-description">
+                        Spring Boot 3.4.4 backend with JWT authentication, workflow engine, and event-driven architecture.
+                        Built on Java 21 with MySQL database and comprehensive domain-driven design.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Technology Stack</h3>
+                    <div class="card-content">
+                        <div class="grid grid-2">
+                            <div>
+                                <strong style="color: var(--primary);">Framework:</strong> Spring Boot 3.4.4 (Java 21)<br>
+                                <strong style="color: var(--primary);">Database:</strong> MySQL with Flyway migrations<br>
+                                <strong style="color: var(--primary);">Security:</strong> JWT (RS256), Spring Security<br>
+                                <strong style="color: var(--primary);">ORM:</strong> Spring Data JPA / Hibernate
+                            </div>
+                            <div>
+                                <strong style="color: var(--primary);">Additional:</strong> Async, Scheduling, AOP, Mail<br>
+                                <strong style="color: var(--primary);">Documents:</strong> Thymeleaf, iText PDF, OpenCSV<br>
+                                <strong style="color: var(--primary);">Testing:</strong> JUnit 5, Testcontainers, jqwik<br>
+                                <strong style="color: var(--primary);">Auth:</strong> TOTP MFA Support
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Key Architectural Patterns</h3>
+                    <div class="insights">
+                        <div class="insights-title">🎯 Design Patterns</div>
+                        <ul class="insights-list">
+                            <li>Workflow Engine for state machine management</li>
+                            <li>Outbox Pattern for reliable notifications</li>
+                            <li>Multi-tenancy via District jurisdiction</li>
+                            <li>Policy-based access control</li>
+                            <li>Event-driven with @TransactionalEventListener</li>
+                            <li>Read model optimization (TempleSearchSummary)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Domain Modules Overview</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TB
+    subgraph Core["Core Domains"]
+        Auth[Auth<br/>6 Services]
+        Temple[Temple<br/>3 Services]
+        Trust[Trust<br/>3 Services]
+        Declaration[Declaration<br/>3 Services]
+    end
+    
+    subgraph Governance["Governance & Workflow"]
+        Workflow[Workflow Engine<br/>4 Services]
+        Notice[Notice<br/>1 Service]
+        Observation[Observation<br/>1 Service]
+    end
+    
+    subgraph UserRoles["User Roles"]
+        DC[District Commissioner<br/>7 Services]
+        TA[Temple Authority<br/>1 Service]
+        Admin[Admin<br/>3 Services]
+        Auditor[Auditor<br/>1 Service]
+    end
+    
+    subgraph Support["Support Services"]
+        Notification[Notification<br/>7 Services]
+        Document[Document<br/>2 Services]
+        Audit[Audit<br/>3 Services]
+    end
+    
+    Temple --> Workflow
+    Declaration --> Workflow
+    Trust --> Workflow
+    Workflow --> Notification
+    DC --> Workflow
+    TA --> Workflow
+    
+    style Core fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Governance fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style UserRoles fill:#06b6d4,stroke:#0e7490,color:#fff
+    style Support fill:#10b981,stroke:#047857,color:#fff
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Package Architecture -->
+            <section id="package-architecture" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Package Architecture</h2>
+                    <p class="section-description">
+                        Layered architecture following Spring Boot conventions with clear separation of concerns.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Layer Dependencies</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TD
+    Client[Client Application]
+    
+    subgraph Controller["Controller Layer (38 classes)"]
+        AuthCtrl[AuthController]
+        TempleCtrl[TempleController]
+        DcCtrl[DcController]
+        WorkflowCtrl[WorkflowController]
+    end
+    
+    subgraph Service["Service Layer (70+ implementations)"]
+        AuthSvc[AuthService]
+        TempleSvc[TempleService]
+        DeclSvc[DeclarationService]
+        WorkflowEngine[WorkflowEngine]
+    end
+    
+    subgraph Repository["Repository Layer (60+ repositories)"]
+        UserRepo[UserRepository]
+        TempleRepo[TempleRepository]
+        DeclRepo[DeclarationRepository]
+        WorkflowRepo[WorkflowInstanceRepository]
+    end
+    
+    subgraph Database["MySQL Database"]
+        DB[(Flyway Migrations)]
+    end
+    
+    subgraph CrossCutting["Cross-Cutting Concerns"]
+        Security[Security Filters & Guards]
+        Events[Event Publishers & Listeners]
+        Notifications[Notification Outbox]
+        Audit[Audit Logging]
+    end
+    
+    Client --> Controller
+    Controller --> Service
+    Service --> Repository
+    Repository --> Database
+    
+    Service --> CrossCutting
+    Controller --> Security
+    
+    style Controller fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Service fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Repository fill:#06b6d4,stroke:#0e7490,color:#fff
+    style Database fill:#10b981,stroke:#047857,color:#fff
+    style CrossCutting fill:#f59e0b,stroke:#d97706,color:#fff
+                        </div>
+                    </div>
+                    
+                    <div class="insights">
+                        <div class="insights-title">📦 Package Organization</div>
+                        <ul class="insights-list">
+                            <li><code>controller/</code> - REST endpoints with request validation</li>
+                            <li><code>service/</code> - Business logic with transactional boundaries</li>
+                            <li><code>repository/</code> - Data access via Spring Data JPA</li>
+                            <li><code>entity/</code> - JPA entities organized by domain</li>
+                            <li><code>security/</code> - Filters, guards, JWT handling</li>
+                            <li><code>event/</code> - Domain events with async listeners</li>
+                            <li><code>dto/</code> - Request/Response objects with MapStruct</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Request Flow -->
+            <section id="request-flow" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Request Flow Architecture</h2>
+                    <p class="section-description">
+                        Complete request lifecycle from client to database with security and event processing.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">HTTP Request Processing Pipeline</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+sequenceDiagram
+    participant Client
+    participant SecurityFilter as SecurityFilterChain
+    participant JWT as JwtAuthFilter
+    participant Controller
+    participant Service
+    participant Repository
+    participant DB as MySQL
+    participant Events as Event Listeners
+
+    Client->>SecurityFilter: HTTP Request
+    SecurityFilter->>JWT: Extract JWT
+    JWT->>JWT: Validate RS256 signature
+    JWT->>JWT: Extract userId, role
+    JWT->>SecurityFilter: Set Authentication
+    SecurityFilter->>Controller: Authorized Request
+    Controller->>Controller: @PreAuthorize check
+    Controller->>Service: Business method call
+    Service->>Service: @Transactional
+    Service->>Service: OwnershipGuard.verify()
+    Service->>Service: JurisdictionGuard.check()
+    Service->>Repository: save/update entity
+    Repository->>DB: SQL execution
+    DB-->>Repository: Result
+    Repository-->>Service: Entity
+    Service->>Service: auditService.log()
+    Service->>Service: eventPublisher.publish()
+    Service-->>Controller: Response DTO
+    Controller-->>Client: HTTP Response (200 OK)
+    
+    Note over DB,Events: After TX COMMIT
+    Service->>Events: @TransactionalEventListener
+    Events->>Events: Timeline event
+    Events->>Events: Notification outbox
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Security Architecture -->
+            <section id="security" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Security Architecture</h2>
+                    <p class="section-description">
+                        Multi-layered security with JWT authentication, role-based access control, and policy enforcement.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Security Layers</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TB
+    Request[HTTP Request]
+    
+    subgraph Layer1["1. Network Layer - JWT Validation"]
+        JWT[JwtAuthenticationFilter]
+        Scope[ScopeHelper]
+        Verify[RS256 Signature Verification]
+    end
+    
+    subgraph Layer2["2. Method Security"]
+        PreAuth[@PreAuthorize Annotations]
+        RoleCheck[hasRole / hasAnyRole]
+    end
+    
+    subgraph Layer3["3. Service Guards"]
+        Own[OwnershipGuard]
+        Jur[JurisdictionGuard]
+        Acc[AccessGuard]
+        DACVM[DacvmGuard]
+    end
+    
+    subgraph Layer4["4. Policy Enforcement"]
+        Aspect[PolicyEnforcementAspect]
+        Policy[PolicyEvaluationService]
+        FieldMask[Field Masking]
+    end
+    
+    subgraph Layer5["5. Audit Trail"]
+        Audit[AuditService]
+        Log[AuditDataEvent]
+    end
+    
+    Request --> JWT
+    JWT --> Scope
+    Scope --> Verify
+    Verify --> PreAuth
+    PreAuth --> RoleCheck
+    RoleCheck --> Own
+    Own --> Jur
+    Jur --> Acc
+    Acc --> DACVM
+    DACVM --> Aspect
+    Aspect --> Policy
+    Policy --> FieldMask
+    FieldMask --> Audit
+    Audit --> Log
+    
+    style Layer1 fill:#ef4444,stroke:#dc2626,color:#fff
+    style Layer2 fill:#f97316,stroke:#ea580c,color:#fff
+    style Layer3 fill:#f59e0b,stroke:#d97706,color:#fff
+    style Layer4 fill:#84cc16,stroke:#65a30d,color:#fff
+    style Layer5 fill:#10b981,stroke:#047857,color:#fff
+                        </div>
+                    </div>
+                    
+                    <div class="insights">
+                        <div class="insights-title">🔐 Security Components</div>
+                        <ul class="insights-list">
+                            <li><strong>JwtAuthenticationFilter:</strong> Extracts JWT from header, cookie, or query param</li>
+                            <li><strong>OwnershipGuard:</strong> Verifies user owns the temple entity</li>
+                            <li><strong>JurisdictionGuard:</strong> Enforces district-based access control</li>
+                            <li><strong>AccessGuard:</strong> Role-based permission checks</li>
+                            <li><strong>DacvmGuard:</strong> Data Access Control & Visibility Masking</li>
+                            <li><strong>PolicyEnforcementAspect:</strong> AOP-based fine-grained policies</li>
+                            <li><strong>TokenRevocationGuard:</strong> Validates refresh token status</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Authentication Flow</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+sequenceDiagram
+    participant User
+    participant AuthCtrl as AuthController
+    participant AuthSvc as AuthService
+    participant UserRepo as UserRepository
+    participant JWT as JwtService
+    participant MFA as MfaService
+
+    User->>AuthCtrl: POST /auth/login
+    AuthCtrl->>AuthSvc: authenticate(username, password)
+    AuthSvc->>UserRepo: findByUsername()
+    UserRepo-->>AuthSvc: User entity
+    AuthSvc->>AuthSvc: PasswordEncoder.matches()
+    
+    alt MFA Enabled
+        AuthSvc->>MFA: validateTotp(code)
+        MFA-->>AuthSvc: Valid
+    end
+    
+    AuthSvc->>JWT: generateAccessToken(userId, role)
+    JWT-->>AuthSvc: Access Token (RS256)
+    AuthSvc->>JWT: generateRefreshToken(userId)
+    JWT-->>AuthSvc: Refresh Token
+    AuthSvc->>UserRepo: save(RefreshToken)
+    AuthSvc-->>AuthCtrl: AuthTokenResponse
+    AuthCtrl-->>User: Set-Cookie: access_token
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Domain Model -->
+            <section id="domain-model" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Domain Model</h2>
+                    <p class="section-description">
+                        Core business entities and their relationships in the Temple Registry system.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Core Entity Relationships</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TB
+    User[User<br/>username, email, role<br/>districtId]
+    Temple[Temple<br/>name, status, grade<br/>districtId, hobliId]
+    Trust[Trust<br/>name, registrationNo<br/>trustType]
+    Declaration[AssetDeclaration<br/>financialYear, status<br/>deadlineDate]
+    Profile[TempleProfileStaging<br/>status, dcDecision<br/>payload JSON]
+    Workflow[WorkflowInstance<br/>entityId, entityType<br/>status, currentActor]
+    Employee[Employee<br/>name, designation<br/>employmentType]
+    BoardMember[BoardMember<br/>name, designation<br/>aadharHash]
+    Document[Document<br/>fileName, fileType<br/>storageKey]
+    District[District<br/>name, cityId]
+    
+    User -->|owns| Temple
+    User -->|manages| District
+    Temple -->|1:1| Profile
+    Temple -->|1:1| Trust
+    Temple -->|1:N| Declaration
+    Temple -->|1:N| Employee
+    Trust -->|1:N| BoardMember
+    Declaration -->|governed by| Workflow
+    Profile -->|governed by| Workflow
+    Trust -->|governed by| Workflow
+    Temple -->|located in| District
+    Declaration -->|has many| Document
+    
+    style User fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Temple fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Workflow fill:#06b6d4,stroke:#0e7490,color:#fff
+    style Declaration fill:#10b981,stroke:#047857,color:#fff
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Service Dependencies -->
+            <section id="service-dependencies" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Service Dependency Graph</h2>
+                    <p class="section-description">
+                        How core services interact with the WorkflowEngine and event system.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Workflow Engine Integration</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TB
+    subgraph Core["WorkflowEngine Core"]
+        WE[WorkflowEngine]
+        WIR[WorkflowInstanceRepo]
+        WTR[WorkflowTransitionRepo]
+        NOR[NotificationOutboxRepo]
+        TRR[TransitionRuleRegistry]
+    end
+    
+    subgraph Domain["Domain Services"]
+        DS[DeclarationService]
+        TPS[TempleProfileStagingService]
+        TS[TrustService]
+        BMS[BoardMemberService]
+    end
+    
+    subgraph Events["Event System"]
+        EP[ApplicationEventPublisher]
+        TEL[@TransactionalEventListener]
+        TL[TimelineListener]
+        NR[NotificationRouter]
+    end
+    
+    subgraph Notification["Notification System"]
+        NDS[NotificationDispatchService]
+        INR[InAppNotificationRepo]
+        EO[EmailOutbox]
+        SSE[SseNotificationService]
+    end
+    
+    DS --> WE
+    TPS --> WE
+    TS --> WE
+    BMS --> WE
+    
+    WE --> WIR
+    WE --> WTR
+    WE --> NOR
+    WE --> TRR
+    
+    WE --> EP
+    EP --> TEL
+    TEL --> TL
+    TEL --> NR
+    
+    NR --> NDS
+    NDS --> INR
+    NDS --> EO
+    NDS --> SSE
+    
+    style Core fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Domain fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Events fill:#06b6d4,stroke:#0e7490,color:#fff
+    style Notification fill:#10b981,stroke:#047857,color:#fff
+                        </div>
+                    </div>
+                    
+                    <div class="insights">
+                        <div class="insights-title">🔄 Service Architecture Insights</div>
+                        <ul class="insights-list">
+                            <li>WorkflowEngine is the central orchestrator for all governable entities</li>
+                            <li>Domain services delegate state transitions to WorkflowEngine</li>
+                            <li>Event-driven design ensures loose coupling between components</li>
+                            <li>@TransactionalEventListener guarantees events fire after TX commit</li>
+                            <li>Notification outbox pattern ensures reliable message delivery</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Workflow Engine -->
+            <section id="workflow-engine" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Workflow Engine State Machine</h2>
+                    <p class="section-description">
+                        Centralized workflow management for declarations, temple profiles, trusts, and board members.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Workflow State Transitions</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+stateDiagram-v2
+    [*] --> DRAFT: Create Entity
+    
+    DRAFT --> SUBMITTED: SUBMIT (TA)
+    
+    SUBMITTED --> UNDER_REVIEW: START_REVIEW (DC)
+    SUBMITTED --> CLARIFICATION_NEEDED: REQUEST_CLARIFICATION (DC)
+    SUBMITTED --> APPROVED: APPROVE (DC)
+    SUBMITTED --> REJECTED: REJECT (DC)
+    SUBMITTED --> WITHDRAWN: WITHDRAW (TA)
+    SUBMITTED --> SITE_VISIT_REQUIRED: MARK_SITE_VISIT (DC)
+    
+    CLARIFICATION_NEEDED --> CLARIFIED: RESPOND_CLARIFICATION (TA)
+    
+    CLARIFIED --> APPROVED: APPROVE (DC)
+    CLARIFIED --> REJECTED: REJECT (DC)
+    CLARIFIED --> CLARIFICATION_NEEDED: REQUEST_CLARIFICATION (DC)
+    
+    UNDER_REVIEW --> APPROVED: APPROVE (DC)
+    UNDER_REVIEW --> REJECTED: REJECT (DC)
+    UNDER_REVIEW --> CLARIFICATION_NEEDED: REQUEST_CLARIFICATION (DC)
+    
+    SITE_VISIT_REQUIRED --> APPROVED: APPROVE_AFTER_VISIT (DC)
+    SITE_VISIT_REQUIRED --> REJECTED: REJECT_AFTER_VISIT (DC)
+    
+    REJECTED --> SUBMITTED: RESUBMIT (TA)
+    
+    APPROVED --> [*]
+    WITHDRAWN --> [*]
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Workflow Engine Architecture</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TB
+    subgraph Request["Workflow Execution Request"]
+        Req[entityId, entityType<br/>action, context<br/>idempotencyKey]
+    end
+    
+    subgraph Engine["WorkflowEngine Logic"]
+        Step1[1. Fetch/Create Instance]
+        Step2[2. Check Idempotency]
+        Step3[3. Validate Transition]
+        Step4[4. Execute Policies]
+        Step5[5. Update Instance]
+        Step6[6. Record Transition]
+        Step7[7. Write Outbox]
+        Step8[8. Save Idempotency]
+        Step9[9. Publish Event]
+    end
+    
+    subgraph Storage["Persistence"]
+        WI[(WorkflowInstance)]
+        WT[(WorkflowTransition)]
+        NO[(NotificationOutbox)]
+        IR[(IdempotencyRecord)]
+    end
+    
+    subgraph Policies["Policy Checks"]
+        P1[UniqueSubmissionPolicy]
+        P2[ApprovalPolicy]
+        P3[SiteVisitPolicy]
+        P4[ClarificationPolicy]
+    end
+    
+    Req --> Step1
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 --> Step4
+    Step4 --> P1
+    Step4 --> P2
+    Step4 --> P3
+    Step4 --> P4
+    P1 --> Step5
+    P2 --> Step5
+    P3 --> Step5
+    P4 --> Step5
+    Step5 --> WI
+    Step5 --> Step6
+    Step6 --> WT
+    Step6 --> Step7
+    Step7 --> NO
+    Step7 --> Step8
+    Step8 --> IR
+    Step8 --> Step9
+    
+    style Request fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Engine fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Storage fill:#10b981,stroke:#047857,color:#fff
+    style Policies fill:#f59e0b,stroke:#d97706,color:#fff
+                        </div>
+                    </div>
+                    
+                    <div class="insights">
+                        <div class="insights-title">⚙️ Workflow Features</div>
+                        <ul class="insights-list">
+                            <li><strong>Idempotency:</strong> Duplicate actions return cached result</li>
+                            <li><strong>Polymorphic:</strong> Works with any entity type (Declaration, Trust, etc.)</li>
+                            <li><strong>Policy-based:</strong> Extensible validation via WorkflowPolicy interface</li>
+                            <li><strong>Audit Trail:</strong> Immutable WorkflowTransition records</li>
+                            <li><strong>Notification Integration:</strong> Automatic outbox writes</li>
+                            <li><strong>Deadline Tracking:</strong> Overdue flag and scheduled checks</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Notification Pipeline -->
+            <section id="notification-pipeline" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Notification Pipeline</h2>
+                    <p class="section-description">
+                        Reliable notification delivery using outbox pattern with multiple channels.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Notification Flow</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+sequenceDiagram
+    participant Service
+    participant EventPub as ApplicationEventPublisher
+    participant Listener as @TransactionalEventListener
+    participant Router as NotificationRouter
+    participant Outbox as NotificationOutbox
+    participant Scheduler
+    participant Dispatch as NotificationDispatchService
+    participant InApp as InAppNotification
+    participant Email as EmailOutbox
+    participant SSE as SseNotificationService
+
+    Service->>Service: Business Logic
+    Service->>EventPub: publish(GovernanceDomainEvent)
+    
+    Note over Service,EventPub: TX COMMIT
+    
+    EventPub->>Listener: AFTER_COMMIT
+    Listener->>Router: handle(event)
+    Router->>Router: Match NotificationRule
+    Router->>Router: Resolve Recipients
+    Router->>Outbox: Write pending notification
+    
+    Note over Outbox,Scheduler: @Scheduled(fixedDelay=5s)
+    
+    Scheduler->>Router: processOutbox()
+    Router->>Dispatch: dispatch(notification)
+    
+    par Multi-Channel Delivery
+        Dispatch->>InApp: Save in-app notification
+        Dispatch->>Email: Write to email queue
+        Dispatch->>SSE: Send real-time event
+    end
+    
+    Note over Email,Scheduler: @Scheduled(fixedDelay=10s)
+    
+    Scheduler->>Email: processEmailQueue()
+    Email->>Email: JavaMailSender.send()
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Notification Architecture</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TB
+    subgraph Trigger["Event Trigger"]
+        Event[GovernanceDomainEvent]
+    end
+    
+    subgraph Processing["Async Processing"]
+        NR[NotificationRouter]
+        Rule[NotificationRule Matcher]
+        Recip[Recipient Resolver]
+        Dedup[Deduplication Guard]
+    end
+    
+    subgraph Outbox["Outbox Pattern"]
+        NO[(NotificationOutbox)]
+        EO[(EmailOutbox)]
+    end
+    
+    subgraph Delivery["Delivery Channels"]
+        InApp[In-App Notifications]
+        Email[Email via SMTP]
+        SSE[Server-Sent Events]
+    end
+    
+    subgraph Templates["Template System"]
+        Thyme[Thymeleaf Templates]
+        Resolve[EmailTemplateResolver]
+    end
+    
+    Event --> NR
+    NR --> Rule
+    Rule --> Recip
+    Recip --> Dedup
+    Dedup --> NO
+    
+    NO --> InApp
+    NO --> EO
+    NO --> SSE
+    
+    EO --> Email
+    Email --> Thyme
+    Thyme --> Resolve
+    
+    style Trigger fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Processing fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style Outbox fill:#06b6d4,stroke:#0e7490,color:#fff
+    style Delivery fill:#10b981,stroke:#047857,color:#fff
+    style Templates fill:#f59e0b,stroke:#d97706,color:#fff
+                        </div>
+                    </div>
+                    
+                    <div class="insights">
+                        <div class="insights-title">📬 Notification Features</div>
+                        <ul class="insights-list">
+                            <li><strong>Outbox Pattern:</strong> Guaranteed delivery even on system failure</li>
+                            <li><strong>Multi-Channel:</strong> In-app, email, and real-time SSE</li>
+                            <li><strong>User Preferences:</strong> Respect notification settings per user</li>
+                            <li><strong>Retry Logic:</strong> Exponential backoff with DLQ for failures</li>
+                            <li><strong>Template-Based:</strong> Thymeleaf templates for email rendering</li>
+                            <li><strong>Deduplication:</strong> Prevents duplicate notifications</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Database ER Diagram -->
+            <section id="database-er" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Database ER Diagram</h2>
+                    <p class="section-description">
+                        MySQL database schema with core tables and relationships.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Core Database Schema</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+erDiagram
+    USERS ||--o{ TEMPLES : owns
+    USERS }o--|| DISTRICTS : "assigned to"
+    TEMPLES ||--|| TEMPLE_PROFILE_STAGING : has
+    TEMPLES ||--|| TRUSTS : has
+    TEMPLES ||--o{ ASSET_DECLARATIONS : submits
+    TEMPLES ||--o{ EMPLOYEES : employs
+    TEMPLES }o--|| DISTRICTS : "located in"
+    TRUSTS ||--o{ BOARD_MEMBERS : has
+    TRUSTS ||--o{ TRUST_FINANCIALS : has
+    ASSET_DECLARATIONS ||--o{ DECL_IMMOV_AGRI_LAND : contains
+    ASSET_DECLARATIONS ||--o{ DECL_MOV_PRECIOUS_METAL : contains
+    WORKFLOW_INSTANCES ||--o{ WORKFLOW_TRANSITIONS : records
+    ASSET_DECLARATIONS ||--|| WORKFLOW_INSTANCES : "governed by"
+    TEMPLE_PROFILE_STAGING ||--|| WORKFLOW_INSTANCES : "governed by"
+    TRUSTS ||--|| WORKFLOW_INSTANCES : "governed by"
+
+    USERS {
+        bigint id PK
+        string username
+        string email
+        string password_hash
+        string role
+        bigint district_id FK
+        bigint temple_id FK
+        boolean mfa_enabled
+    }
+
+    TEMPLES {
+        bigint id PK
+        string name
+        string status
+        string grade
+        bigint district_id FK
+        bigint hobli_id FK
+    }
+
+    WORKFLOW_INSTANCES {
+        bigint id PK
+        bigint entity_id
+        string entity_type
+        string status
+        string sub_status
+        string current_actor
+        boolean overdue
+        date deadline_date
+        json metadata
+    }
+
+    ASSET_DECLARATIONS {
+        bigint id PK
+        bigint temple_id FK
+        bigint district_id FK
+        string financial_year
+        string status
+        date deadline_date
+    }
+
+    TRUSTS {
+        bigint id PK
+        bigint temple_id FK
+        string name
+        string registration_number
+        string trust_type
+    }
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Scheduled Jobs -->
+            <section id="scheduled-jobs" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Scheduled Jobs & Background Processing</h2>
+                    <p class="section-description">
+                        Automated background tasks for system maintenance and notification delivery.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Scheduled Job Architecture</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+graph TB
+    subgraph Daily["Daily Jobs (1 AM UTC)"]
+        OD[OverdueScheduler<br/>Flag overdue declarations]
+        OW[OverdueWorkflowScheduler<br/>Flag overdue workflows]
+        NE[NoticeExpiryScheduler<br/>Expire old notices]
+    end
+    
+    subgraph Frequent["High-Frequency Jobs"]
+        NO[NotificationRouter<br/>5s - Process outbox]
+        EQ[EmailDeliveryService<br/>10s - Send emails]
+        ER[EmailRetryScheduler<br/>5m - Retry failed]
+    end
+    
+    subgraph Warning["Warning Jobs (9 AM IST)"]
+        DW[DeadlineWarningScheduler<br/>Send deadline alerts]
+    end
+    
+    subgraph Async["Async Processing"]
+        Export[AsyncExportBean<br/>Generate PDF/CSV exports]
+    end
+    
+    subgraph Database["Database"]
+        DB[(MySQL)]
+    end
+    
+    OD --> DB
+    OW --> DB
+    NE --> DB
+    NO --> DB
+    EQ --> DB
+    ER --> DB
+    DW --> DB
+    Export --> DB
+    
+    style Daily fill:#3b82f6,stroke:#1e40af,color:#fff
+    style Frequent fill:#10b981,stroke:#047857,color:#fff
+    style Warning fill:#f59e0b,stroke:#d97706,color:#fff
+    style Async fill:#8b5cf6,stroke:#6d28d9,color:#fff
+                        </div>
+                    </div>
+                    
+                    <div class="insights">
+                        <div class="insights-title">⏰ Scheduling Details</div>
+                        <ul class="insights-list">
+                            <li><strong>OverdueScheduler:</strong> Daily at 1 AM UTC (6:30 AM IST)</li>
+                            <li><strong>NotificationRouter:</strong> Every 5 seconds for real-time delivery</li>
+                            <li><strong>EmailDeliveryService:</strong> Every 10 seconds with retry logic</li>
+                            <li><strong>DeadlineWarning:</strong> Daily at 9 AM IST for 3-7 day warnings</li>
+                            <li><strong>AsyncExportBean:</strong> On-demand with dedicated thread pool</li>
+                            <li><strong>Dead Letter Queue:</strong> Failed emails after 5 retries</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Feature Flows -->
+            <section id="feature-flows" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Feature Flow Diagrams</h2>
+                    <p class="section-description">
+                        End-to-end workflows for key features in the system.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Declaration Submission Flow</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+sequenceDiagram
+    participant TA as Temple Authority
+    participant Ctrl as DeclarationController
+    participant Svc as DeclarationService
+    participant WE as WorkflowEngine
+    participant Snap as SnapshotService
+    participant DB as MySQL
+    participant Events as Event System
+
+    TA->>Ctrl: POST /declarations/{id}/submit
+    Ctrl->>Svc: submit(declarationId, comment)
+    Svc->>Svc: OwnershipGuard.verify()
+    Svc->>Snap: createSnapshot(declarationId)
+    Snap->>DB: Save AssetDeclarationVersion
+    Svc->>WE: execute(DECLARATION, SUBMIT)
+    WE->>WE: Validate transition DRAFT→SUBMITTED
+    WE->>WE: Execute policies
+    WE->>DB: Update WorkflowInstance
+    WE->>DB: Insert WorkflowTransition
+    WE->>DB: Write NotificationOutbox
+    WE-->>Svc: TransitionResult
+    Svc->>DB: Update declaration status
+    Svc->>Events: Publish DeclarationSubmittedEvent
+    Svc-->>Ctrl: DeclarationResponse
+    Ctrl-->>TA: 200 OK
+    
+    Note over DB,Events: After TX COMMIT
+    Events->>Events: Timeline Event
+    Events->>Events: Notify DC users
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">DC Approval Flow</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+sequenceDiagram
+    participant DC as District Commissioner
+    participant Ctrl as WorkflowController
+    participant WE as WorkflowEngine
+    participant Policy as Policies
+    participant DB as MySQL
+    participant Notify as NotificationSystem
+
+    DC->>Ctrl: POST /workflow/DECLARATION/456/actions/approve
+    Ctrl->>WE: execute(456, APPROVE, context)
+    WE->>WE: Check JurisdictionGuard
+    WE->>Policy: DeclarationApprovalPolicy
+    Policy->>Policy: Verify no pending site visit
+    Policy->>Policy: Verify no open clarifications
+    Policy-->>WE: Allowed
+    WE->>DB: Update WorkflowInstance status=APPROVED
+    WE->>DB: Insert WorkflowTransition
+    WE->>DB: Write NotificationOutbox for TA
+    WE-->>Ctrl: WorkflowEnvelope
+    Ctrl-->>DC: 200 OK
+    
+    Note over DB,Notify: Async notification
+    Notify->>Notify: Email to TA
+    Notify->>Notify: In-app notification
+    Notify->>Notify: SSE event
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Clarification Request Flow</h3>
+                    <div class="diagram-container">
+                        <div class="mermaid">
+sequenceDiagram
+    participant DC as District Commissioner
+    participant Ctrl as DcDeclarationController
+    participant Conv as ConversationService
+    participant WE as WorkflowEngine
+    participant DB as MySQL
+    participant Notify as NotificationSystem
+
+    DC->>Ctrl: POST /dc/declarations/456/clarifications
+    Ctrl->>Conv: requestClarification(questions)
+    Conv->>WE: execute(REQUEST_CLARIFICATION)
+    WE->>DB: Update status SUBMITTED→CLARIFICATION_NEEDED
+    WE->>DB: Insert WorkflowTransition
+    Conv->>DB: Save DeclarationClarification records
+    Conv-->>Ctrl: ClarificationResponse
+    Ctrl-->>DC: 201 Created
+    
+    Notify->>Notify: Email TA about clarification
+    
+    Note over DC,Notify: TA responds
+    
+    DC->>Ctrl: POST /declarations/456/clarifications/respond
+    Ctrl->>Conv: respondToClarification(answers)
+    Conv->>WE: execute(RESPOND_CLARIFICATION)
+    WE->>DB: Update status CLARIFICATION_NEEDED→CLARIFIED
+    Conv->>DB: Save response clarifications
+    Conv-->>Ctrl: Response
+    Ctrl-->>DC: 200 OK
+    
+    Notify->>Notify: Email DC about response
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Component Inventory -->
+            <section id="inventory" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Component Inventory</h2>
+                    <p class="section-description">
+                        Complete inventory of controllers, services, and repositories.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Controllers (38 classes)</h3>
+                    <div class="search-container">
+                        <input type="text" class="search-input" id="controllerSearch" placeholder="Search controllers..." onkeyup="filterTable('controllerSearch', 'controllerTable')">
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table" id="controllerTable">
+                            <thead>
+                                <tr>
+                                    <th>Controller</th>
+                                    <th>Path</th>
+                                    <th>Key Dependencies</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>AuthController</td>
+                                    <td>/api/v1/auth</td>
+                                    <td>AuthService, UserProfileService, PolicyEvaluationService</td>
+                                </tr>
+                                <tr>
+                                    <td>RegistrationController</td>
+                                    <td>/api/v1/auth</td>
+                                    <td>RegistrationService, MfaService</td>
+                                </tr>
+                                <tr>
+                                    <td>TempleController</td>
+                                    <td>/api/v1/temples</td>
+                                    <td>TempleService, TempleProfileStagingService</td>
+                                </tr>
+                                <tr>
+                                    <td>WorkflowController</td>
+                                    <td>/api/v2/workflow</td>
+                                    <td>WorkflowEngine, ClarificationEngine, ActionContextResolver</td>
+                                </tr>
+                                <tr>
+                                    <td>DeclarationController</td>
+                                    <td>/api/v1/declarations</td>
+                                    <td>DeclarationService, GovernanceWorkflowService</td>
+                                </tr>
+                                <tr>
+                                    <td>DcDeclarationController</td>
+                                    <td>/api/v1/dc/declarations</td>
+                                    <td>DcTempleProfileService, DeclarationService</td>
+                                </tr>
+                                <tr>
+                                    <td>DcDashboardController</td>
+                                    <td>/api/v1/dc</td>
+                                    <td>DcDashboardService</td>
+                                </tr>
+                                <tr>
+                                    <td>DcTempleController</td>
+                                    <td>/api/v1/dc/temples</td>
+                                    <td>DcTempleSearchService, DcTempleVerificationService</td>
+                                </tr>
+                                <tr>
+                                    <td>AdminController</td>
+                                    <td>/api/v1/admin</td>
+                                    <td>AdminService, NotificationRuleService, AdminDashboardService</td>
+                                </tr>
+                                <tr>
+                                    <td>NotificationController</td>
+                                    <td>/api/v1/notifications</td>
+                                    <td>NotificationService, PaginationUtil</td>
+                                </tr>
+                                <tr>
+                                    <td>DocumentController</td>
+                                    <td>/api/v1/documents</td>
+                                    <td>DocumentService</td>
+                                </tr>
+                                <tr>
+                                    <td>TrustController</td>
+                                    <td>/api/v1/trusts</td>
+                                    <td>TrustService</td>
+                                </tr>
+                                <tr>
+                                    <td>EmployeeController</td>
+                                    <td>/api/v1/employees</td>
+                                    <td>EmployeeService</td>
+                                </tr>
+                                <tr>
+                                    <td>ContractorController</td>
+                                    <td>/api/v1/contractors</td>
+                                    <td>ContractorService</td>
+                                </tr>
+                                <tr>
+                                    <td>GeoController</td>
+                                    <td>/api/v1/geo</td>
+                                    <td>GeoService</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Core Services (Selected)</h3>
+                    <div class="search-container">
+                        <input type="text" class="search-input" id="serviceSearch" placeholder="Search services..." onkeyup="filterTable('serviceSearch', 'serviceTable')">
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table" id="serviceTable">
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Package</th>
+                                    <th>Key Responsibilities</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>WorkflowEngineImpl</td>
+                                    <td>impl.workflow</td>
+                                    <td>State machine orchestration, policy execution, transition recording</td>
+                                </tr>
+                                <tr>
+                                    <td>DeclarationServiceImpl</td>
+                                    <td>impl.declaration</td>
+                                    <td>Asset declaration CRUD, workflow integration, snapshot management</td>
+                                </tr>
+                                <tr>
+                                    <td>TempleProfileStagingServiceImpl</td>
+                                    <td>impl.temple</td>
+                                    <td>Temple profile management, versioning, clarification handling</td>
+                                </tr>
+                                <tr>
+                                    <td>AuthServiceImpl</td>
+                                    <td>impl.auth</td>
+                                    <td>Authentication, JWT generation, MFA validation</td>
+                                </tr>
+                                <tr>
+                                    <td>NotificationDispatchServiceImpl</td>
+                                    <td>impl.notification</td>
+                                    <td>Multi-channel notification delivery</td>
+                                </tr>
+                                <tr>
+                                    <td>EmailDeliveryServiceImpl</td>
+                                    <td>impl.notification</td>
+                                    <td>Email queue processing, retry logic, template rendering</td>
+                                </tr>
+                                <tr>
+                                    <td>DcDashboardServiceImpl</td>
+                                    <td>impl.dc</td>
+                                    <td>District Commissioner dashboard aggregation</td>
+                                </tr>
+                                <tr>
+                                    <td>TempleSearchSummaryServiceImpl</td>
+                                    <td>impl.temple</td>
+                                    <td>Read model optimization for temple search</td>
+                                </tr>
+                                <tr>
+                                    <td>AuditServiceImpl</td>
+                                    <td>impl.audit</td>
+                                    <td>Audit trail recording for data and auth events</td>
+                                </tr>
+                                <tr>
+                                    <td>PolicyEvaluationServiceImpl</td>
+                                    <td>impl.accesscontrol</td>
+                                    <td>Access control policy evaluation and field masking</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Repositories (Selected)</h3>
+                    <div class="search-container">
+                        <input type="text" class="search-input" id="repoSearch" placeholder="Search repositories..." onkeyup="filterTable('repoSearch', 'repoTable')">
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table" id="repoTable">
+                            <thead>
+                                <tr>
+                                    <th>Repository</th>
+                                    <th>Entity</th>
+                                    <th>Domain</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>UserRepository</td>
+                                    <td>User</td>
+                                    <td>Auth</td>
+                                </tr>
+                                <tr>
+                                    <td>TempleRepository</td>
+                                    <td>Temple</td>
+                                    <td>Temple</td>
+                                </tr>
+                                <tr>
+                                    <td>DeclarationRepository</td>
+                                    <td>AssetDeclaration</td>
+                                    <td>Declaration</td>
+                                </tr>
+                                <tr>
+                                    <td>WorkflowInstanceRepository</td>
+                                    <td>WorkflowInstance</td>
+                                    <td>Workflow</td>
+                                </tr>
+                                <tr>
+                                    <td>WorkflowTransitionRepository</td>
+                                    <td>WorkflowTransition</td>
+                                    <td>Workflow</td>
+                                </tr>
+                                <tr>
+                                    <td>NotificationOutboxRepository</td>
+                                    <td>NotificationOutbox</td>
+                                    <td>Notification</td>
+                                </tr>
+                                <tr>
+                                    <td>InAppNotificationRepository</td>
+                                    <td>InAppNotification</td>
+                                    <td>Notification</td>
+                                </tr>
+                                <tr>
+                                    <td>TrustRepository</td>
+                                    <td>Trust</td>
+                                    <td>Trust</td>
+                                </tr>
+                                <tr>
+                                    <td>DistrictRepository</td>
+                                    <td>District</td>
+                                    <td>Geo</td>
+                                </tr>
+                                <tr>
+                                    <td>AuditDataEventRepository</td>
+                                    <td>AuditDataEvent</td>
+                                    <td>Audit</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Traceability Matrix -->
+            <section id="traceability" class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Traceability Matrix</h2>
+                    <p class="section-description">
+                        Component relationships and event flows for debugging and impact analysis.
+                    </p>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Controllers → Services</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Controller</th>
+                                    <th>Method</th>
+                                    <th>Service Invoked</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>AuthController</td>
+                                    <td>login()</td>
+                                    <td>AuthService.authenticate()</td>
+                                </tr>
+                                <tr>
+                                    <td>TempleController</td>
+                                    <td>createProfile()</td>
+                                    <td>TempleProfileStagingService.create()</td>
+                                </tr>
+                                <tr>
+                                    <td>WorkflowController</td>
+                                    <td>executeAction()</td>
+                                    <td>WorkflowEngine.execute()</td>
+                                </tr>
+                                <tr>
+                                    <td>DeclarationController</td>
+                                    <td>submit()</td>
+                                    <td>DeclarationService.submit()</td>
+                                </tr>
+                                <tr>
+                                    <td>DcDeclarationController</td>
+                                    <td>listDeclarations()</td>
+                                    <td>DeclarationService.listForDc()</td>
+                                </tr>
+                                <tr>
+                                    <td>NotificationController</td>
+                                    <td>getNotifications()</td>
+                                    <td>NotificationService.getUserNotifications()</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Services → Repositories</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Method</th>
+                                    <th>Repository Invoked</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>AuthServiceImpl</td>
+                                    <td>authenticate()</td>
+                                    <td>UserRepository.findByUsername()</td>
+                                </tr>
+                                <tr>
+                                    <td>DeclarationServiceImpl</td>
+                                    <td>createDeclaration()</td>
+                                    <td>DeclarationRepository.save()</td>
+                                </tr>
+                                <tr>
+                                    <td>WorkflowEngineImpl</td>
+                                    <td>execute()</td>
+                                    <td>WorkflowInstanceRepository.save()</td>
+                                </tr>
+                                <tr>
+                                    <td>TempleProfileStagingServiceImpl</td>
+                                    <td>create()</td>
+                                    <td>TempleProfileStagingRepository.save()</td>
+                                </tr>
+                                <tr>
+                                    <td>NotificationServiceImpl</td>
+                                    <td>getUserNotifications()</td>
+                                    <td>InAppNotificationRepository.findByUserId()</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Event Publishers → Listeners</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Event Type</th>
+                                    <th>Publisher</th>
+                                    <th>Listener</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>GovernanceDomainEvent</td>
+                                    <td>WorkflowEngine</td>
+                                    <td>GovernanceDomainEventTimelineListener</td>
+                                    <td>Record timeline event</td>
+                                </tr>
+                                <tr>
+                                    <td>GovernanceDomainEvent</td>
+                                    <td>WorkflowEngine</td>
+                                    <td>NotificationRouter</td>
+                                    <td>Write notification outbox</td>
+                                </tr>
+                                <tr>
+                                    <td>DeclarationSubmittedEvent</td>
+                                    <td>DeclarationService</td>
+                                    <td>NotificationRouter</td>
+                                    <td>Notify DC users</td>
+                                </tr>
+                                <tr>
+                                    <td>TempleProfileSubmittedEvent</td>
+                                    <td>TempleProfileStagingService</td>
+                                    <td>NotificationRouter</td>
+                                    <td>Notify DC for review</td>
+                                </tr>
+                                <tr>
+                                    <td>ApprovalEvent</td>
+                                    <td>WorkflowEngine</td>
+                                    <td>NotificationRouter</td>
+                                    <td>Notify TA of approval</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script>
+        // Initialize Mermaid
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                primaryColor: '#3b82f6',
+                primaryTextColor: '#1e293b',
+                primaryBorderColor: '#1e40af',
+                lineColor: '#475569',
+                secondaryColor: '#8b5cf6',
+                tertiaryColor: '#06b6d4',
+                background: '#ffffff',
+                mainBkg: '#f8fafc',
+                secondBkg: '#e2e8f0',
+                border1: '#cbd5e1',
+                border2: '#94a3b8'
+            },
+            flowchart: {
+                curve: 'basis',
+                padding: 20
+            },
+            sequence: {
+                actorMargin: 50,
+                boxMargin: 10,
+                boxTextMargin: 5,
+                noteMargin: 10,
+                messageMargin: 35
+            }
+        });
+
+        // Sidebar toggle for mobile
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('active');
+        }
+
+        // Smooth scroll and active link
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                // Remove active class from all links
+                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                
+                // Add active class to clicked link
+                this.classList.add('active');
+                
+                // Smooth scroll to section
+                const targetId = this.getAttribute('href').substring(1);
+                const targetSection = document.getElementById(targetId);
+                
+                if (targetSection) {
+                    targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                
+                // Close sidebar on mobile
+                if (window.innerWidth <= 1024) {
+                    document.getElementById('sidebar').classList.remove('active');
+                }
+            });
+        });
+
+        // Table search functionality
+        function filterTable(inputId, tableId) {
+            const input = document.getElementById(inputId);
+            const filter = input.value.toUpperCase();
+            const table = document.getElementById(tableId);
+            const tr = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < tr.length; i++) {
+                let found = false;
+                const td = tr[i].getElementsByTagName('td');
+                
+                for (let j = 0; j < td.length; j++) {
+                    if (td[j]) {
+                        const txtValue = td[j].textContent || td[j].innerText;
+                        if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                
+                tr[i].style.display = found ? '' : 'none';
+            }
+        }
+
+        // Intersection Observer for fade-in animations
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.1
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, index) => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }, index * 100);
+                }
+            });
+        }, observerOptions);
+
+        // Observe all sections
+        document.addEventListener('DOMContentLoaded', () => {
+            const sections = document.querySelectorAll('.section');
+            sections.forEach(section => {
+                section.style.opacity = '0';
+                section.style.transform = 'translateY(20px)';
+                section.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                observer.observe(section);
+            });
+
+            // Update active nav link on scroll
+            let lastScrollTop = 0;
+            const sections_array = Array.from(sections);
+            
+            window.addEventListener('scroll', () => {
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                
+                sections_array.forEach(section => {
+                    const sectionTop = section.offsetTop - 100;
+                    const sectionBottom = sectionTop + section.offsetHeight;
+                    
+                    if (scrollTop >= sectionTop && scrollTop < sectionBottom) {
+                        const id = section.getAttribute('id');
+                        document.querySelectorAll('.nav-link').forEach(link => {
+                            link.classList.remove('active');
+                            if (link.getAttribute('href') === '#' + id) {
+                                link.classList.add('active');
+                            }
+                        });
+                    }
+                });
+                
+                lastScrollTop = scrollTop;
+            });
+        });
+    </script>
+</body>
+</html>

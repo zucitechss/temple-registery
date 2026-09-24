@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Temple Registry — Workflow State Machine</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+    .title-section h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .pulse-dot {
+      width: 10px;
+      height: 10px;
+      background: #34d399;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.1); }
+    }
+    .subtitle {
+      color: #64748b;
+      font-size: 13px;
+      margin-top: 6px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .toolbar-toggle {
+      background: rgba(51, 65, 85, 0.5);
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .toolbar-toggle:hover { background: rgba(71, 85, 105, 0.5); }
+    .toolbar-actions {
+      display: none;
+      gap: 8px;
+    }
+    .toolbar-actions.show { display: flex; }
+    .toolbar-btn {
+      background: rgba(51, 65, 85, 0.5);
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+    }
+    .toolbar-btn:hover {
+      background: rgba(71, 85, 105, 0.5);
+      color: #e2e8f0;
+    }
+    .diagram-card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .diagram-card svg {
+      width: 100%;
+      height: auto;
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 900px) {
+      .cards-grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .card-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.rose { background: #fb7185; }
+    .card-dot.amber { background: #fbbf24; }
+    .card h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #f8fafc;
+    }
+    .card-content {
+      font-size: 11px;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+    .card-content code {
+      background: rgba(51, 65, 85, 0.5);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+    }
+    .footer {
+      text-align: center;
+      color: #475569;
+      font-size: 11px;
+    }
+    @media print { .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="title-section">
+        <h1><span class="pulse-dot"></span> Workflow State Machine</h1>
+        <div class="subtitle">Temple Registry · Canonical Approval Workflow · 13 States · Source: TransitionRuleRegistry.java</div>
+      </div>
+      <div class="toolbar">
+        <div class="toolbar-actions">
+          <button class="toolbar-btn" onclick="copyAsImage()">📋 Copy</button>
+          <button class="toolbar-btn" onclick="downloadPNG()">🖼️ PNG</button>
+          <button class="toolbar-btn" onclick="downloadPDF()">📄 PDF</button>
+        </div>
+        <button class="toolbar-toggle" onclick="this.previousElementSibling.classList.toggle('show')">⋯</button>
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <svg viewBox="0 0 1200 720" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <!-- Grid pattern -->
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+          <!-- Arrowheads -->
+          <marker id="arrow-ta" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+          </marker>
+          <marker id="arrow-dc" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+          </marker>
+          <marker id="arrow-system" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+          </marker>
+          <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+          </marker>
+        </defs>
+        
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="#020617"/>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+        
+        <!-- ═══════════════════════════════════════════════════════════════════
+             ARROWS (drawn first to render behind state boxes)
+             ═══════════════════════════════════════════════════════════════════ -->
+        
+        <!-- TA Actions (Cyan) -->
+        <!-- DRAFT → SUBMITTED -->
+        <path d="M 200 130 L 200 175" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-ta)"/>
+        <text x="208" y="158" fill="#22d3ee" font-size="8" font-family="JetBrains Mono">SUBMIT</text>
+        
+        <!-- APPROVED → UPDATED_AFTER_APPROVAL -->
+        <path d="M 940 300 Q 1000 300 1000 380 Q 1000 460 940 460" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-ta)"/>
+        <text x="1010" y="385" fill="#22d3ee" font-size="8" font-family="JetBrains Mono">EDIT</text>
+        
+        <!-- RE_APPROVED → UPDATED_AFTER_APPROVAL -->
+        <path d="M 940 510 Q 1020 510 1020 460 L 940 460" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-ta)"/>
+        
+        <!-- REJECTED → UPDATED_AFTER_APPROVAL (via edit) -->
+        <path d="M 700 590 Q 780 590 780 460 L 820 460" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-ta)"/>
+        <text x="785" y="530" fill="#22d3ee" font-size="8" font-family="JetBrains Mono">EDIT</text>
+        
+        <!-- UPDATED_AFTER_APPROVAL → RESUBMITTED -->
+        <path d="M 820 460 L 620 460 Q 580 460 580 410 L 580 350" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-ta)"/>
+        <text x="665" y="450" fill="#22d3ee" font-size="8" font-family="JetBrains Mono">RESUBMIT</text>
+        
+        <!-- SUBMITTED → WITHDRAWN -->
+        <path d="M 120 230 L 120 590 L 180 590" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-ta)"/>
+        <text x="100" y="400" fill="#22d3ee" font-size="8" font-family="JetBrains Mono" transform="rotate(-90 100 400)">WITHDRAW</text>
+        
+        <!-- CLARIFICATION_REQUESTED → CLARIFICATION_RESPONDED -->
+        <path d="M 420 410 L 420 460 L 200 460 L 200 410" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-ta)"/>
+        <text x="260" y="475" fill="#22d3ee" font-size="8" font-family="JetBrains Mono">RESPOND</text>
+        
+        <!-- DC Actions (Emerald) -->
+        <!-- SUBMITTED → UNDER_REVIEW -->
+        <path d="M 280 210 L 360 210 L 360 290" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        <text x="285" y="200" fill="#34d399" font-size="8" font-family="JetBrains Mono">BEGIN_REVIEW</text>
+        
+        <!-- RESUBMITTED → UNDER_REVIEW -->
+        <path d="M 500 320 L 440 320" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        <text x="448" y="310" fill="#34d399" font-size="8" font-family="JetBrains Mono">REVIEW</text>
+        
+        <!-- CLARIFICATION_RESPONDED → UNDER_REVIEW -->
+        <path d="M 200 350 L 200 320 L 280 320" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        <text x="208" y="340" fill="#34d399" font-size="8" font-family="JetBrains Mono">REVIEW</text>
+        
+        <!-- SUBMITTED → APPROVED (direct) -->
+        <path d="M 280 210 Q 400 180 600 180 Q 750 180 850 240 L 850 270" fill="none" stroke="#34d399" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow-dc)"/>
+        <text x="600" y="168" fill="#34d399" font-size="8" font-family="JetBrains Mono">APPROVE (fast-track)</text>
+        
+        <!-- UNDER_REVIEW → APPROVED -->
+        <path d="M 440 320 L 820 300" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        <text x="600" y="295" fill="#34d399" font-size="8" font-family="JetBrains Mono">APPROVE</text>
+        
+        <!-- CLARIFICATION_RESPONDED → APPROVED -->
+        <path d="M 200 350 Q 200 280 500 265 Q 700 250 820 285" fill="none" stroke="#34d399" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow-dc)"/>
+        
+        <!-- RESUBMITTED → RE_APPROVED -->
+        <path d="M 580 350 Q 700 400 820 510" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        <text x="680" y="420" fill="#34d399" font-size="8" font-family="JetBrains Mono">RE_APPROVE</text>
+        
+        <!-- SUBMITTED → REJECTED -->
+        <path d="M 200 260 L 200 500 Q 200 550 350 575 L 580 590" fill="none" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+        
+        <!-- UNDER_REVIEW → REJECTED -->
+        <path d="M 360 350 L 360 500 Q 360 560 500 575 L 580 590" fill="none" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+        <text x="380" y="450" fill="#fb7185" font-size="8" font-family="JetBrains Mono">REJECT</text>
+        
+        <!-- RESUBMITTED → REJECTED -->
+        <path d="M 580 350 L 620 500 L 620 570" fill="none" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+        
+        <!-- SUBMITTED → CLARIFICATION_REQUESTED -->
+        <path d="M 200 260 L 200 290 Q 200 330 280 360 L 340 380" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        <text x="220" y="330" fill="#34d399" font-size="8" font-family="JetBrains Mono">CLARIFY</text>
+        
+        <!-- UNDER_REVIEW → CLARIFICATION_REQUESTED -->
+        <path d="M 360 350 L 420 380" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        
+        <!-- RESUBMITTED → CLARIFICATION_REQUESTED -->
+        <path d="M 500 320 Q 460 350 450 380" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-dc)"/>
+        
+        <!-- RESUBMITTED → RE_APPROVED (REJECT_EDIT) -->
+        <path d="M 580 290 Q 700 260 820 490" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow-gray)"/>
+        <text x="700" y="350" fill="#a78bfa" font-size="7" font-family="JetBrains Mono">REJECT_EDIT</text>
+        <text x="700" y="362" fill="#a78bfa" font-size="6" font-family="JetBrains Mono">(revert to approved)</text>
+        
+        <!-- System Actions (Amber) -->
+        <!-- SUBMITTED → OVERDUE -->
+        <path d="M 280 230 Q 400 270 460 230 Q 520 190 580 190 L 760 190" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-system)"/>
+        <text x="570" y="140" fill="#fbbf24" font-size="8" font-family="JetBrains Mono">FLAG_OVERDUE</text>
+        <text x="570" y="152" fill="#fbbf24" font-size="7" font-family="JetBrains Mono">(SLA breached)</text>
+        
+        <!-- APPROVED → SUPERSEDED -->
+        <path d="M 880 330 Q 950 400 950 570 Q 950 660 800 660 L 540 660" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-system)"/>
+        <text x="960" y="580" fill="#fbbf24" font-size="8" font-family="JetBrains Mono">AUTO_SUPERSEDE</text>
+        
+        <!-- RE_APPROVED → SUPERSEDED -->
+        <path d="M 880 540 Q 900 600 800 640 L 540 660" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-system)"/>
+        
+        <!-- ═══════════════════════════════════════════════════════════════════
+             STATE BOXES (drawn after arrows to render on top)
+             ═══════════════════════════════════════════════════════════════════ -->
+        
+        <!-- DRAFT (Initial State) -->
+        <rect x="120" y="70" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="120" y="70" width="160" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="2"/>
+        <circle cx="135" cy="100" r="6" fill="#22d3ee"/>
+        <text x="200" y="95" fill="white" font-size="12" font-weight="600" text-anchor="middle">DRAFT</text>
+        <text x="200" y="115" fill="#94a3b8" font-size="9" text-anchor="middle">TA edits freely</text>
+        
+        <!-- SUBMITTED -->
+        <rect x="120" y="180" width="160" height="80" rx="6" fill="#0f172a"/>
+        <rect x="120" y="180" width="160" height="80" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="200" y="210" fill="white" font-size="12" font-weight="600" text-anchor="middle">SUBMITTED</text>
+        <text x="200" y="228" fill="#94a3b8" font-size="9" text-anchor="middle">Awaiting DC review</text>
+        <text x="200" y="245" fill="#64748b" font-size="8" text-anchor="middle">TA cannot edit</text>
+        
+        <!-- UNDER_REVIEW -->
+        <rect x="280" y="290" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="280" y="290" width="160" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="360" y="315" fill="white" font-size="12" font-weight="600" text-anchor="middle">UNDER_REVIEW</text>
+        <text x="360" y="335" fill="#94a3b8" font-size="9" text-anchor="middle">DC reviewing</text>
+        
+        <!-- CLARIFICATION_REQUESTED -->
+        <rect x="340" y="380" width="180" height="60" rx="6" fill="#0f172a"/>
+        <rect x="340" y="380" width="180" height="60" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="430" y="405" fill="white" font-size="11" font-weight="600" text-anchor="middle">CLARIFICATION_REQ</text>
+        <text x="430" y="425" fill="#94a3b8" font-size="9" text-anchor="middle">DC needs info from TA</text>
+        
+        <!-- CLARIFICATION_RESPONDED -->
+        <rect x="120" y="350" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="120" y="350" width="160" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="200" y="375" fill="white" font-size="11" font-weight="600" text-anchor="middle">CLARIFY_RESPOND</text>
+        <text x="200" y="395" fill="#94a3b8" font-size="9" text-anchor="middle">TA responded</text>
+        
+        <!-- RESUBMITTED -->
+        <rect x="500" y="290" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="500" y="290" width="160" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="580" y="315" fill="white" font-size="12" font-weight="600" text-anchor="middle">RESUBMITTED</text>
+        <text x="580" y="335" fill="#94a3b8" font-size="9" text-anchor="middle">After edit/rejection</text>
+        
+        <!-- APPROVED (Success State) -->
+        <rect x="820" y="270" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="820" y="270" width="160" height="60" rx="6" fill="rgba(6, 78, 59, 0.5)" stroke="#34d399" stroke-width="2"/>
+        <text x="900" y="295" fill="#34d399" font-size="12" font-weight="700" text-anchor="middle">✓ APPROVED</text>
+        <text x="900" y="315" fill="#94a3b8" font-size="9" text-anchor="middle">Data goes live</text>
+        
+        <!-- RE_APPROVED -->
+        <rect x="820" y="480" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="820" y="480" width="160" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="900" y="505" fill="#34d399" font-size="12" font-weight="600" text-anchor="middle">✓ RE_APPROVED</text>
+        <text x="900" y="525" fill="#94a3b8" font-size="9" text-anchor="middle">After version update</text>
+        
+        <!-- UPDATED_AFTER_APPROVAL -->
+        <rect x="820" y="380" width="160" height="80" rx="6" fill="#0f172a"/>
+        <rect x="820" y="380" width="160" height="80" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="900" y="405" fill="white" font-size="10" font-weight="600" text-anchor="middle">UPDATED_AFTER</text>
+        <text x="900" y="420" fill="white" font-size="10" font-weight="600" text-anchor="middle">_APPROVAL</text>
+        <text x="900" y="440" fill="#94a3b8" font-size="9" text-anchor="middle">TA edited approved</text>
+        <text x="900" y="455" fill="#64748b" font-size="8" text-anchor="middle">Needs resubmit</text>
+        
+        <!-- OVERDUE -->
+        <rect x="760" y="160" width="140" height="50" rx="6" fill="#0f172a"/>
+        <rect x="760" y="160" width="140" height="50" rx="6" fill="rgba(120, 53, 15, 0.4)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="830" y="182" fill="#fbbf24" font-size="11" font-weight="600" text-anchor="middle">⚠ OVERDUE</text>
+        <text x="830" y="198" fill="#94a3b8" font-size="8" text-anchor="middle">SLA deadline passed</text>
+        
+        <!-- REJECTED (Terminal) -->
+        <rect x="580" y="560" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="580" y="560" width="160" height="60" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="2"/>
+        <text x="660" y="585" fill="#fb7185" font-size="12" font-weight="700" text-anchor="middle">✗ REJECTED</text>
+        <text x="660" y="605" fill="#94a3b8" font-size="9" text-anchor="middle">Terminal (this version)</text>
+        
+        <!-- WITHDRAWN (Terminal) -->
+        <rect x="180" y="560" width="140" height="60" rx="6" fill="#0f172a"/>
+        <rect x="180" y="560" width="140" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="250" y="585" fill="#94a3b8" font-size="12" font-weight="600" text-anchor="middle">WITHDRAWN</text>
+        <text x="250" y="605" fill="#64748b" font-size="9" text-anchor="middle">TA cancelled</text>
+        
+        <!-- SUPERSEDED (Terminal) -->
+        <rect x="380" y="630" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="380" y="630" width="160" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="460" y="655" fill="#94a3b8" font-size="12" font-weight="600" text-anchor="middle">SUPERSEDED</text>
+        <text x="460" y="675" fill="#64748b" font-size="9" text-anchor="middle">Older version replaced</text>
+        
+        <!-- ═══════════════════════════════════════════════════════════════════
+             LEGEND
+             ═══════════════════════════════════════════════════════════════════ -->
+        <rect x="40" y="650" width="300" height="55" rx="8" fill="rgba(15, 23, 42, 0.8)" stroke="#1e293b" stroke-width="1"/>
+        <text x="55" y="668" fill="#94a3b8" font-size="9" font-weight="600">LEGEND</text>
+        
+        <!-- TA Actions -->
+        <line x1="55" y1="682" x2="85" y2="682" stroke="#22d3ee" stroke-width="2"/>
+        <polygon points="83,679 90,682 83,685" fill="#22d3ee"/>
+        <text x="95" y="686" fill="#22d3ee" font-size="8">TA Action</text>
+        
+        <!-- DC Actions -->
+        <line x1="160" y1="682" x2="190" y2="682" stroke="#34d399" stroke-width="2"/>
+        <polygon points="188,679 195,682 188,685" fill="#34d399"/>
+        <text x="200" y="686" fill="#34d399" font-size="8">DC Action</text>
+        
+        <!-- System Actions -->
+        <line x1="265" y1="682" x2="295" y2="682" stroke="#fbbf24" stroke-width="2" stroke-dasharray="3,3"/>
+        <polygon points="293,679 300,682 293,685" fill="#fbbf24"/>
+        <text x="305" y="686" fill="#fbbf24" font-size="8">System</text>
+        
+        <!-- Reject -->
+        <line x1="55" y1="697" x2="85" y2="697" stroke="#fb7185" stroke-width="2"/>
+        <text x="95" y="701" fill="#fb7185" font-size="8">Reject</text>
+        
+        <!-- Special -->
+        <line x1="145" y1="697" x2="175" y2="697" stroke="#a78bfa" stroke-width="2" stroke-dasharray="4,2"/>
+        <text x="185" y="701" fill="#a78bfa" font-size="8">Special (REJECT_EDIT)</text>
+        
+        <!-- Actor labels -->
+        <text x="1030" y="100" fill="#22d3ee" font-size="10" font-weight="600">TA = Temple Authority</text>
+        <text x="1030" y="118" fill="#34d399" font-size="10" font-weight="600">DC = District Collector</text>
+        <text x="1030" y="136" fill="#fbbf24" font-size="10" font-weight="600">SYSTEM = Scheduler</text>
+      </svg>
+    </div>
+
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>TA (Temple Authority) Actions</h3>
+        </div>
+        <div class="card-content">
+          <code>SUBMIT</code> Draft → Submitted<br>
+          <code>RESUBMIT</code> Updated → Resubmitted<br>
+          <code>RESPOND_CLARIFICATION</code> Respond to DC<br>
+          <code>WITHDRAW</code> Cancel submission<br>
+          <code>EDIT_APPROVED</code> Modify approved record
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>DC (District Collector) Actions</h3>
+        </div>
+        <div class="card-content">
+          <code>BEGIN_REVIEW</code> Start reviewing<br>
+          <code>APPROVE</code> Accept submission<br>
+          <code>RE_APPROVE</code> Accept updated version<br>
+          <code>REJECT</code> Terminal rejection<br>
+          <code>REQUEST_CLARIFICATION</code> Need more info<br>
+          <code>REJECT_EDIT</code> Revert to approved
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>System (Scheduler) Actions</h3>
+        </div>
+        <div class="card-content">
+          <code>FLAG_OVERDUE</code> SLA deadline breached<br>
+          <code>WARN_DEADLINE_APPROACHING</code> 48h warning<br>
+          <code>AUTO_SUPERSEDE</code> Archive old version<br><br>
+          Scheduled via <code>OverdueWorkflowScheduler</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Source: <code>backend/src/main/java/com/templeregistry/service/workflow/TransitionRuleRegistry.java</code> · 
+      <code>entity/workflow/WorkflowStatus.java</code> · Generated June 2026
+    </div>
+  </div>
+
+  <script>
+    async function captureRect() {
+      const container = document.getElementById('report-container');
+      const rect = container.getBoundingClientRect();
+      const padding = 32;
+      return {
+        x: rect.x - padding,
+        y: rect.y - padding,
+        width: rect.width + padding * 2,
+        height: rect.height + padding * 2
+      };
+    }
+
+    async function copyAsImage() {
+      const rect = await captureRect();
+      const canvas = await html2canvas(document.body, {
+        x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 2,
+        backgroundColor: '#020617',
+        ignoreElements: el => el.classList.contains('toolbar')
+      });
+      canvas.toBlob(blob => navigator.clipboard.write([new ClipboardItem({'image/png': blob})]));
+    }
+
+    async function downloadPNG() {
+      const rect = await captureRect();
+      const canvas = await html2canvas(document.body, {
+        x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 2,
+        backgroundColor: '#020617',
+        ignoreElements: el => el.classList.contains('toolbar')
+      });
+      const link = document.createElement('a');
+      link.download = 'workflow-state-machine.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    async function downloadPDF() {
+      const rect = await captureRect();
+      const canvas = await html2canvas(document.body, {
+        x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 2,
+        backgroundColor: '#020617',
+        ignoreElements: el => el.classList.contains('toolbar')
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [rect.width, rect.height] });
+      pdf.addImage(imgData, 'PNG', 0, 0, rect.width, rect.height);
+      pdf.save('workflow-state-machine.pdf');
+    }
+  </script>
+</body>
+</html>

@@ -23,6 +23,8 @@ import com.templeregistry.repository.geo.DistrictRepository;
 import com.templeregistry.repository.declaration.DeclarationRepository;
 import com.templeregistry.repository.employee.EmployeeRepository;
 import com.templeregistry.repository.geo.CityRepository;
+import com.templeregistry.repository.geo.HobliRepository;
+import com.templeregistry.entity.temple.TempleProfileStaging;
 import com.templeregistry.repository.temple.TempleProfileStagingRepository;
 import com.templeregistry.repository.temple.TempleRepository;
 import com.templeregistry.repository.temple.TempleSearchSummaryRepository;
@@ -82,6 +84,7 @@ class DcTempleProfileServiceImplTest {
     @Mock private DeclMovEquipmentRepository equipmentRepository;
     @Mock private CityRepository cityRepository;
     @Mock private DistrictRepository districtRepository;
+    @Mock private HobliRepository hobliRepository;
     @Mock private JurisdictionGuard jurisdictionGuard;
     @Mock private FileStorageService fileStorageService;
     @Mock private GovernanceStatusResolver governanceStatusResolver;
@@ -393,5 +396,69 @@ class DcTempleProfileServiceImplTest {
         assertThat(summary.getWorkflowStatus()).isEqualTo("SUBMITTED");
         assertThat(summary.getReviewStatus()).isEqualTo("PENDING");
         assertThat(summary.isVerifiedByDc()).isFalse();
+    }
+
+    // ── Test: geo fallback from pending staging (the fix for first-time submissions) ──
+
+    @Test
+    void should_resolveGeoNamesFromPendingStaging_when_templeHobliIsNullAndStagingIsSubmitted() {
+        // Scenario: TA submits profile for the first time. Temple entity has no hobliId yet
+        // (promoteToTemple only writes it on approval). The pending staging carries hobliId.
+        // DC must see correct City, Hobli, Taluk, District before approving.
+        Temple temple = templeWithoutHobli();
+        temple.setId(20L);
+        stubMinimumForGetFullProfile(temple);
+        when(summaryRepository.findByTempleId(20L)).thenReturn(Optional.empty());
+
+        City city = City.builder().name("Mysuru Division").build();
+        District district = District.builder().name("Mysuru").city(city).build();
+        district.setId(10L);
+        Taluk taluk = Taluk.builder().district(district).name("Mysuru Taluk").build();
+        taluk.setId(20L);
+        Hobli stagingHobli = Hobli.builder().taluk(taluk).name("Alanahalli Hobli").build();
+        stagingHobli.setId(30L);
+
+        TempleProfileStaging staging = TempleProfileStaging.builder()
+                .templeId(20L)
+                .hobliId(30L)
+                .build();
+
+        when(profileStagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
+                eq(20L),
+                eq(List.of(WorkflowStatus.SUBMITTED, WorkflowStatus.UNDER_REVIEW, WorkflowStatus.RESUBMITTED))))
+                .thenReturn(Optional.of(staging));
+        when(hobliRepository.findWithGeoById(30L)).thenReturn(Optional.of(stagingHobli));
+
+        TempleFullProfileResponse result = service.getFullProfile(20L, SUPER_ADMIN_CLAIMS);
+
+        assertThat(result.getHobliName()).isEqualTo("Alanahalli Hobli");
+        assertThat(result.getTalukName()).isEqualTo("Mysuru Taluk");
+        assertThat(result.getDistrictName()).isEqualTo("Mysuru");
+        assertThat(result.getCityName()).isEqualTo("Mysuru Division");
+    }
+
+    @Test
+    void should_notInvokeStagingFallback_when_templeHobliIsAlreadyPopulated() {
+        // Regression: when the temple entity already has hobliId set (post-approval state),
+        // geo names must come from the temple's own hobli chain and the staging fallback
+        // must not be entered.
+        Temple temple = templeWithFullGeo();
+        temple.setId(21L);
+        stubMinimumForGetFullProfile(temple);
+
+        City city = City.builder().name("Mysuru Division").build();
+        TempleSearchSummary summary = TempleSearchSummary.builder()
+                .templeId(21L).cityId(5L).build();
+        when(summaryRepository.findByTempleId(21L)).thenReturn(Optional.of(summary));
+        when(cityRepository.findById(5L)).thenReturn(Optional.of(city));
+
+        TempleFullProfileResponse result = service.getFullProfile(21L, SUPER_ADMIN_CLAIMS);
+
+        assertThat(result.getHobliName()).isEqualTo("Alanahalli Hobli");
+        assertThat(result.getTalukName()).isEqualTo("Mysuru Taluk");
+        assertThat(result.getDistrictName()).isEqualTo("Mysuru");
+        assertThat(result.getCityName()).isEqualTo("Mysuru Division");
+        // Fallback must not be triggered — hobliRepository is never consulted
+        verify(hobliRepository, never()).findWithGeoById(any());
     }
 }

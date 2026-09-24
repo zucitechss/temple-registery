@@ -32,7 +32,7 @@ spring:
 
   # Notification Module - Email Configuration
   mail:
-    enabled: true  # Set to true when you have SMTP configured
+    enabled: true # Set to true when you have SMTP configured
     host: smtp.gmail.com
     port: 587
     username: ${SMTP_USERNAME}
@@ -68,13 +68,13 @@ email:
 
 app:
   flyway:
-    auto-repair: true  # dev-only: auto-repairs failed migrations on each startup. NEVER enable in production.
+    auto-repair: true # dev-only: auto-repairs failed migrations on each startup. NEVER enable in production.
   jwt:
     private-key-path: classpath:keys/jwt-private.pem
     public-key-path: classpath:keys/jwt-public.pem
     access-token-expiry-ms: 7200000
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:5174
+    allowed-origins: http://localhost:5173,http://localhost:5174,https://temple-registery.vercel.app
   encryption:
     # 32-byte dev key — ONLY safe in local/dev profile, never used in staging or prod
     key: ${APP_ENCRYPTION_KEY}

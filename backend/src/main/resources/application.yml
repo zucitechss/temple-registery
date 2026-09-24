@@ -1,3 +1,6 @@
+server:
+  port: ${PORT:8080}
+
 spring:
   application:
     name: temple-registry-backend
@@ -76,7 +79,7 @@ app:
     access-token-expiry-ms: 7200000
 
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:5174,http://localhost:5173
+    allowed-origins: http://localhost:5173,http://localhost:5174,https://temple-registery.vercel.app
 
   encryption:
     key: ${APP_ENCRYPTION_KEY:TempleRegDev32ByteKey!!Replace!!}

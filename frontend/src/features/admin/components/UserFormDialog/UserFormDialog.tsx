@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import { USER_ROLES, type UserRole } from '@/constants/roles'
 import { useListAllDistrictsQuery, useSearchTemplesQuery } from '../../adminApi'
-import { useGetCitiesQuery } from '@/features/geo/geoApi'
+import { useGetCitiesQuery, useGetTaluksQuery, useGetHoblisQuery } from '@/features/geo/geoApi'
 import type { UserAdminResponse, CreateUserRequest, TempleOption } from '../../adminApi'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -47,10 +47,13 @@ const userSchema = z.object({
   aadhaarNumber: z.string().regex(/^\d{12}$/, 'Must be 12 digits').optional().or(z.literal('')),
   // TA: new temple
   templeName: z.string().max(255).optional(),
+  // TA: new temple — geo hierarchy below district (optional)
+  talukId: z.string().optional(),
+  hobliId: z.string().optional(),
   // TA: existing temple — stored as string because RHF works with strings for now
   existingTempleId: z.string().optional(),
   // TA: designation and access type
-  designation: z.string().min(1, 'Designation is required').max(150),
+  designation: z.string().max(150).optional(),
   accessType: z.enum(['VIEW', 'EDIT']).default('EDIT'),
 })
 
@@ -96,8 +99,22 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
 
   const watchedRoleValue = form.watch('role')
   const watchedCityId = form.watch('cityId')
+  const watchedDistrictId = form.watch('districtId')
+  const watchedTalukId = form.watch('talukId')
   const isTempleAuthority = watchedRoleValue === USER_ROLES.TEMPLE_AUTHORITY
   const showGeoCity = ([USER_ROLES.TEMPLE_AUTHORITY, USER_ROLES.DISTRICT_COLLECTOR, USER_ROLES.DC_STAFF] as UserRole[]).includes(watchedRoleValue as UserRole)
+  // Taluk/Hobli only apply to the temple being created (Case 1) — not to DC/DC_STAFF's own jurisdiction.
+  const showNewTempleGeo = isTempleAuthority && !isEdit && createTemple
+
+  const { data: taluksData, isLoading: loadingTaluks } = useGetTaluksQuery(
+    Number(watchedDistrictId), { skip: !showNewTempleGeo || !watchedDistrictId },
+  )
+  const taluks = taluksData?.data ?? []
+
+  const { data: hoblisData, isLoading: loadingHoblis } = useGetHoblisQuery(
+    Number(watchedTalukId), { skip: !showNewTempleGeo || !watchedTalukId },
+  )
+  const hoblis = hoblisData?.data ?? []
 
   // Temple dropdown search query (only fires when TA and toggle is OFF)
   const skipTempleSearch = !isTempleAuthority || createTemple
@@ -149,8 +166,23 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
       form.setValue('aadhaarNumber', '')
       form.setValue('existingTempleId', '')
       form.setValue('designation', '')
+      form.setValue('talukId', '')
+      form.setValue('hobliId', '')
     }
   }, [isTempleAuthority])
+
+  // Clear taluk/hobli when the district changes — a taluk belongs to exactly one district
+  useEffect(() => {
+    form.setValue('talukId', '')
+    form.setValue('hobliId', '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedDistrictId])
+
+  // Clear hobli when the taluk changes — a hobli belongs to exactly one taluk
+  useEffect(() => {
+    form.setValue('hobliId', '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedTalukId])
 
   // Auto-fill district and city from selected existing temple (Case 2).
   // cityId is derived from the loaded districts list if the temple record doesn't carry it directly
@@ -186,6 +218,10 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
       form.setError('existingTempleId', { message: 'Please select an existing temple' })
       return
     }
+    if (isTempleAuthority && (!values.designation || values.designation.trim() === '')) {
+      form.setError('designation', { message: 'Designation is required' })
+      return
+    }
 
     await onSubmit({
       username: values.username,
@@ -199,6 +235,8 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
       aadhaarNumber: isTempleAuthority && values.aadhaarNumber ? values.aadhaarNumber : undefined,
       createTemple: isTempleAuthority ? createTemple : undefined,
       templeName: isTempleAuthority && createTemple ? values.templeName : undefined,
+      talukId: isTempleAuthority && createTemple && values.talukId ? Number(values.talukId) : undefined,
+      hobliId: isTempleAuthority && createTemple && values.hobliId ? Number(values.hobliId) : undefined,
       existingTempleId: isTempleAuthority && !createTemple && values.existingTempleId
         ? Number(values.existingTempleId)
         : undefined,
@@ -256,6 +294,8 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
                       setCreateTemple(checked)
                       form.setValue('templeName', '')
                       form.setValue('existingTempleId', '')
+                      form.setValue('talukId', '')
+                      form.setValue('hobliId', '')
                       form.clearErrors('templeName')
                       form.clearErrors('existingTempleId')
                     }}
@@ -411,6 +451,48 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
                   </FormItem>
                 )
               }} />
+
+              {/* Taluk / Hobli — new temple geo hierarchy (Case 1 only), both optional */}
+              {showNewTempleGeo && (
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField control={form.control} name="talukId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Taluk <span className="text-xs text-muted-foreground font-normal">(Optional)</span></FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value ?? ''} disabled={!watchedDistrictId}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={!watchedDistrictId ? 'Select district first' : loadingTaluks ? 'Loading...' : 'Select taluk'} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="max-h-64">
+                          {taluks.map(t => (
+                            <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="hobliId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Hobli <span className="text-xs text-muted-foreground font-normal">(Optional)</span></FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value ?? ''} disabled={!watchedTalukId}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={!watchedTalukId ? 'Select taluk first' : loadingHoblis ? 'Loading...' : 'Select hobli'} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="max-h-64">
+                          {hoblis.map(h => (
+                            <SelectItem key={h.id} value={String(h.id)}>{h.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+              )}
 
               {/* Username + Email */}
               <div className="grid grid-cols-2 gap-4">
@@ -656,6 +738,8 @@ function buildDefaults(user?: UserAdminResponse | null): UserFormValues {
     cityId: user?.cityId != null ? String(user.cityId) : '',
     districtId: user?.districtId != null ? String(user.districtId) : '',
     templeName: '',
+    talukId: '',
+    hobliId: '',
     aadhaarNumber: user?.aadhaarNumber ?? '',
     existingTempleId: '',
     designation: user?.designation ?? '',

@@ -1,9 +1,11 @@
-export function formatCurrency(value?: number | null): string {
+/** @param compact renders lakh/crore short form (₹1.25Cr) for tight spaces like KPI cards. */
+export function formatCurrency(value?: number | null, compact = false): string {
   if (value == null) return '—'
-  return new Intl.NumberFormat('en-IN', { 
-    style: 'currency', 
-    currency: 'INR', 
-    maximumFractionDigits: 0 
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    notation: compact ? 'compact' : 'standard',
+    maximumFractionDigits: compact ? 2 : 0
   }).format(value)
 }
 

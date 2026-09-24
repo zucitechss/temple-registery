@@ -18,33 +18,55 @@ public class CorsConfig implements WebMvcConfigurer {
     @Value("${app.cors.allowed-origins}")
     private String allowedOriginsRaw;
 
-    /**
-     * Spring Security CORS integration: this bean is picked up by Spring Security's
-     * CorsConfigurer (via Customizer.withDefaults()) so that OPTIONS preflight requests
-     * receive proper CORS headers BEFORE authentication filters run.
-     * Without this, preflight requests to authenticated endpoints get 401/403 with no
-     * Access-Control-Allow-Origin header, causing browser CORS errors.
-     */
+    private List<String> getAllowedOrigins() {
+        return Arrays.stream(allowedOriginsRaw.split(","))
+                .map(String::trim)
+                .toList();
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(Arrays.asList(allowedOriginsRaw.split(",")));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+
+        config.setAllowedOrigins(getAllowedOrigins());
+
+        config.setAllowedMethods(List.of(
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "OPTIONS"
+        ));
+
         config.setAllowedHeaders(List.of("*"));
+        config.setExposedHeaders(List.of("Authorization"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/**", config);
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+        // Apply CORS to all endpoints
+        source.registerCorsConfiguration("/**", config);
+
         return source;
     }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        String[] origins = allowedOriginsRaw.split(",");
-        registry.addMapping("/api/**")
-                .allowedOrigins(origins)
-                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+
+        registry.addMapping("/**")
+                .allowedOrigins(getAllowedOrigins().toArray(new String[0]))
+                .allowedMethods(
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE",
+                        "OPTIONS"
+                )
                 .allowedHeaders("*")
                 .allowCredentials(true)
                 .maxAge(3600);

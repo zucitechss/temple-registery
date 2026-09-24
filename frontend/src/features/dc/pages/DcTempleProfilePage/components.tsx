@@ -42,7 +42,7 @@ export function KpiCard({ label, value, icon, variant = 'neutral', note, classNa
       <div className="min-w-0">
         <p className="text-xs font-medium text-muted-foreground/80 uppercase tracking-label">{label}</p>
         <div className="flex items-baseline gap-2 mt-1">
-          <h3 className="text-xl font-bold text-foreground tracking-title leading-none">{value}</h3>
+          <h3 className="text-base font-bold text-foreground tracking-title leading-tight truncate" title={String(value)}>{value}</h3>
           {note && <span className="text-xs text-muted-foreground font-regular break-words">({note})</span>}
         </div>
       </div>
