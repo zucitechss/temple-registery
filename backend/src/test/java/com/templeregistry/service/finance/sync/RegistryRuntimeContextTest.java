@@ -3,6 +3,8 @@ package com.templeregistry.service.finance.sync;
 import com.templeregistry.TempleRegistryApplication;
 import com.templeregistry.connector.finance.ConnectorRegistry;
 import com.templeregistry.connector.finance.TempleFinanceConnector;
+import com.templeregistry.service.finance.pipeline.FinancePipelineOrchestrator;
+import com.templeregistry.service.finance.pipeline.RevenueExtractionStage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +67,29 @@ class RegistryRuntimeContextTest {
         assertThat(context.getBeanNamesForType(ConnectorRegistry.class)).isEmpty();
         assertThat(context.getBeanNamesForType(TempleFinanceConnector.class)).isEmpty();
         assertThat(context.containsBean("connectorRegistry")).isFalse();
+    }
+
+    /**
+     * FIN-058. Until this slice nothing could start a run, so "the registry cannot execute the
+     * pipeline" was true because nothing could. It is now a property that has to be asserted.
+     *
+     * <p>Neither of these beans lives in a package the scan below covers — the orchestrator is in
+     * {@code service.finance.pipeline} — so they are named explicitly. Either one in this runtime
+     * would mean an HTTP request could reach a temple database and write a canonical figure.
+     */
+    @Test
+    @DisplayName("Registry runtime cannot start or run a synchronisation")
+    void should_loadNoExecutionPath_when_registryProfileActive() {
+        assertThat(context.getBeanNamesForType(ManualSyncTrigger.class))
+                .as("Nothing in the registry runtime may create an execution batch")
+                .isEmpty();
+        assertThat(context.getBeanNamesForType(FinancePipelineOrchestrator.class))
+                .as("Nothing in the registry runtime may run the ingestion pipeline")
+                .isEmpty();
+        assertThat(context.getBeanNamesForType(RevenueExtractionStage.class))
+                .as("Extraction is the stage that touches a connector")
+                .isEmpty();
+        assertThat(context.containsBean("manualSyncTrigger")).isFalse();
     }
 
     /**

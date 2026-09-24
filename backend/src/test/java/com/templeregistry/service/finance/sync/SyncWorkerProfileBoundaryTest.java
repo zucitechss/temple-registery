@@ -5,6 +5,7 @@ import com.templeregistry.config.SchedulingConfig;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
 import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinAggRevenuePeriodRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
 import com.templeregistry.repository.finance.FinSourceSystemRepository;
@@ -12,6 +13,8 @@ import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
+import com.templeregistry.repository.finance.FinTempleCapabilityRepository;
+import com.templeregistry.repository.temple.TempleRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -84,11 +87,16 @@ class SyncWorkerProfileBoundaryTest {
                         .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
                         .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
                         .withBean(FinRevenueFactRepository.class, () -> mock(FinRevenueFactRepository.class))
+                        .withBean(FinAggRevenuePeriodRepository.class, () -> mock(FinAggRevenuePeriodRepository.class))
                         .withBean(FinReconciliationResultRepository.class, () -> mock(FinReconciliationResultRepository.class))
                         .withBean(FinSourceOfTruthDeclRepository.class, () -> mock(FinSourceOfTruthDeclRepository.class))
                         .withBean(FinSourceSystemRepository.class, () -> mock(FinSourceSystemRepository.class))
                         .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
                         .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
+                        // FIN-058: the manual trigger recomputes readiness before starting a run,
+                        // which is what brought these two into the worker's dependency list.
+                        .withBean(FinTempleCapabilityRepository.class, () -> mock(FinTempleCapabilityRepository.class))
+                        .withBean(TempleRepository.class, () -> mock(TempleRepository.class))
                         .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
                         .withBean(ObjectMapper.class, ObjectMapper::new);
 
@@ -115,6 +123,11 @@ class SyncWorkerProfileBoundaryTest {
                                 + "nothing serving HTTP should be able to write a figure")
                         .hasBean("revenueLoadStage");
                 assertThat(context)
+                        .as("FIN-058: the one thing that can start a run reaches a temple database "
+                                + "and writes a canonical figure in a single call, so it belongs "
+                                + "here and nowhere else")
+                        .hasBean("manualSyncTrigger");
+                assertThat(context)
                         .as("extraction is the one stage that touches a connector, so it could "
                                 + "never belong anywhere but the worker")
                         .hasBean("revenueExtractionStage");
@@ -122,6 +135,12 @@ class SyncWorkerProfileBoundaryTest {
                         .as("reconciliation asks a connector for the source's own totals, so it "
                                 + "can reach a temple system exactly as extraction can")
                         .hasBean("revenueReconciliationStage");
+
+                assertThat(context)
+                        .as("the aggregate writer publishes a financial figure -- existing in "
+                                + "fin_agg_revenue_period is what publication means -- so it "
+                                + "belongs to the worker for the same reason the load does")
+                        .hasBean("revenueAggregationWriter");
 
                 assertThat(context)
                         .as("the orchestrator can reach a source system and write a canonical "

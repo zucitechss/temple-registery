@@ -117,6 +117,10 @@ These bind every decision below. They are properties of the code, not preference
 **Recommendation:** **ACCEPT** — as a standalone task before a second source system is registered
 for any temple. **Not a blocker for FIN-070.**
 
+> **EXECUTED by FIN-052A, migration `V118__finance_fact_grain_source_system.sql`** (FIN-D-067).
+> The fact grain is now eight columns. `fin_temple_capability` and `fin_service_dim` remain
+> deferred under D9, as this decision specified.
+
 ### 4.1 Evidence
 
 ```sql
@@ -779,7 +783,7 @@ unverified against a real temple until it exists.
 
 | ID | Decision | Outcome | Rationale in one line | Blocks FIN-070 |
 |---|---|---|---|---|
-| **D1** | `source_system_id` in the fact grain | **ACCEPTED** — standalone task, deadline = second source system | Widening a UNIQUE key is safe with or without data; what expires is recovery of already-overwritten facts | No |
+| **D1** | `source_system_id` in the fact grain | **ACCEPTED — and executed by FIN-052A (V118)** | Widening a UNIQUE key is safe with or without data; what expires is recovery of already-overwritten facts | No |
 | **D1a** | `uk_ftc_temple_capability` source scope | **DEFERRED** with conditions (D9) | Not a mechanical widening — it forces an unanswered design question about disagreeing sources | No |
 | **D1b** | `uk_fsd_temple_service` source scope | **DEFERRED**, same deadline as D1 | Same assumption, newly found, lower stakes | No |
 | **D3** | Orphan-fact restatement | **Option A ACCEPTED**; Option C approved as successor, unimplemented; **B and D REJECTED** | B needs fact-level record identity that FIN-D-040 removed; D is unenforceable and would strand `UNMAPPED` revenue forever | No |

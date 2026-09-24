@@ -106,4 +106,20 @@ public class FinSourceSystem extends BaseEntity {
 
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
+
+    /**
+     * Optimistic lock for administrative edits (FIN-140, V120).
+     *
+     * <p>Two administrators can load the same source system and save different connector beans or
+     * credential aliases. Without this the second write wins silently and the first caller is told
+     * it succeeded, so which external database feeds a temple's published figures would be decided
+     * by request ordering.
+     *
+     * <p>Declared here rather than on {@code BaseEntity} for the reason {@code FinMappingRule}
+     * gives: a lock belongs on the entities that are actually edited, not on every audited row.
+     */
+    @Version
+    @Builder.Default
+    @Column(name = "version", nullable = false)
+    private Integer version = 0;
 }

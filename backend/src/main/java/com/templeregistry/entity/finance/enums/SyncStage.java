@@ -7,5 +7,8 @@ public enum SyncStage {
     MAP,
     NORMALIZE,
     LOAD,
-    RECONCILE
+    RECONCILE,
+
+    /** Rebuilding period aggregates from facts (FIN-072). Never re-extracts, never rewrites a fact. */
+    AGGREGATE
 }

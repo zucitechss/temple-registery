@@ -49,6 +49,15 @@ public class GlobalExceptionHandler {
         }
     }
 
+    /**
+     * A financial-year request parameter that is not canonical form (FIN-081).
+     */
+    @ExceptionHandler(InvalidFinancialYearException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidFinancialYear(InvalidFinancialYearException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ex.getMessage(), "INVALID_FINANCIAL_YEAR"));
+    }
+
     @ExceptionHandler(IllegalStatusTransitionException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalTransition(IllegalStatusTransitionException ex) {
         log.warn("Illegal status transition: {}", ex.getMessage());

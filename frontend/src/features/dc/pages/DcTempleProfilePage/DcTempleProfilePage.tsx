@@ -55,6 +55,7 @@ import { useAppSelector } from '@/app/store'
 import { USER_ROLES } from '@/constants/roles'
 import { usePermissions } from '@/features/access-control/hooks/usePermissions'
 import { TARGET_KEYS } from '@/features/access-control/constants/targetKeys'
+import { FinanceDashboardTab } from '@/features/finance-reporting/pages/FinanceDashboardTab/FinanceDashboardTab'
 import {
   useDcTempleProfile,
   useDcDeclarationDetail,
@@ -109,10 +110,6 @@ import {
   DocumentsTab,
   TimelineTab,
 } from './tabs'
-
-/** Kollur Sri Mookambika Devi Temple — the only temple with a prepared static finance dashboard. */
-const FINANCE_DASHBOARD_TEMPLE_ID = 300001
-const FINANCE_DASHBOARD_SRC = '/dc/temple-300001-dashboard.html'
 
 export function DcTempleProfilePage() {
   const { templeId } = useParams<{ templeId: string }>()
@@ -389,8 +386,6 @@ export function DcTempleProfilePage() {
                   { v: 'timeline',     label: 'Timeline',      icon: <Clock size={14} />,       count: null,                    targetKey: TARGET_KEYS.TAB_DC_TEMPLE_TIMELINE },
                 ] as const
               ).filter((tab) => tab.v !== 'timeline' || showProfileGovernance || canAct)
-              // Static oversight dashboard exists only for Kollur Sri Mookambika Devi Temple.
-              .filter((tab) => tab.v !== 'finance' || id === FINANCE_DASHBOARD_TEMPLE_ID)
               .filter((tab) => can(tab.targetKey))
               .map((tab) => (
                 <TabsTrigger
@@ -584,14 +579,9 @@ export function DcTempleProfilePage() {
           </TabsContent>
           )}
 
-          {id === FINANCE_DASHBOARD_TEMPLE_ID && can(TARGET_KEYS.TAB_DC_TEMPLE_FINANCE) && (
-          <TabsContent value="finance" className="mt-0 focus-visible:outline-none animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Full-bleeed: the static page carries its own 24px gutter, matching the tab bar's px-6. */}
-            <iframe
-              src={FINANCE_DASHBOARD_SRC}
-              title="Finance Dashboard — Kollur Sri Mookambika Devi Temple"
-              className="block w-full border-0 bg-[#161513] h-[calc(100vh-7rem)]"
-            />
+          {can(TARGET_KEYS.TAB_DC_TEMPLE_FINANCE) && (
+          <TabsContent value="finance" className="mt-0 focus-visible:outline-none animate-in fade-in slide-in-from-bottom-4 duration-500 px-6 pb-6">
+            <FinanceDashboardTab templeId={id} />
           </TabsContent>
           )}
         </div>

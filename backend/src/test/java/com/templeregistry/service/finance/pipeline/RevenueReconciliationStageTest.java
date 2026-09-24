@@ -36,6 +36,7 @@ import com.templeregistry.entity.finance.enums.SyncStatus;
 import com.templeregistry.entity.finance.enums.SyncTrigger;
 import com.templeregistry.entity.finance.enums.SyncType;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinAggRevenuePeriodRepository;
 import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
@@ -45,6 +46,9 @@ import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
+import com.templeregistry.service.finance.aggregation.RevenueAggregationRebuilder;
+import com.templeregistry.service.finance.aggregation.RevenueAggregationWriter;
+import com.templeregistry.service.finance.publication.ReconciliationGate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -134,6 +138,7 @@ class RevenueReconciliationStageTest {
     @Autowired private FinSyncErrorRepository errors;
     @Autowired private FinSyncBatchRepository batches;
     @Autowired private FinReconciliationResultRepository results;
+    @Autowired private FinAggRevenuePeriodRepository aggregates;
     @Autowired private PlatformTransactionManager transactionManager;
 
     private final ObjectMapper json = new ObjectMapper();
@@ -652,8 +657,11 @@ class RevenueReconciliationStageTest {
                 batches, staging, mappings, declarations, categories, errors, template, json);
         RevenueLoadStage loader = new RevenueLoadStage(
                 normalization, facts, staging, batches, errors, template);
+        RevenueAggregationRebuilder rebuilder = new RevenueAggregationRebuilder(
+                batches, facts, new ReconciliationGate(results, facts),
+                new RevenueAggregationWriter(aggregates, template));
         return new FinancePipelineOrchestrator(extraction, validator, mapper, loader,
-                newReconciler(), batches, errors, template);
+                newReconciler(), rebuilder, batches, errors, template);
     }
 
     private TransactionTemplate template() {

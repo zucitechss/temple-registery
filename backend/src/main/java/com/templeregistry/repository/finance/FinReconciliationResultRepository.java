@@ -109,4 +109,14 @@ public interface FinReconciliationResultRepository extends JpaRepository<FinReco
     /** Every result recorded against one source's period, oldest first (FIN-061). */
     List<FinReconciliationResult> findByTempleIdAndSourceSystemIdAndPeriodTypeAndPeriodKeyOrderByIdAsc(
             Long templeId, Long sourceSystemId, PeriodType periodType, String periodKey);
+
+    /**
+     * Every check recorded for a temple's financial year, across every source system (FIN-083).
+     *
+     * <p>Unlike {@link #findByTempleIdAndSourceSystemIdAndPeriodTypeAndPeriodKeyOrderByIdAsc}, not
+     * scoped to one source: a temple-level reconciliation report shows every source that
+     * contributed to the year, the same choice the reporting endpoints make for revenue.
+     */
+    List<FinReconciliationResult> findByTempleIdAndPeriodTypeAndPeriodKeyOrderBySourceSystemIdAscIdAsc(
+            Long templeId, PeriodType periodType, String periodKey);
 }

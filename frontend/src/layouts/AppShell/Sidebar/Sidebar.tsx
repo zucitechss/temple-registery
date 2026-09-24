@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Search, FileText, Users, Building2,
   ClipboardList, Download, Settings, LogOut, Shield, Clock, Activity, RefreshCw, ChevronLeft, ChevronRight,
-  Eye, ShieldCheck, History, Bell, AlertTriangle, Lock, Megaphone, ListTree
+  Eye, ShieldCheck, History, Bell, AlertTriangle, Lock, Megaphone, ListTree, Database
 } from 'lucide-react'
 import { useLogout } from '@/features/auth/authHooks'
 import { useAppSelector } from '@/app/store'
@@ -65,6 +65,8 @@ function getAdminNavItems(pendingCount?: number): NavItem[] {
     { label: 'Declarations', to: ROUTE_PATHS.DC_DECLARATIONS, icon: <ClipboardList size={16} /> },
     { label: 'Export', to: ROUTE_PATHS.DC_EXPORT, icon: <Download size={16} /> },
     { label: 'Source Mapper', to: ROUTE_PATHS.FINANCE_SOURCE_MAPPER, icon: <ListTree size={16} /> },
+    // FIN-140: platform administrator only, so it appears in this list and no other.
+    { label: 'Source Systems', to: ROUTE_PATHS.FINANCE_SOURCE_SYSTEMS, icon: <Database size={16} /> },
     { label: 'Compliance', to: ROUTE_PATHS.AUDITOR_COMPLIANCE, icon: <ShieldCheck size={16} /> },
   ]
 }

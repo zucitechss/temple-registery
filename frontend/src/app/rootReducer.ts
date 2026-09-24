@@ -24,6 +24,8 @@ import { templeApi } from '@/features/temple-profile/hooks/templeApi'
 import { accessControlApi } from '@/features/access-control/accessControlApi'
 import { noticeApi } from '@/features/notice/noticeApi'
 import { financeApi } from '@/features/finance/financeApi'
+import { financeReportApi } from '@/features/finance-reporting/financeReportApi'
+import { financeOnboardingApi } from '@/features/finance-onboarding/financeOnboardingApi'
 
 export const rootReducer = combineReducers({
   // RTK Query caches
@@ -48,6 +50,8 @@ export const rootReducer = combineReducers({
   [accessControlApi.reducerPath]: accessControlApi.reducer,
   [noticeApi.reducerPath]: noticeApi.reducer,
   [financeApi.reducerPath]: financeApi.reducer,
+  [financeReportApi.reducerPath]: financeReportApi.reducer,
+  [financeOnboardingApi.reducerPath]: financeOnboardingApi.reducer,
 
   // UI slices
   auth: authReducer,

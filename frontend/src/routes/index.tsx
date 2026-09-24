@@ -63,6 +63,7 @@ const AccessControlPage = lazy(() => import('@/features/access-control/pages/Acc
 const DcNoticesPage = lazy(() => import('@/features/notice/pages/DcNoticesPage/DcNoticesPage').then(m => ({ default: m.DcNoticesPage })))
 const AdminNoticesPage = lazy(() => import('@/features/notice/pages/AdminNoticesPage/AdminNoticesPage').then(m => ({ default: m.AdminNoticesPage })))
 const SourceMapperPage = lazy(() => import('@/features/finance/pages/SourceMapperPage/SourceMapperPage').then(m => ({ default: m.SourceMapperPage })))
+const SourceSystemsPage = lazy(() => import('@/features/finance-onboarding/pages/SourceSystemsPage/SourceSystemsPage').then(m => ({ default: m.SourceSystemsPage })))
 
 const PageLoader = () => (
   <div className="flex h-64 items-center justify-center">
@@ -103,6 +104,16 @@ const router = createBrowserRouter([
             element: <RoleRoute allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.DISTRICT_COLLECTOR, USER_ROLES.DC_STAFF, USER_ROLES.AUDITOR]} />,
             children: [
               { path: ROUTE_PATHS.FINANCE_SOURCE_MAPPER, element: <Suspense fallback={<PageLoader />}><SourceMapperPage /></Suspense> },
+            ],
+          },
+          // Source system onboarding (FIN-140 slice 140-A) — SUPER_ADMIN only, mirroring the
+          // backend's ADMIN_ONLY. Stricter than the Source Mapper above on purpose: these screens
+          // show the connector bean, the source database name and whether a credential alias is
+          // configured, which describe how a temple's live system is reached.
+          {
+            element: <RoleRoute allowedRoles={[USER_ROLES.SUPER_ADMIN]} />,
+            children: [
+              { path: ROUTE_PATHS.FINANCE_SOURCE_SYSTEMS, element: <Suspense fallback={<PageLoader />}><SourceSystemsPage /></Suspense> },
             ],
           },
           // Temple search and profile — DC roles + TEMPLE_AUTHORITY (read-only view for TA)

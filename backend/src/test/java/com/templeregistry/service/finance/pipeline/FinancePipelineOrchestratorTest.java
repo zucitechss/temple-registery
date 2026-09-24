@@ -26,6 +26,7 @@ import com.templeregistry.entity.finance.enums.SyncStatus;
 import com.templeregistry.entity.finance.enums.SyncTrigger;
 import com.templeregistry.entity.finance.enums.SyncType;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
+import com.templeregistry.repository.finance.FinAggRevenuePeriodRepository;
 import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
@@ -35,6 +36,9 @@ import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
+import com.templeregistry.service.finance.aggregation.RevenueAggregationRebuilder;
+import com.templeregistry.service.finance.aggregation.RevenueAggregationWriter;
+import com.templeregistry.service.finance.publication.ReconciliationGate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -125,6 +129,7 @@ class FinancePipelineOrchestratorTest {
     @Autowired private FinSyncErrorRepository errors;
     @Autowired private FinSyncBatchRepository batches;
     @Autowired private FinReconciliationResultRepository reconciliations;
+    @Autowired private FinAggRevenuePeriodRepository aggregates;
     @Autowired private PlatformTransactionManager transactionManager;
 
     private final ObjectMapper json = new ObjectMapper();
@@ -431,8 +436,15 @@ class FinancePipelineOrchestratorTest {
                 normalization, facts, staging, batches, errors, template);
         RevenueReconciliationStage reconciler = new RevenueReconciliationStage(
                 registry, sourceSystems, batches, staging, errors, facts, reconciliations, template);
+        // The real rebuilder, not a mock: FIN-072's whole claim is that a completed batch
+        // republishes exactly the years it touched, and a mock would assert only that a method
+        // was called.
+        RevenueAggregationRebuilder rebuilder = new RevenueAggregationRebuilder(
+                batches, facts, new ReconciliationGate(reconciliations, facts),
+                new RevenueAggregationWriter(aggregates, template));
         return new FinancePipelineOrchestrator(
-                extraction, validator, mapper, loader, reconciler, batches, errors, template);
+                extraction, validator, mapper, loader, reconciler, rebuilder, batches, errors,
+                template);
     }
 
     private FinSyncBatch newBatch(SyncStatus status) {

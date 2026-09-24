@@ -92,6 +92,28 @@ class SyncWorkerRuntimeContextTest {
                 com.templeregistry.service.notification.impl.EmailDeliveryService.class)).isNotEmpty();
     }
 
+    /**
+     * FIN-058: the worker, and only the worker, can start a run — and it starts none by itself.
+     *
+     * <p>The two halves matter equally. The trigger must exist here, because this is the runtime
+     * that is allowed to reach a temple database. Nothing must be scheduled, because the whole
+     * point of a manual-first slice is that a fully configured platform generates no traffic to a
+     * government temple's live finance database until a person asks it to.
+     */
+    @Test
+    @DisplayName("Worker runtime can start a run, and schedules none")
+    void should_loadTheManualTrigger_when_syncWorkerProfileActive() {
+        assertThat(context.getBean(ManualSyncTrigger.class)).isNotNull();
+        assertThat(context.getBean(
+                com.templeregistry.service.finance.pipeline.FinancePipelineOrchestrator.class))
+                .isNotNull();
+
+        assertThat(context.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class))
+                .as("No automatic finance synchronisation exists: a scheduled run is a later, "
+                        + "deliberate design decision, not a side effect of registering a trigger")
+                .isEmpty();
+    }
+
     /** No credential exists unless the operator supplied one; nothing falls back. */
     @Test
     @DisplayName("No credential resolves without explicit configuration")

@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-18 (FIN-054B)
+**Updated:** 2026-09-24 (FIN-058)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -12,6 +12,8 @@
 
 | Task | Status |
 |---|---|
+| FIN-070 — Aggregation foundation (`fin_agg_revenue_period`) | **COMPLETE**, verified on MySQL 8.0 |
+| FIN-052A — `uk_frf_grain` gains `source_system_id` (V118) | **COMPLETE** |
 | FIN-054B — Source Mapper screen (the UI over FIN-054A-BE) | **COMPLETE** |
 | FIN-054A-BE — Source mapping administration API | **COMPLETE** |
 | FIN-061 — Publication gate (the decision; its callers are FIN-070/072) | **COMPLETE** |
@@ -73,6 +75,423 @@ and no watermark advancement (FIN-D-049). The dashboard is still the static HTML
 The one API that now exists is administrative, not reporting: FIN-054A-BE configures how a source
 system's values translate to canonical categories, and reads no temple financial figure. It has no
 screen until FIN-054B, which now provides one.
+
+---
+
+## FIN-090 / FIN-091 / FIN-092 / FIN-093 — Dynamic finance dashboard (frontend)
+
+**COMPLETE.** Decision FIN-D-072. The static `temple-300001-dashboard.html` mockup is deleted, and
+the DC temple profile's "Finance Dashboard" tab now renders live figures from FIN-081/082/083, for
+every temple, not the one it used to be hard-coded to.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| `financeReportRequests.test.ts` | **6 run, 0 failures** — no hard-coded temple id, GET-only |
+| `financeReportErrors.test.ts` | **6 run, 0 failures** |
+| `AvailabilityNotice.test.tsx` | **5 run, 0 failures** |
+| `FinanceDashboardTab.test.tsx` | **6 run, 0 failures** — no fabricated zero, no devotee-count label |
+| Full `finance` + `finance-reporting` + `dc` suite | **155 tests, 16 files, all passing** |
+| `tsc --noEmit` | clean |
+
+### Files
+
+| File | Change |
+|---|---|
+| `features/finance-reporting/financeReportTypes.ts` | **NEW** (FIN-090). Mirrors the backend DTOs field-for-field |
+| `features/finance-reporting/financeReportRequests.ts` / `financeReportApi.ts` | **NEW.** RTK Query, 6 GET-only endpoints |
+| `features/finance-reporting/financeReportErrors.ts` | **NEW.** Read-only error vocabulary — no version conflict, no duplicate; those are write-screen concepts |
+| `features/finance-reporting/financeReportFormat.ts` | **NEW.** Rupee/receipt formatting, never called on a null value |
+| `features/finance-reporting/financeYear.ts` | **NEW.** Client-side mirror of the backend's FY-from-date rule, for picking a sensible default year only |
+| `features/finance-reporting/components/AvailabilityNotice.tsx` | **NEW** (FIN-092). Renders nothing for `AVAILABLE`; the backend's own reason for everything else |
+| `features/finance-reporting/components/MetricCard.tsx` | **NEW.** One `MetricEnvelope`, formatted or replaced by the notice — never both |
+| `features/finance-reporting/pages/FinanceDashboardTab/FinanceDashboardTab.tsx` | **NEW** (FIN-091). Capabilities, summary KPIs, trend/monthly/category charts, reconciliation checks |
+| `features/dc/pages/DcTempleProfilePage/DcTempleProfilePage.tsx` | FIN-093: `FINANCE_DASHBOARD_TEMPLE_ID` / `FINANCE_DASHBOARD_SRC` and the iframe deleted; tab renders for every temple `can()` already admits |
+| `public/dc/temple-300001-dashboard.html` | **DELETED.** Along with it: `ASSUMED_VALUE_PER_ITEM_RS = 12000`, `ASSUMED_WEIGHT_PER_ITEM_GRAMS = 15`, the DC-approved-funds section, the ongoing-works list, the special-seva list, the cash-payment gauge — none had a real table or endpoint behind it |
+| `app/rootReducer.ts` / `app/store.ts` / `test/utils/renderWithProviders.tsx` | `financeReportApi` wired in, including the logout cache-reset list |
+
+### What is deliberately smaller than the mockup, and why (FIN-D-072)
+
+The static page showed DC-approved government funds, ongoing infrastructure works with sample
+utilization receipts, gold/silver donation value and weight charts built on two assumed constants,
+a special-seva amount list, and a cash-vs-other payment-mode gauge. **None of it is reproduced.**
+Every one of those numbers was fabricated or assumed, with no aggregate table or endpoint behind
+it — reproducing them honestly would require FIN-110 (precious metals), FIN-120 (Nirantara) and a
+grants/works feature that does not exist yet. Building them here, even styled identically, would
+be exactly the "invent financial numbers" and "estimate metal value without reliable data" failures
+this platform refuses everywhere else.
+
+**Two false caveats are corrected by omission.** The mockup claimed gold/silver weight is only ever
+assumed — false: Kollur's `PRECIOUS_METAL_WEIGHT` capability is `AVAILABLE` (real gram weights),
+only unwired because FIN-023 scoped the source-of-truth declaration to `REVENUE_AMOUNT` alone. The
+capabilities panel now shows this truthfully — available, with no chart yet, which is honest — where
+the mockup asserted the opposite. It also claimed revenue is "by financial year only, never by
+month" — false: `/revenue/monthly` returns a real monthly figure, not an illustrative split.
+
+**No financial-year free-text picker.** The buttons offered are exactly the years
+`revenue/trend` has published — never a year the backend has never aggregated.
+
+---
+
+## FIN-080 / FIN-081 / FIN-082 / FIN-083 / FIN-084 — Finance reporting API
+
+**COMPLETE, except `/revenue/sevas`** (blocked on FIN-071, FIN-D-069). Decision FIN-D-071.
+
+This is the endpoint that finally reads `fin_agg_revenue_period` — until now the table FIN-070
+wrote to and FIN-072 kept current had no reader at all (limitation 71's second half).
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| `RevenueMetricRollupTest` | **14 run, 0 failures** — pure, no database |
+| `FinanceReportServiceImplTest` | **20 run, 0 failures** — MySQL 8.0, includes FIN-070A's isolation matrix |
+| `DcFinanceControllerTest` | **4 run, 0 failures** — HTTP status/JSON contract only |
+| Finance regression | **575 run, 0 failures, 0 errors, 0 skipped — BUILD SUCCESS** (533 at FIN-072, +42 new) |
+
+### Files
+
+| File | Change |
+|---|---|
+| `dto/response/finance/*.java` | **NEW** (FIN-080). `MetricEnvelope`, `DataFreshnessBlock`, and one response DTO per endpoint |
+| `service/finance/reporting/RevenueMetricRollup.java` | **NEW.** Pure sum over several aggregate rows, re-deriving V119's own null rules once |
+| `service/finance/reporting/FinanceReportService.java` / `service/impl/finance/FinanceReportServiceImpl.java` | **NEW** |
+| `controller/dc/DcFinanceController.java` | **NEW.** `/api/v1/dc/temples/{templeId}/finance/*` |
+| `repository/finance/FinAggRevenuePeriodRepository.java` | 3 new derived finders (by year, by type across years, by type within a year) |
+| `repository/finance/FinRevenueFactRepository.java` | 1 new finder: max transaction date per temple, for data freshness |
+| `repository/finance/FinReconciliationResultRepository.java` | 1 new finder: every check for a temple's year, across sources |
+| `exception/InvalidFinancialYearException.java` + `GlobalExceptionHandler` | **NEW.** A malformed `financialYear` param is a 400, not the limitation-62 500 a missing one would otherwise get |
+
+### The shape, and why
+
+```
+fin_temple_capability --gate--> fin_agg_revenue_period rows --RevenueMetricRollup--> MetricEnvelope
+```
+
+The capability gate runs first and can end the request without a query: a temple whose `REVENUE`
+capability is `NOT_AVAILABLE` gets that declared reason, never a query against
+`fin_agg_revenue_period`. When the capability *is* available but nothing has been aggregated yet,
+that is a *different* `NOT_AVAILABLE` reason — "no data has been published" is not "this cannot be
+answered", and conflating them would hide the difference between an unbuilt pipeline and one that
+has not run yet.
+
+`RevenueMetricRollup` exists because every endpoint needs the same thing: several rows — one per
+source, category and payment mode — collapsed into one figure. It is a floor, not a total, the
+moment any contributing row's own gross was NULL or carried facts with unknown gross, and the
+`PARTIALLY_AVAILABLE` envelope says by how many records.
+
+### Authorization (FIN-D-071)
+
+Route guard is `CAN_READ_FINANCE_CONFIG` (`SUPER_ADMIN`, `DISTRICT_COLLECTOR`, `DC_STAFF`,
+`AUDITOR`), not `IS_DC_ROLE` as API_CONTRACT.md's one line says — FIN-070A's own isolation test
+matrix requires an `AUDITOR` to read statewide, which only makes sense under the wider expression
+already used for mapping configuration. District scope reuses `MappingAdminServiceImpl`'s exact
+pattern: only `DISTRICT_COLLECTOR`/`DC_STAFF` are checked against `JurisdictionGuard`, because
+calling it unconditionally would treat an `AUDITOR`'s legitimately null `districtId` as a corrupted
+token.
+
+### What this does not do
+
+No `/revenue/sevas` (FIN-071 is blocked — no fact has ever carried a `service_id`), no
+`/cancellations`, no `/sync-status` — scoped for later, not silently dropped. No DACVM field-level
+masking is wired: nothing these endpoints return is PII, so there is nothing yet for it to mask.
+Expenditure is unconditionally `NOT_AVAILABLE` — no expense pipeline exists anywhere on the
+platform yet.
+
+---
+
+## FIN-072 — Deterministic rebuild of affected periods (period scope)
+
+**COMPLETE for period aggregates**, verified on MySQL 8.0. Service aggregates are out of scope
+because FIN-071 is blocked (limitation 73). Decision FIN-D-070.
+
+This is what finally makes something call the aggregator. Before it, FIN-070 wrote a table nothing
+populated and nothing read; limitation 71 is now closed on the populating half.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| `RevenueAggregationRebuilderTest` | **10 run, 0 failures** — scoping and gating, no container |
+| `RevenueAggregatePersistenceTest` | **20 run, 0 failures, 0 skipped** (16 from FIN-070 + 4 new `Rebuilding`) — MySQL 8.0 |
+| Combined affected suites | **155 run, 0 failures, 0 errors, 0 skipped** |
+| Finance regression | **533 run, 0 failures, 0 errors, 0 skipped — BUILD SUCCESS** (519 at FIN-070, +14 new) |
+
+The four new database tests prove, against a real server: a batch touching 2023-24 and 2025-26
+republishes exactly those two while 2024-25 keeps both its figure (₹555.00) and its original
+`computed_at`; a rebuild leaves the contributing fact's `updated_at`, row count and amount untouched
+(FIN-070B section 12's acceptance test); a year the gate blocks keeps its previously published
+₹200.00 rather than being zeroed, deleted or replaced by the ₹999.00 the facts now say; and three
+consecutive rebuilds leave two rows, not six.
+
+### Files
+
+| File | Change |
+|---|---|
+| `service/finance/aggregation/RevenueAggregationRebuilder.java` | **NEW.** The rebuild, ~100 lines |
+| `repository/finance/FinRevenueFactRepository.java` | One derived finder: the facts of one publication scope, ordered |
+| `entity/finance/enums/SyncStage.java` | `AGGREGATE`. No migration — `fin_sync_error.error_stage` is `VARCHAR(30)` |
+| `service/finance/pipeline/FinancePipelineOrchestrator.java` | Sixth stage after reconcile; `Result` carries the rebuild outcome |
+| `service/finance/sync/SyncWorkerConfig.java` | Two `@Bean`s: the rebuilder, and `ReconciliationGate` for the first time |
+| `RevenueAggregationRebuilderTest` | **NEW.** 10 tests |
+| `RevenueAggregatePersistenceTest` | **+4** in a new `Rebuilding` nested class |
+| `FinancePipelineOrchestratorTest` / `RevenueReconciliationStageTest` | Construct the real rebuilder, not a mock |
+
+### The shape, and why
+
+```
+batch --> findFinancialYearsBySyncBatchId --> for each year:
+                                                gate.evaluate --> facts --> aggregate --> write
+```
+
+**Years, not months.** FIN-070B section 12 expected a distinct-months-per-batch query. There is none,
+because `RevenueAggregator` emits a `MONTH` candidate beside every `FINANCIAL_YEAR` one from the same
+facts — the months a batch touched are always a strict subset of the years it touched. A second scope
+calculation would buy nothing and could disagree with the first, and when it did, the months would be
+the rows left stale.
+
+**The gate is asked inside the loop.** Hoisting it is the obvious-looking optimisation and is wrong: a
+batch touching three years can be publishable in two of them. That mutation was applied and killed.
+
+### Mutations: three applied, three killed
+
+| Mutation | Result |
+|---|---|
+| The `publishable()` guard removed from `rebuildScope` | **KILLED** — 3 tests, including the database one |
+| Gate decision hoisted out of the loop and reused | **KILLED** — 3 tests; the writer's own `assertInScope` fired at the database level |
+| `sourceSystemId` replaced by `templeId` (copy-paste) | **KILLED** — 12 tests |
+
+Each was applied to the real source, executed, reverted, and diffed byte-identical (FIN-D-027). The
+third kills loudly rather than semantically — an unstubbed mock throws `NullPointerException` before
+an assertion is reached — which is a kill, but a weaker signal than the other two.
+
+### What FIN-072 does not do
+
+No rerun API, no button, no override, no scheduler of its own. It is reachable only from the
+orchestrator, on the sync worker profile. It is **not a correction mechanism**: a rebuild recomputes
+from the facts as they currently stand, so a wrong fact is rebuilt just as wrong, deterministically,
+every time. It re-runs no extraction, validation, mapping or load, and writes, updates or deletes no
+canonical fact — asserted both by a database test and by `verifyNoMoreInteractions` on the fact
+repository, which fails if a mutator is ever added.
+
+No service aggregates, no `fin_agg_run` table, no historical restatement, no reporting API.
+
+---
+
+## FIN-070 — Aggregation Foundation
+
+**COMPLETE, and verified against MySQL 8.0.** The previous handoff said "IMPLEMENTED, DATABASE
+UNVERIFIED" because Docker was unavailable; it has since been started, V119 applied, and every test
+run. Decision FIN-D-068.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| `AggregationPeriodTest` | **33 run, 0 failures** — no database needed |
+| `RevenueAggregatorTest` | **24 run, 0 failures** — no database needed |
+| `RevenueAggregationWriterTest` | **9 run, 0 failures** — no database needed |
+| `RevenueAggregatePersistenceTest` | **16 run, 0 failures, 0 skipped** — MySQL 8.0 Testcontainers, real migrations |
+| **Aggregation total** | **82 run, 0 failures, 0 errors, 0 skipped** |
+| Finance regression | **519 run, 0 failures, 0 errors, 0 skipped — BUILD SUCCESS** |
+| Full backend suite | **1374 run, 0 failures, 18 errors, 0 skipped** — all 18 the FIN-X-001 baseline |
+
+V119 applies cleanly. The database assertions are made against the server rather than against a
+mock: `uk_farp_grain`'s six columns are read back out of `information_schema.statistics` **in order**
+with `non_unique = 0`; every grain column plus `financial_year` and `currency` is confirmed
+`NOT NULL`; `net_amount` is confirmed to be the only generated column; both reporting indexes are
+confirmed; and the money columns are confirmed `decimal` rather than any floating type.
+
+Behaviour proved on a real database: three identical runs leave two rows and a total of ₹100.00 (not
+₹300.00); a recomputation replaces the figure and keeps the original `created_at` while moving
+`computed_at`; two source systems for one temple hold four rows summing to ₹1,000.00; two temples stay
+at ₹111.00 and ₹222.00; a duplicate grain inserted behind the writer's back is rejected by the
+constraint; `net_amount` is ₹90.00 where cancellations are recorded and NULL where they are not;
+10,000 facts of ₹0.01 sum to exactly ₹100.00; a month row carries `reconciliation_inherited = 1` and
+its parent financial year; and an aggregation run leaves the contributing fact's `updated_at`, row
+count and amount untouched.
+
+### Files
+
+| File | Change |
+|---|---|
+| `db/migration/V119__finance_revenue_period_aggregate.sql` | **NEW.** `fin_agg_revenue_period`, one unique key, two indexes. Applied and tested on MySQL 8.0 |
+| `entity/finance/FinAggRevenuePeriod.java` | **NEW** |
+| `repository/finance/FinAggRevenuePeriodRepository.java` | **NEW.** Native upsert, two reads |
+| `service/finance/aggregation/AggregationPeriod.java` | **NEW.** Period keys and bounds |
+| `service/finance/aggregation/RevenueAggregateKey.java` | **NEW** |
+| `service/finance/aggregation/RevenueAggregate.java` | **NEW** |
+| `service/finance/aggregation/RevenueAggregator.java` | **NEW.** The pure computation |
+| `service/finance/aggregation/RevenueAggregationWriter.java` | **NEW.** The gated write boundary |
+| `service/finance/sync/SyncWorkerConfig.java` | One `@Bean` (FIN-D-008) |
+| `AggregationPeriodTest` / `RevenueAggregatorTest` / `RevenueAggregationWriterTest` | **NEW.** 66 tests, no container |
+| `RevenueAggregatePersistenceTest` | **NEW.** 16 tests on MySQL 8.0 |
+| `SyncWorkerProfileBoundaryTest` / `ConnectorRegistryTest` | One repository mock each, plus an assertion that the writer is a worker bean |
+
+### The shape, and why
+
+```
+facts --> RevenueAggregator (pure) --> List<RevenueAggregate> --> RevenueAggregationWriter --> table
+                                                                       ^
+                                                     requires a publishable Decision
+```
+
+The computation holds no repository, no clock and no Spring context, which is why 66 tests covering
+every arithmetic rule run in under a second. The writer holds no reference to `ReconciliationGate`
+either — it takes a `Decision` as an argument and refuses without a publishable one. That threads two
+instructions that pull opposite ways: FIN-070 must not build a trigger or call the gate
+speculatively, but existing in `fin_agg_revenue_period` *is* what publication means, so a writer
+callable without a verdict is one forgotten call away from publishing blocked figures. Requiring
+rather than calling gives the guarantee without the orchestration.
+
+A blocked decision writes nothing at all — no zeroed row, no flagged row, no deletion of what was
+there. The previous figures stay visible, which is ADR-011's "slightly old and correct beats fresh
+and wrong" implemented by doing nothing.
+### Mutations: five applied, five killed
+
+| Mutation | Detected by | Result |
+|---|---|---|
+| `source_system_id` dropped from the aggregation key | `should_isolateSources_when_onlyTheSourceDiffers` | **KILLED** |
+| `category_id` dropped from the aggregation key | `should_separateCategories_when_factsDiffer` | **KILLED** |
+| Financial year replaced by the calendar year | `AggregationPeriodTest$FinancialYearKeys` (6) + 22 downstream | **KILLED** |
+| Upsert accumulates instead of assigning (`gross_amount = gross_amount + VALUES(...)`) | `should_replaceNotAppend_when_runRepeatedly`, `should_replaceFigure_when_factsChange` | **KILLED** |
+| `source_system_id` removed from `uk_farp_grain` in V119 | `should_defineGrain_when_v119HasRun`, `should_keepSourcesApart_when_bothReportTheSamePeriod` | **KILLED** |
+
+Each was applied to the real source, run, and reverted, with the failure captured from that run
+(FIN-D-027). After each reversion the file was diffed against a pre-mutation copy and confirmed
+**byte-identical**; no mutation marker survives anywhere under `src/main`.
+
+The fourth is the one worth dwelling on. An accumulating upsert satisfies `uk_farp_grain` perfectly —
+the row stays unique — and doubles a temple's published revenue on every rebuild. The test that
+caught it says so in its own assertion message, which is why it was written that way before the
+mutation was ever run.
+
+### What FIN-070 does not implement
+
+No rebuild orchestration, no trigger, no scheduler, no reporting API, no controller, no
+`fin_agg_run` table, no historical restatement, no service-level aggregate (FIN-071) and no
+`availability` column. Nothing here writes, updates or deletes a canonical fact — a test asserts it,
+and that test now runs against a real database and passes.
+
+---
+
+## FIN-052A — The Canonical Grain Gains `source_system_id`
+
+Closes limitation 47. Acts on FIN-070B decision D1. Recorded as FIN-D-067.
+
+### What was wrong
+
+```
+before:  uk_frf_grain (temple_id,                   transaction_date, grain_service_key,
+                       category_id, payment_mode, grain_counter_key, grain_operator_key)
+
+after:   uk_frf_grain (temple_id, source_system_id, transaction_date, grain_service_key,
+                       category_id, payment_mode, grain_counter_key, grain_operator_key)
+```
+
+`source_system_id` has always been `NOT NULL` on `fin_revenue_fact` and has always been populated.
+It simply was not in the key. So two sources reporting one temple's same day, service, category,
+payment mode, counter and operator shared a grain, and the loader's `ON DUPLICATE KEY UPDATE`
+**replaced** the first source's figures with the second's — carrying `source_system_id` and
+`sync_batch_id` across with them. No error, no warning, no record that the first figure existed.
+
+It surfaced while writing the FIN-060 scope test, which had to be built around separate dates to
+avoid it. That test has now been moved back onto a single shared day, which the old seven-column grain could not have kept apart.
+
+### Files
+
+| File | Change |
+|---|---|
+| `db/migration/V118__finance_fact_grain_source_system.sql` | **NEW.** One `ALTER TABLE`: drop and re-add `uk_frf_grain`, widened |
+| `entity/finance/FinRevenueFact.java` | Javadoc: the grain is eight columns, three of them generated (the class comment said "two of its seven" — both numbers were wrong) |
+| `repository/finance/FinRevenueFactRepository.java` | `source_system_id = VALUES(source_system_id)` removed from the upsert's update list |
+| `service/finance/pipeline/RevenueNormalizer.java` | Javadoc only — see below |
+| `migration/FinanceCanonicalRevenueMigrationTest.java` | **+5** in a new `SourceSystemGrain` nested class |
+| `service/finance/pipeline/RevenueLoadStageTest.java` | **+2**, plus a `newBatch(templeId, sourceSystemId)` overload |
+| `service/finance/pipeline/RevenueReconciliationStageTest.java` | Two-source test moved onto one shared day; stale comment corrected |
+
+### Why the migration is safe on a table with data
+
+Adding a column to a UNIQUE key **widens** it. Rows distinct over seven columns are still distinct
+over eight, so the ALTER cannot fail on existing data, and with `source_system_id` already `NOT NULL`
+and populated there is no backfill at any table size. Nothing was deleted, rewritten or restated.
+
+This corrects FIN-070A, which argued the change had to happen while the table was empty because "it
+will never be this cheap again". What actually expires is narrower: once a second source has
+overwritten a first, those figures are unrecoverable, because the upsert replaced them in place and
+no history of prior values exists. The deadline was the **second source system**, not the first fact.
+
+MySQL 8.0 accepts `DROP INDEX x, ADD CONSTRAINT x UNIQUE (...)` in one `ALTER TABLE`, which rebuilds
+the table once and leaves no window where the grain is unenforced. Confirmed by Flyway applying it
+during the migration test — *"Migrating schema to version 118 - finance fact grain source system"*.
+
+### Why `RevenueNormalizer.GrainKey` did not change
+
+Its in-memory key has six fields against the constraint's eight, and the two still agree, because
+normalization runs over **one batch** and a batch has exactly one temple and exactly one source
+system. Both are constants of every key it builds. The javadoc now says so, since a reader comparing
+6 against 8 would reasonably conclude they had drifted — the exact defect that class warns about.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| `FinanceCanonicalRevenueMigrationTest` | **24 run, 0 failures, 0 errors** (5 new) |
+| `RevenueLoadStageTest` | **20 run, 0 failures, 0 errors** (2 new) |
+| `RevenueReconciliationStageTest` | **26 run, 0 failures, 0 errors** (strengthened) |
+| `FinanceRevenueStagingMigrationTest` | **20 run, 0 failures, 0 errors** |
+| Finance regression | **437 run, 0 failures, 0 errors, 0 skipped — BUILD SUCCESS** |
+
+All on MySQL 8.0 Testcontainers with the real migrations. **TiDB is not verified**, as for every
+migration in this project. H2 proves nothing here and was not used: `application-test.yml` sets
+`ddl-auto: create-drop`, and the entity does not declare `uk_frf_grain`, so no H2 test has ever
+enforced the grain.
+
+Two of the new tests go past behaviour to the schema itself: one reads the index definition back out
+of `information_schema.statistics` and asserts the eight columns **in order** and `non_unique = 0`;
+the other asserts `source_system_id` is still `NOT NULL` and that all four generated columns
+(`net_amount` and the three `grain_*` stand-ins) survived. An index change that silently became a
+plain index, or dropped a stand-in, would otherwise pass every behavioural test in the suite until
+two rows collided in production.
+
+
+**Two things were not verified, and are recorded rather than implied.**
+
+**The counterfactual was never executed.** `RevenueReconciliationStageTest`'s two-source test now
+uses a single shared day, and it passes. That it would *fail* against the old seven-column grain is
+derived from the constraint — both facts would share a grain, the second upsert would replace the
+first, and `sumGrossForSourceAndFinancialYear` would return empty against a connector reporting
+100.00 — but no run against a reverted grain was performed, because Docker became unavailable before
+one could be. By this project's own standard (FIN-D-027) that makes it reasoning, not evidence. The
+experiment is a throwaway migration reverting `uk_frf_grain` plus one test class, and takes minutes
+whenever Docker is back.
+
+**The full backend suite has since been run** (FIN-070 verification, once Docker was restored):
+**1374 run, 0 failures, 18 errors, 0 skipped**. All 18 are the FIN-X-001 baseline — `missing column
+[field_names_json] in table [declaration_clarifications]` under `ddl-auto: validate` — distributed
+exactly as at FIN-060: `ApplicationContextIntegrationTest` 1 and `TrustIntegrationTest` 17
+(`TrustCrud` 11, `BoardMemberOperations` 5, `SecurityTests` 1). **Zero new failures, zero new errors,
+zero skips.** The two Docker-degraded runs previously recorded here (1215 with 202 skipped, and an
+unexplained 1292/3/109) are superseded and were never evidence of anything.
+
+The finance regression likewise now stands at **519 run, 0 failures, 0 errors, 0 skipped**, end to
+end on real MySQL 8.0 containers, covering every suite FIN-052A touches.
+
+
+### What this does not do
+
+- **It recovers nothing already overwritten.** Those figures were replaced in place. Nothing in the
+  platform can even tell whether it ever happened — that would need a `sourceTotals()` comparison,
+  and no connector implements one.
+- **It does not make the platform multi-source-capable** (limitation 67). `uk_ftc_temple_capability`
+  and `uk_fsd_temple_service` keep the single-source assumption, deferred under FIN-070B D9.
+- **It does not touch ADR-003**, which still describes the six-column grain. Amending an architecture
+  decision record is a governance act; FIN-052A explains the amendment and leaves it to the
+  architect. ADR-003's substance survives: a temple's figure for a day is one figure, now true after
+  summing its sources rather than at the row.
+- **It is not a correction mechanism.** No fact was restated, no rerun exists, and FIN-070B D3
+  (facts immutable) is unchanged.
 
 ---
 
@@ -161,8 +580,11 @@ FIN-054A-BE recorded as limitation 57: status codes for 201/400/404/409/422, the
 envelope, the JSON shape, `historicalEffect` actually being in the payload, and that source
 connection details are absent from the source-system response.
 
-The finance backend regression is **430 run -- 0 failures -- 0 errors -- 0 skipped** (408 at
-FIN-054A-BE; the 22 added are the controller tests, and no prior suite changed).
+The finance backend regression is **437 run -- 0 failures -- 0 errors -- 0 skipped** at FIN-052A
+(430 at FIN-054B, 408 at FIN-054A-BE). The 7 added are FIN-052A's: 5 in
+`FinanceCanonicalRevenueMigrationTest` and 2 in `RevenueLoadStageTest`. No prior suite changed,
+and no assertion was weakened -- `RevenueReconciliationStageTest`'s two-source test was made
+*stricter*, onto a single shared day it could not use before V118.
 
 **Authorization is still not covered at the HTTP layer** — that test excludes the security
 auto-configuration, as every controller test in this project does, so `@PreAuthorize` does not run.
@@ -1925,14 +2347,21 @@ the same 4 report files).
    count is a floor, and both the count comparison and deletion detection report `NOT_AVAILABLE`
    (FIN-D-053) — whatever the connector reports. Only the amount comparison would work.
 
-47. **Two source systems writing the same grain overwrite each other.** `uk_frf_grain` is
-   `(temple_id, transaction_date, service, category, payment_mode, counter, operator)` — it does
-   **not** include `source_system_id`. That is deliberate in ADR-003, where a temple's figure for a
-   day is one figure; but it means a second source reporting the same day and category replaces the
-   first source's row rather than adding to it, and reconciliation then attributes the whole grain
-   to whichever source wrote last. Discovered while writing the FIN-060 scope test, which had to be
-   rebuilt around distinct dates. No temple has two sources today. Before one does, this needs a
-   decision: either the grain gains `source_system_id`, or multi-source temples are refused.
+47. **~~Two source systems writing the same grain overwrite each other.~~ Closed by FIN-052A
+   (V118).** `uk_frf_grain` now reads `(temple_id, source_system_id, transaction_date, service,
+   category, payment_mode, counter, operator)`, so two sources reporting one temple's day are two
+   facts rather than one grain silently replacing the other. The `source_system_id = VALUES(...)`
+   assignment — the mechanism by which the second source took ownership — is gone from the upsert.
+   ADR-003's "a temple's figure for a day is one figure" is amended in substance and stands: it is
+   now true after summing the temple's sources rather than at the row (FIN-D-067). The
+   `RevenueReconciliationStage` scope test that had to be rebuilt around distinct dates has been
+   moved back onto one shared day, which the old seven-column grain could not have kept apart.
+
+   **Three things this did not do.** It recovers nothing already overwritten — the upsert replaced
+   those figures in place and no history of prior values exists; nothing in the platform can tell
+   whether it ever happened. It does not make the platform multi-source-capable: see limitation 67.
+   And **ADR-003's text was not edited**, because amending an architecture decision record is a
+   governance act; it still describes the six-column grain and needs the architect's amendment.
 
 48. **Reconciliation never runs on its own.** `reconcileBatch` is called by the orchestrator and by
    tests. The scheduled period re-verification the append-only history was designed for — the null
@@ -2032,6 +2461,67 @@ the same 4 report files).
    says so at the point of edit rather than leaving the user to infer it — but a user who needs a
    historical correction still has to arrange a batch re-run by other means (limitation 59).
 
+67. **The facts distinguish sources; the rest of the finance schema still does not.** FIN-052A fixed
+   `uk_frf_grain` and nothing else, deliberately. Two constraints keep the old single-source
+   assumption: `fin_temple_capability`'s `uk_ftc_temple_capability (temple_id, capability)`, though
+   its `source_system_id` column is `NOT NULL`, and `fin_service_dim`'s
+   `uk_fsd_temple_service (temple_id, service_code)`, where two sources using one service code for a
+   temple would collide. `FinTempleCapabilityRepository.findByTempleIdAndCapabilityAndDeletedFalse`
+   returns an `Optional` and would break on a second row.
+
+   Neither is a mechanical widening like V118 was. Both force the question FIN-070B raised as
+   decision **D9** and nobody has answered: when two sources for one temple disagree about whether
+   the temple records cancellations, what is the temple-level availability answer? The API's metric
+   envelope has one `availability` field per metric, not one per source. Until D9 is decided, a
+   temple with two sources is not supported — and nothing refuses to create one, because
+   `uk_fss_temple_system (temple_id, system_code)` constrains the code, not the count.
+
+68. **Nothing verifies that a fact's `source_system_id` matches its batch's.** The load path carries
+   it correctly — `RevenueNormalizationStage.toFact` reads `batch.getSourceSystemId()`, which is
+   `NOT NULL` on `fin_sync_batch` — so there is no way for it to be null or wrong today, and
+   `RevenueLoadStageTest` asserts the value that lands. But it is copied rather than derived, and no
+   constraint ties the fact's source to the batch's. A future writer that passes the wrong one would
+   produce facts that split a grain silently, which is the same shape of defect V118 just closed.
+
+69. **~~The aggregate table has never met a database.~~ Closed.** V119 applies cleanly to MySQL 8.0
+   and all 16 tests in `RevenueAggregatePersistenceTest` pass, including the two mutations that were
+   previously unrunnable — an accumulating upsert and a `uk_farp_grain` without `source_system_id`
+   are both caught. `uk_farp_grain`, the generated `net_amount`, `DECIMAL` precision to 10,000 facts,
+   the replace-don't-append upsert and the untouched facts are all verified against the server rather
+   than a mock. **TiDB remains unverified**, as for every migration in this project.
+70. **`fin_agg_revenue_period` carries no `availability`, so a reader must join for it.** ADR-011 asks
+   for the column so the API never has to infer availability. It was left out because
+   `uk_ftc_temple_capability` is `(temple_id, capability)` and cannot describe two sources for one
+   temple (limitation 67), while an aggregate row is per source — writing a per-temple answer into a
+   per-source row would bake decision D9's unresolved conflict into published data (FIN-D-068). The
+   reporting layer joins `fin_temple_capability` itself. If D9 is ever resolved, revisit this.
+
+71. **~~Nothing calls the aggregator.~~ Half closed.** FIN-072 wired
+   `RevenueAggregationRebuilder` into `FinancePipelineOrchestrator` as a sixth stage, so a
+   completed sync now republishes exactly the financial years its facts landed in — and
+   `ReconciliationGate`, which had been a class with no bean since FIN-061, finally has one. That
+   closes limitation 52 in substance as well as shape.
+
+   **The reading half is still open.** No API exposes `fin_agg_revenue_period`, so these figures
+   are published where nobody can yet see them (Phase 8). Nothing reads the table but tests.
+
+72. **A month's reconciliation verdict is its parent year's, never its own.** `RevenueReconciliationStage`
+   writes results only at `FULL_HISTORY` and `FINANCIAL_YEAR` scope, so no monthly evidence exists and
+   none can be produced without a connector answering `sourceTotals()` per month — one extra query per
+   month per batch against a temple's production database, whose cost nobody has measured
+   (limitation 50). Every month row records `reconciliation_inherited = 1` so a reader is never told a
+   month was verified when it was not, but one bad month still blocks eleven good ones.
+
+73. **No canonical fact has ever carried a `service_id`, so FIN-071 has no input.** The column is
+   nullable by design (V112: "NULL where revenue is not a service"), but it is always null, not
+   sometimes: `RevenueNormalizer`'s single row-construction site passes a literal `null`,
+   `fin_service_dim` has no repository and is referenced by no main code, no migration seeds it, and
+   no test sets a non-null service. `fin_agg_revenue_service` would be a table that cannot receive a
+   row, so FIN-071 is **BLOCKED** rather than started (FIN-D-069). It needs a service-resolution step
+   first — dimension seeding, a mapping-rule target, and a lookup — which is a mapping feature of
+   FIN-054's size, not a detail inside an aggregation task.
+
+
 ---
 
 ## Q4 Status
@@ -2121,3 +2611,428 @@ Four things to decide rather than inherit:
   yet. One will.
 - **Staging retention (Q7).** Still unanswered: rows stay `LOADED` forever, and at the first
   source's volumes `fin_stg_revenue` grows without bound.
+
+---
+
+## Phase 13 — Multi-Temple Onboarding · slice 140-A COMPLETE
+
+Plan in [FIN-140_ONBOARDING_PLAN.md](FIN-140_ONBOARDING_PLAN.md). FIN-032 was analysed inside it
+rather than as a separate task.
+
+Onboarding a temple was, until this, `V111__kollur_finance_configuration.sql` — 407 lines of
+conditional SQL, written by hand. There was no API, no screen and no repeatable process, and
+`V111`'s own header already recorded the consequence: *"in a database where temple 300001 is created
+AFTER this migration runs, the seed is a no-op and Kollur configuration must be applied through the
+onboarding path (FIN-140) instead."* The first onboarded temple already depended on a path that did
+not exist.
+
+### The finding that reshaped the task
+
+**A probe cannot be a button**, established by reading the runtime boundary rather than assuming it:
+
+| Fact | Evidence |
+|---|---|
+| The registry runtime holds no bean from `com.templeregistry.connector.**` at all | `RegistryRuntimeContextTest` — a package-wide assertion, not just a missing `ConnectorRegistry` |
+| The worker refuses to boot as a web application | `SyncWorkerBoundaryGuard`; `SyncWorkerProfileBoundaryTest.WebRuntimeRefusal` |
+| No controller may exist in the integration packages | `FinanceIntegrationBoundaryTest` |
+| The only channel between the two runtimes is the shared database | No broker dependency, no HTTP client, no worker address, no poller |
+| Zero production connectors exist | `implements TempleFinanceConnector` → four hits, all in `src/test` |
+
+So FIN-032 splits in two. **Class A** — configuration coherence — needs no connector and ships here.
+**Class B** — reachability and schema drift — needs the worker, and is **deferred rather than
+sequenced**: with no connector implementation in existence, every Class B check would return the
+same answer for every source, and building transport for a constant is infrastructure without a
+product.
+
+### Delivered
+
+One migration, one pure validator, one service, one controller, four DTOs, one frontend module.
+**No connector package touched. No worker touched. No ADR status changed. No Kollur migration
+altered.**
+
+| Endpoint | Authorization |
+|---|---|
+| `POST /finance/source-systems` | `ADMIN_ONLY` |
+| `GET /finance/source-systems/{id}` | `ADMIN_ONLY` |
+| `PUT /finance/source-systems/{id}` | `ADMIN_ONLY` |
+| `GET /finance/source-systems/{id}/readiness` | `ADMIN_ONLY` |
+
+Contract in [API_CONTRACT.md §8](API_CONTRACT.md). Screen at `/finance/source-systems`, SUPER_ADMIN
+route, `frontend/src/features/finance-onboarding/`.
+
+**13 checks, and the two that earn the task** are `MAPPING_CANONICAL_UNKNOWN` and
+`MAPPING_RULE_MALFORMED` — failures the mapping engine already detects as `INVALID_CONFIGURATION`
+and as a rule that shows Active while never matching anything, per row, during a run, long after
+whoever wrote the rule has gone. Detecting them here costs one set lookup and moves the discovery to
+while the configuration is still a draft.
+
+**The genericity property that matters most:** required declarations and mapping rules are demanded
+only when revenue is actually reportable. A source declaring `REVENUE` as `NOT_AVAILABLE` — Temple
+B's expenses-only variant — needs neither, and demanding them would have made such a source
+impossible to onboard. It has its own test.
+
+**What no endpoint does, and why it is absence rather than omission.** None activates a source
+system: readiness reports `activationAllowed` and slice 140-A ends at the check. None probes: the
+runtime serving these endpoints cannot reach a temple, so `connectivityVerified` is `false` on every
+response with a sentence saying what was and was not checked — shown on the clean verdict most of
+all, because that is where READY would otherwise be misread as connected.
+
+### A defect the tests found and reasoning had not
+
+`uk_fss_temple_system` is `(temple_id, system_code)` and does **not** include `is_deleted`, so a
+retired source still holds its code. The first duplicate check filtered deleted rows out, passed,
+and let the insert reach the constraint — surfacing as a 500 rather than a refusal a caller could
+act on. The check now matches the constraint and says so when the row in the way is retired.
+
+### Verified
+
+| Suite | Result |
+|---|---|
+| `OnboardingReadinessValidatorTest` | **23 run, 0 failures** — no database |
+| `SourceSystemAdminServiceTest` | **26 run, 0 failures** — MySQL 8.0 Testcontainers, full context |
+| `SourceSystemAdminSecurityTest` | **14 run, 0 failures** — every assertion invokes the service as a role |
+| Frontend `finance-onboarding` | **30 run, 0 failures** |
+| Finance regression | **634 run, 0 failures, 0 errors, 0 skipped** |
+| Worker-boundary suites | **23 run, 0 failures** — ADR-001 intact |
+| Frontend regression (finance · finance-reporting · finance-onboarding · dc) | **20 files, 185 tests, 0 failures** |
+| `tsc --noEmit` | clean |
+
+TiDB not verified. Decisions FIN-D-073…078.
+
+---
+
+## Phase 13 — slice 140-B · Capability declarations · COMPLETE
+
+Declaring what a source system can answer. The row this slice writes is the one ADR-007 is built
+on: it is what makes an absent figure render as a reason rather than as a zero, and until now the
+only way to create one was a hand-written migration.
+
+### No new table, no new vocabulary
+
+`fin_temple_capability` has existed since `V110` with every column this needs — availability, a
+user-facing reason, a coverage window, documented gaps, a review timestamp, soft delete and audit
+columns. `FinanceCapability` (19) and `DataAvailability` (4) are the canonical vocabularies and were
+not duplicated: the API serves them from the enums so no client keeps a copy that drifts.
+
+The one schema change is `V121`, adding an optimistic-lock column — which `V120`'s own comment had
+already scheduled for *"the slice that writes"* this table.
+
+### Endpoints
+
+| Method | Path |
+|---|---|
+| GET | `/finance/capability-catalogue` |
+| GET | `/finance/source-systems/{id}/capabilities` |
+| POST | `/finance/source-systems/{id}/capabilities` |
+| PUT | `/finance/source-systems/{id}/capabilities/{declarationId}` |
+
+All `ADMIN_ONLY`. Contract in [API_CONTRACT.md §8.7](API_CONTRACT.md).
+
+**No temple id in any path or body** — it is resolved from the source system, which makes "a
+declaration cannot be created for an unrelated temple" true by construction rather than by a check.
+**No delete**: withdrawing a capability is a statement, and the vocabulary has the words for it
+(`NOT_AVAILABLE`, `NOT_APPLICABLE`). Deleting the row would leave a reader unable to tell either
+from "nobody has looked yet".
+
+### The constraint trap, caught this time by design
+
+`uk_ftc_temple_capability` is `(temple_id, capability)` — it excludes `is_deleted` **and**
+`source_system_id`. Slice 140-A hit exactly this shape on `uk_fss_temple_system` and returned a 500.
+Here the duplicate check reads both retired rows and other sources' rows, and the refusal says which
+case applies: retired and holding its slot, or held by another source system while D9 is open.
+
+### Readiness
+
+`NO_CAPABILITY_DECLARED` clears as soon as anything is declared. A new **warning**,
+`CAPABILITY_NOT_DECLARED`, lists capabilities nobody has declared at all — because an undeclared
+capability and one declared `NOT_AVAILABLE` look identical to a reader while being different
+statements, and `V111` declared all nineteen for the first onboarded source precisely so *"'not
+declared' never has to be guessed at"*. A warning rather than a blocker: a half-configured source is
+a legitimate overnight state.
+
+Revenue requirements stay conditional. A source declaring `REVENUE` as `NOT_AVAILABLE` is still
+never asked for source-of-truth declarations or mapping rules, and the expenses-only Temple B case
+has its own test. Declaring a capability activates nothing, triggers no worker job and opens no
+connection — asserted directly.
+
+### Frontend
+
+`CapabilityMatrixPanel` on the existing Source Systems screen lists **the whole canonical
+catalogue**, not only what is declared, with undeclared rows marked as such — the gap is invisible
+otherwise on the one screen whose job is to close it. The capability list and the availability
+vocabulary both come from the server. Declaring and revising happen in a Sheet following the Source
+Mapper's form conventions, with the reason required client-side exactly where the server requires
+it. Still no activate control and still no test-connection control.
+
+### Verified
+
+| Suite | Result |
+|---|---|
+| `OnboardingReadinessValidatorTest` | **27 run, 0 failures** (no database) — 23 before, 4 new |
+| `SourceSystemAdminServiceTest` | **43 run, 0 failures** (MySQL 8.0 Testcontainers) — 26 before, 17 new |
+| `SourceSystemAdminSecurityTest` | **25 run, 0 failures** — 14 before, 11 new |
+| Frontend `finance-onboarding` | **47 run, 0 failures** — 30 before, 17 new |
+
+Decisions FIN-D-079…082. TiDB not verified.
+
+---
+
+## Phase 13 — slice 140-C · Source-of-truth declarations · COMPLETE
+
+Which field in a source carries a metric, and why that one rather than the others considered
+(ADR-008). Until now the only way to write one was a hand-authored migration, and both existing
+declarations came from exactly that.
+
+### No new table, no new column, no migration
+
+`fin_source_of_truth_decl` has existed since `V110` with everything this needs — a domain
+`version`, an effective window, sign-off columns, the rejected alternatives and their measured
+evidence. The metric vocabulary comes from `RevenueField`, which is what normalization actually
+reads, and is served through the existing catalogue endpoint so no client keeps a copy.
+
+**No `@Version` was added, unlike V120 and V121.** The reason is FIN-D-083: those tables are
+edited in place and an optimistic lock guards what happens to them. This one is append-only, and
+the race it actually has — two administrators each computing "version 2" — is caught by
+`uk_fsotd_source_metric_version`, which a `@Version` column would not have caught while appearing
+to.
+
+### Endpoints
+
+| Method | Path |
+|---|---|
+| GET | `/finance/source-systems/{id}/source-of-truth` |
+| POST | `/finance/source-systems/{id}/source-of-truth` |
+
+Both `ADMIN_ONLY`. Contract in [API_CONTRACT.md §8.8](API_CONTRACT.md).
+
+**No `PUT` and no `DELETE`.** Every change is a new version; the previous one is closed with an
+`effective_to` and kept. A revenue fact carries the `source_of_truth_version` that produced it, so
+an in-place edit would leave that stamp pointing at a row which no longer says what it said when
+the figure was published.
+
+### Concurrency, caught twice
+
+`supersedesVersion` states which version the caller was looking at, and a mismatch is a 409 with a
+sentence naming what happened — that is the real-world case of two administrators opening the
+screen minutes apart. `uk_fsotd_source_metric_version` catches two transactions interleaved too
+closely for that check, and the service converts the violation into a 409 rather than letting it
+surface as a server error. Both writes are in one transaction, so a refused supersession leaves
+nothing behind.
+
+`effectiveTo` is derived rather than accepted, and `effectiveFrom` may not be in the future
+(FIN-D-085): nothing compares `effective_from` to today, so a future-dated version would take
+effect the moment it was saved while claiming otherwise.
+
+### Readiness
+
+`SOURCE_OF_TRUTH_MISSING` clears once a declaration **in force** names each required metric. A
+superseded declaration does not satisfy it — the readiness snapshot reads the same
+`effective_to IS NULL` filter normalization does, and a verdict that counted a closed row would
+pass a source every row of which the pipeline would then reject. Revenue requirements stay
+conditional; an expenses-only source is never asked for any of this. Declaring activates nothing,
+triggers no worker job and opens no connection.
+
+### Sign-off
+
+The existing `approved_by` / `approved_at` columns, set by a checkbox (FIN-D-086). Readiness was
+deliberately **not** changed to fault an unapproved declaration: both declarations for the first
+onboarded source are unapproved on purpose, and faulting them would change a readiness verdict
+this slice was told to preserve. A warning for it is recorded as a proposed decision awaiting
+approval.
+
+### Frontend
+
+`SourceOfTruthPanel` on the existing Source Systems screen lists the whole server-supplied metric
+vocabulary with required ones marked, shows the version in force and keeps superseded versions
+visible behind a disclosure — they are why the table is versioned. Rejected alternatives render
+key by key, so a migration-seeded row's own measurement keys survive. The drawer says it creates a
+new version before the button is pressed. Still no activate control and still no test-connection
+control.
+
+### Verified
+
+| Suite | Result |
+|---|---|
+| `SourceSystemAdminServiceTest` | **68 run, 0 failures** (MySQL 8.0 Testcontainers) — 43 before, 25 new |
+| `SourceSystemAdminSecurityTest` | **37 run, 0 failures** — 25 before, 12 new |
+| `OnboardingReadinessValidatorTest` | **27 run, 0 failures** (unchanged — no validator change was needed) |
+| Frontend `finance-onboarding` | **67 run, 0 failures** — 47 before, 20 new |
+
+Decisions FIN-D-083…086. TiDB not verified. D9 untouched.
+
+---
+
+## Phase 13 — slice 140-D · Activation · COMPLETE
+
+An administrator can now grant the platform permission to contact a source system. That sentence
+is the whole feature, and every word of it is chosen: **permission**, and **contact in future**.
+
+### READY ≠ ENABLED FOR SYNC ≠ SYNC RUNNING
+
+| State | Means | Implemented |
+|---|---|---|
+| `READY` | Registry-side configuration is coherent | Yes, since 140-A — computed on read |
+| **ENABLED FOR SYNC** | Somebody has authorised future synchronisation | **Yes — this slice** |
+| SYNC RUNNING / SYNC FAILED | A batch is executing or has failed | **No.** Connector/worker path |
+
+Enabling a source today does **nothing observable**. There is no deployed connector, and
+`findBySyncEnabledTrueAndDeletedFalse` — the only finder for the flag — has no production caller,
+so nothing reads what this slice writes. That is stated in the response payload, in the audit
+line, on the screen and here, rather than left for somebody to discover.
+
+### No migration, no new state
+
+`sync_enabled` has existed since `V110` (*"Kill switch; defaults OFF so registering a source never
+starts traffic"*), and the onboarding plan's state model already assigned the concept to it. The
+plan's alternative — a finance-local `onboarding_status` column — was rejected at planning time as
+*"precisely the third status vocabulary `WorkflowStatus` was created to eliminate"* (FIN-D-087).
+
+### Endpoint
+
+| Method | Path |
+|---|---|
+| POST | `/finance/source-systems/{id}/activation` |
+
+`ADMIN_ONLY`. Body `{enabled, reason}` — the **desired end state**, not a toggle, which is what
+makes it idempotent. No `version`: requiring one would turn a harmless repeat into a 409. Contract
+in [API_CONTRACT.md §8.9](API_CONTRACT.md).
+
+Enabling requires zero blocking readiness findings, recomputed by the existing validator inside
+the transaction. Warnings never block. **Disabling is never gated** — a switch that only turns on
+is not a switch — but needs a reason, which is audited. A no-op short-circuits *before* the
+readiness check, so re-confirming an enabled source whose configuration has since drifted does not
+fail (FIN-D-088).
+
+### What it does not do
+
+Resolves no credential, builds no connector, creates no `fin_sync_batch`, schedules nothing, sends
+nothing to the worker. A test asserts the batch table is unchanged; `RegistryRuntimeContextTest`
+continues to assert this runtime holds no connector at all.
+
+### Sign-off
+
+Unsigned source-of-truth declarations in force are listed in the response `warnings` — the moment
+of enabling is when that question bites. FIN-D-086's proposed readiness finding is **still not
+implemented** and approval is **not** a gate, so no existing verdict moved (FIN-D-089).
+
+### Verified
+
+| Suite | Result |
+|---|---|
+| `SourceSystemAdminServiceTest` | **86 run, 0 failures** (MySQL 8.0 Testcontainers) — 68 before, 18 new |
+| `SourceSystemAdminSecurityTest` | **49 run, 0 failures** — 37 before, 12 new |
+| `OnboardingReadinessValidatorTest` | **27 run, 0 failures** (unchanged — no validator change) |
+| Frontend `finance-onboarding` | **85 run, 0 failures** — 67 before, 18 new |
+
+Decisions FIN-D-087…089. Kollur not activated and not touched. TiDB not verified. D9 untouched.
+
+---
+
+## Phase 14 — FIN-040 · Generic JDBC connector · COMPLETE
+
+The first connector implementation. `SyncWorkerConfig` has said since FIN-016 that *"the first
+connector implementation (FIN-040) arrives later and will be registered as a `@Bean` method
+here"*; it now is.
+
+### What ADR-004 actually promised
+
+> *"A generic `JdbcTableConnector` still covers simple sources with no new code, so 'a connector
+> per temple' is the exception rather than the rule."*
+
+One class. Two temples with different schemas are two sets of worker properties and the same bean.
+A structural test fails the build if a temple name, a source table name or a write statement ever
+appears in the implementation package — because the moment one does, onboarding the next temple
+becomes a code change again.
+
+### Where it lives, and why not in `connector/finance`
+
+`ConnectorContractPurityTest` forbids `java.sql`, `ResultSet` and `PreparedStatement` anywhere in
+the contract package, so the contract stays equally implementable by a push agent, an API client
+and a file drop. A JDBC class there would have forced that test to be weakened. The implementation
+is therefore in `service/finance/sync/jdbc`, assembled only under the `sync-worker` profile
+(FIN-D-090) — exactly where the contract javadoc already said implementations belong.
+
+### Read-only by construction
+
+There is **no method that accepts SQL**. Every statement is composed from validated identifiers and
+bound parameters, so `INSERT`, `UPDATE`, `DELETE`, DDL and procedure calls are not operations the
+connector can be asked to perform — a blocklist was rejected because blocklists on SQL lose
+(FIN-D-091). `setReadOnly(true)` is set too, and is explicitly the weaker defence: the connector
+logs when a driver declines it rather than trusting it.
+
+Identifiers go through an allow-list, not an escape routine. `filter_predicate` is deliberately
+**not** executed.
+
+### No migration, no registry change
+
+Connection target and table come from `trm.finance.jdbc.<system_code>.*` in the worker environment
+(FIN-D-092). Nothing was added to `fin_source_system`: it holds no host, port, URL or password by
+design, and giving the registry a path to a temple's connection details is what ADR-001 exists to
+prevent. Credentials continue to resolve through the existing `SourceCredentialProvider` — no new
+credential mechanism was invented, and Q5 is untouched.
+
+### It starts nothing
+
+Registering a connector makes a name resolvable. It creates no batch, schedules nothing, and
+`sync_enabled` still has no consumer. Activation remains what FIN-140-D made it: a permission.
+
+### Verified
+
+| Suite | Result |
+|---|---|
+| `JdbcTableConnectorTest` (H2, synthetic schema) | **29 run, 0 failures** |
+| `SqlIdentifierTest` | **28 run, 0 failures** |
+| `JdbcConnectorBoundaryTest` | **11 run, 0 failures** |
+| `ConnectorContractPurityTest` | **8 run, 0 failures** (unchanged, still passing) |
+| Worker boundary (registry/worker context, profile, integration) | **23 run, 0 failures** |
+
+One existing assertion was updated rather than removed: `ConnectorRegistryTest` required the
+registry to be empty *"no connector implementation exists yet (FIN-040)"* — it named this slice as
+the thing that would change it. It now asserts the worker registers exactly one connector, and that
+an unregistered name still fails loudly, which is the guarantee it was always about.
+
+**No temple database was contacted.** Q4 and Q5 remain unresolved; TiDB remains unverified.
+
+---
+
+## FIN-058 — Manual worker sync trigger (COMPLETE)
+
+**The pipeline can now be run, and nothing runs it by itself.**
+
+`ManualSyncTrigger` is the first production code path from "somebody decided" to "the source was
+read": it validates, creates a `fin_sync_batch`, and calls the existing
+`FinancePipelineOrchestrator`. Before this slice, `sync_enabled = true` had no consumer anywhere.
+
+### If you are picking this up
+
+- The trigger is a worker `@Bean` in `SyncWorkerConfig`. It has **no production caller** — the
+  worker is not a web application and no operator-facing entry point exists yet (FIN-D-095). Tests
+  drive it. Giving it one is the next task; see the two candidates in that decision.
+- **Do not add `@Scheduled`** to make it run (FIN-D-094). Automatic scheduling is a separate design
+  slice, deliberately after this one.
+- Readiness is recomputed at run time through `OnboardingConfigurationReader`, which is now shared
+  by the registry service and the worker. **There is one readiness implementation.** If you need to
+  change what readiness reads, change that class, not a copy.
+- Duplicate protection is `SELECT ... FOR UPDATE` on `fin_source_system` (FIN-D-096). It is a
+  database lock on purpose, so it survives a second worker instance.
+
+### Known operational gap
+
+A worker killed between creating a batch and finishing it leaves that batch `PENDING`, and every
+later request for that source is refused with `ALREADY_IN_PROGRESS`. There is no reaper — deciding
+when an in-flight batch is abandoned rather than slow needs heartbeats or lease expiry, and a
+guessed timeout would eventually cancel a long historical load that was working. Manual cancellation
+is the current answer.
+
+### Verified
+
+| Suite | Result |
+|---|---|
+| `ManualSyncTriggerE2ETest` (MySQL 8.0 registry + synthetic H2 source, real connector) | **13 run, 0 failures** |
+
+Three synthetic receipts became three canonical facts totalling 2250.00, reconciled against the
+source engine's own total and published as a period aggregate. Everything except the temple is
+production code.
+
+**Kollur is not connected, not activated, its credentials are not used and its migrations are
+unchanged. Q4 and Q5 remain unresolved; TiDB remains unverified.**

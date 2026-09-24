@@ -75,4 +75,20 @@ public class FinTempleCapability extends BaseEntity {
 
     @Column(name = "last_reviewed_at")
     private LocalDateTime lastReviewedAt;
+
+    /**
+     * Optimistic lock for administrative edits (FIN-140-B, V121).
+     *
+     * <p>This row decides whether a metric renders as a figure or as a reason. Two administrators
+     * can load the same declaration and save different availabilities; without this the second
+     * write wins silently and the first caller is told it succeeded, so what a District Collector
+     * is shown about a temple would be decided by request ordering.
+     *
+     * <p>Declared here rather than on {@code BaseEntity} for the reason {@code FinMappingRule}
+     * gives: a lock belongs on the entities that are actually edited, not on every audited row.
+     */
+    @Version
+    @Builder.Default
+    @Column(name = "version", nullable = false)
+    private Integer version = 0;
 }
