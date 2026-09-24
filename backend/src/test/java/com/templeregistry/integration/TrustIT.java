@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -31,6 +32,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -69,7 +71,7 @@ class TrustIT extends MySQLContainerBase {
 
         Temple temple = Temple.builder()
                 .name("Test Temple")
-                .registrationNumber("REG-INTEG-001")
+                .registrationNumber("REG-INTEG-" + java.util.UUID.randomUUID().toString().substring(0, 8))
                 .grade(TempleGrade.A)
                 .tradition(ReligiousTradition.OTHER)
                 .doorNumber("1")
@@ -366,6 +368,53 @@ class TrustIT extends MySQLContainerBase {
             // Should be blocked by OwnershipGuard
             mockMvc.perform(get("/api/v1/trusts/" + trustId))
                     .andExpect(status().isForbidden());
+        }
+    }
+
+    // â”€â”€â”€ Temple registration number uniqueness â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    @Nested
+    class TempleRegistrationUniqueness {
+
+        /**
+         * registration_number is a real-world, registering-authority-issued identifier
+         * (V1__initial_schema.sql, unchanged since). Temple is never actually deleted in
+         * production (archival goes through TempleStatus, not is_deleted — see
+         * AdminTempleController suspend/freeze/reactivate). Soft-deleting a temple must NOT
+         * free its registration number for reuse.
+         */
+        @Test
+        void registration_number_remains_unique_after_soft_delete() {
+            Temple templeA = templeRepository.save(Temple.builder()
+                    .name("Temple A")
+                    .registrationNumber("REG-UNIQ-001")
+                    .grade(TempleGrade.A)
+                    .tradition(ReligiousTradition.OTHER)
+                    .doorNumber("1")
+                    .street("Main St")
+                    .villageTown("Testville")
+                    .pinCode("560001")
+                    .districtId(1L)
+                    .primaryDeity("Rama")
+                    .build());
+
+            templeRepository.delete(templeA);
+
+            Temple templeB = Temple.builder()
+                    .name("Temple B")
+                    .registrationNumber("REG-UNIQ-001")
+                    .grade(TempleGrade.A)
+                    .tradition(ReligiousTradition.OTHER)
+                    .doorNumber("2")
+                    .street("Second St")
+                    .villageTown("Testville")
+                    .pinCode("560002")
+                    .districtId(1L)
+                    .primaryDeity("Shiva")
+                    .build();
+
+            assertThatThrownBy(() -> templeRepository.saveAndFlush(templeB))
+                    .isInstanceOf(DataIntegrityViolationException.class);
         }
     }
 
