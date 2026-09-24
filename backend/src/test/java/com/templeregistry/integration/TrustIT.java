@@ -20,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -27,7 +28,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Collections;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -84,7 +85,7 @@ class TrustIT extends MySQLContainerBase {
         // TA security context
         ScopeHelper.Claims claims = new ScopeHelper.Claims(1L, "TEMPLE_AUTHORITY", null, templeId, "ta_user", "EDIT");
         SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(claims, null, Collections.emptyList()));
+                new UsernamePasswordAuthenticationToken(claims, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role()))));
     }
 
     // â”€â”€â”€ Trust CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -360,7 +361,7 @@ class TrustIT extends MySQLContainerBase {
             // Switch to a different TA (different templeId)
             ScopeHelper.Claims otherClaims = new ScopeHelper.Claims(2L, "TEMPLE_AUTHORITY", null, 9999L, "other_ta", "EDIT");
             SecurityContextHolder.getContext().setAuthentication(
-                    new UsernamePasswordAuthenticationToken(otherClaims, null, Collections.emptyList()));
+                    new UsernamePasswordAuthenticationToken(otherClaims, null, List.of(new SimpleGrantedAuthority("ROLE_" + otherClaims.role()))));
 
             // Should be blocked by OwnershipGuard
             mockMvc.perform(get("/api/v1/trusts/" + trustId))
