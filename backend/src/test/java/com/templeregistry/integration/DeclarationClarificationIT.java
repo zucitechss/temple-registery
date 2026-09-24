@@ -113,11 +113,7 @@ class DeclarationClarificationIT extends MySQLContainerBase {
         clarificationRepository.deleteAll();
         declarationRepository.deleteAll();
         templeRepository.deleteAll();
-        hobliRepository.deleteAll();
-        talukRepository.deleteAll();
-        districtRepository.deleteAll();
-        cityRepository.deleteAll();
-        stateRepository.deleteAll();
+        hardDeleteGeoHierarchy();
 
         // Set up bootstrap security context for JPA auditing
         ScopeHelper.Claims bootstrapClaims = new ScopeHelper.Claims(1L, "TEMPLE_AUTHORITY", null, null, "ta_user", "EDIT");

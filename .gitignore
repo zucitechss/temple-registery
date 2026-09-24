@@ -27,6 +27,7 @@ pnpm-debug.log*
 frontend/dist/
 frontend/tsconfig.app.tsbuildinfo
 frontend/tsconfig.node.tsbuildinfo
+frontend/.vite
 
 # ─── Frontend secrets & env ─────────────────────────────────
 **/.env
@@ -55,6 +56,7 @@ backend/BOOT-INF/
 backend/src/main/resources/keys/
 backend/dev-secrets.properties
 backend/.env
+backend/test-uploads
 
 # Ad-hoc DB scratch/debug scripts that carried live credentials
 /VerifySeed2.java

@@ -105,11 +105,7 @@ class DeclarationHappyPathIT extends MySQLContainerBase {
         versionRepository.deleteAll();
         declarationRepository.deleteAll();
         templeRepository.deleteAll();
-        hobliRepository.deleteAll();
-        talukRepository.deleteAll();
-        districtRepository.deleteAll();
-        cityRepository.deleteAll();
-        stateRepository.deleteAll();
+        hardDeleteGeoHierarchy();
 
         // Set up TA security context first (needed for JPA auditing)
         ScopeHelper.Claims bootstrapClaims = new ScopeHelper.Claims(1L, "TEMPLE_AUTHORITY", null, null, "ta_user", "EDIT");
