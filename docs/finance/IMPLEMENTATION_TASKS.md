@@ -1,6 +1,6 @@
 # Finance Implementation Tasks
 
-**Updated:** 2026-09-24 (FIN-058)
+**Updated:** 2026-09-24 (FIN-059)
 **Branch:** `feature/db-integration`
 
 Statuses: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `COMPLETE` · `NEEDS_REVIEW`
@@ -565,6 +565,7 @@ run, 0 failures, 0 errors, 0 skipped**. TiDB is not verified.
 |---|---|---|---|
 | FIN-057 | Finance pipeline orchestrator | **COMPLETE** | FIN-053…FIN-056 |
 | FIN-058 | **Manual worker sync trigger** — the first thing that creates a batch and runs the pipeline | **COMPLETE** | FIN-057, FIN-033, FIN-140-D |
+| FIN-059 | **Operator entry point** — a CLI command that calls `ManualSyncTrigger`, so FIN-058 has a caller outside a test | **COMPLETE** | FIN-058 |
 
 **Why here.** FIN-056 finished the last stage, and five stages that each run alone are not a
 pipeline. It sits before FIN-060 because reconciliation compares what a *run* produced against
@@ -683,6 +684,51 @@ Decisions FIN-D-094…098. Verified by 13 E2E tests; finance regression green.
 
 **What it does not do:** no scheduler, no operator-facing entry point (FIN-D-095), no retry
 processing, no stale-batch reaper, no Kollur.
+
+### FIN-059 — Operator entry point
+
+**FIN-058 shipped a trigger with no caller.** `ManualSyncTrigger.runNow(long)` was real, tested end
+to end, and reachable only from a test. FIN-D-095 named the two candidates — a CLI argument, or a
+registry-to-worker request row — and left the choice to this task. Repository inspection found no
+existing `ApplicationRunner`/`CommandLineRunner` in the codebase and no registry-to-worker channel
+of any kind (the two runtimes share only the database, per ADR-001), so a CLI was built.
+
+**What it delivers.** `ManualSyncCommandRunner`, a Spring Boot `ApplicationRunner` registered as a
+worker `@Bean` beside `manualSyncTrigger`. It reads two properties from the process `Environment`
+and, only if they describe a runnable request, calls `ManualSyncTrigger.runNow(sourceSystemId)`
+exactly once:
+
+```
+trm.finance.sync.command             = run
+trm.finance.sync.source-system-id    = <id>
+```
+
+Neither property is declared in `application-sync-worker.yml`, for the same reason a credential
+default never is: a value committed there would run on every worker restart. Absent, the worker's
+existing idle behaviour is unchanged — the runner returns having touched nothing.
+
+**Thin, on purpose.** The class validates only the two arguments it owns (a recognised command, a
+positive numeric id) and delegates everything else — `sync_enabled`, readiness, the row lock, batch
+creation, the orchestrator — to the unmodified `ManualSyncTrigger`. No validation, batch or pipeline
+logic was duplicated or moved.
+
+**One-shot.** Once a command is handled, the process exits with a code describing the outcome —
+`0` success, `1` unexpected failure, `2` refused (bad input, or any `SyncRefusedException`), `3`
+loaded but reconciliation blocks publication — rather than sitting idle in an already-completed
+invocation. With no command, the process does not exit, exactly as before this task.
+
+**No REST, no scheduler.** No endpoint was added to either runtime; the worker stays non-web, and
+`RegistryRuntimeContextTest` now asserts the registry can reach neither the trigger nor this runner.
+No `@Scheduled` method, cron, poll or `sync_enabled` scan was introduced (FIN-D-094 stands).
+
+Decision FIN-D-099. Verified by `ManualSyncCommandRunnerTest` (21 tests: no-command idle behaviour,
+invalid-input refusal before the trigger is ever touched, exit codes for every existing
+`ManualSyncTrigger` outcome including each `SyncRefusedException.Reason`, and a Logback-captured
+proof that a wrapped exception's cause message — where a JDBC exception's own text could carry a
+connection detail — never reaches the console), plus one new assertion each in
+`RegistryRuntimeContextTest`, `SyncWorkerRuntimeContextTest` and `SyncWorkerProfileBoundaryTest`.
+`ManualSyncTriggerE2ETest` (FIN-058's 13 tests) is untouched and still green. **No migration, no
+new status, no frontend, no Kollur.**
 
 ## Phase 6 — Reconciliation
 

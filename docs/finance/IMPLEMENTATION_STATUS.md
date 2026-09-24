@@ -1,6 +1,6 @@
 # Finance Implementation Status
 
-**Updated:** 2026-09-24 (FIN-058)
+**Updated:** 2026-09-24 (FIN-059)
 **Branch:** `feature/db-integration`
 **Primary handoff document:** [HANDOFF.md](HANDOFF.md)
 
@@ -1496,11 +1496,10 @@ only the worker can execute a pipeline and that neither runtime schedules one.
 
 ### What this does not give you
 
-The trigger has **no production caller** (FIN-D-095). It is a worker bean, and the worker is
-deliberately not a web application — a startup guard fails it if it ever becomes one — so a manual
-request has nowhere to arrive from yet. No REST endpoint was added to either runtime, and no
-registry-to-worker channel was invented; the only channel between them remains the shared database.
-The operator's route to this capability is the next task, not this one.
+At the time this slice shipped, the trigger had **no production caller** (FIN-D-095). It was a
+worker bean, and the worker is deliberately not a web application — a startup guard fails it if it
+ever becomes one — so a manual request had nowhere to arrive from. The operator's route to this
+capability is FIN-059, delivered next.
 
 A worker killed between creating a batch and finishing it leaves that batch `PENDING`, and later
 requests for that source are refused until somebody cancels it. There is no reaper: deciding when an
@@ -1509,3 +1508,88 @@ timeout would eventually cancel a long historical load that was working.
 
 **No temple database was contacted. Kollur is unconnected, unactivated, and its migrations are
 unchanged. Q4 and Q5 remain unresolved; TiDB remains unverified.**
+
+---
+
+## Phase 16 — FIN-059 · Operator entry point · COMPLETE
+
+**FIN-058 built the trigger and left it with no caller. This slice is the caller.**
+
+`ManualSyncCommandRunner` is a Spring Boot `ApplicationRunner`, registered as a worker `@Bean`
+beside `manualSyncTrigger`. It reads two process properties and, only if they describe a runnable
+request, calls `ManualSyncTrigger.runNow(sourceSystemId)` exactly once:
+
+```
+trm.finance.sync.command             = run
+trm.finance.sync.source-system-id    = <id>
+```
+
+Repository inspection found no existing `ApplicationRunner`/`CommandLineRunner` anywhere in the
+codebase and no registry-to-worker channel of any kind — the two runtimes still share only the
+database (ADR-001) — so this task built the smaller of the two candidates FIN-D-095 named, rather
+than inventing a channel that would have outgrown an operator-command task.
+
+### No REST, still non-web
+
+No endpoint was added to either runtime. `RegistryRuntimeContextTest` now asserts the registry can
+reach neither `ManualSyncTrigger` nor this runner; `SyncWorkerBoundaryGuard` — unmodified — still
+fails worker startup if it ever comes up as a web application.
+
+### Thin, on purpose
+
+The class validates exactly two things it owns: is the command `run`, and is the id a positive
+number. Every other decision — `sync_enabled`, readiness recomputed now, the row lock, batch
+creation, `SyncType` and window derivation, the orchestrator itself — stays inside the unmodified
+`ManualSyncTrigger`. Nothing was duplicated or moved; the call is `runNow(long)`, the same
+single-argument overload `ManualSyncTriggerE2ETest` already exercises.
+
+### One-shot, and idle stays idle
+
+Neither property is declared in `application-sync-worker.yml`, for the same reason a credential
+default never is: a value committed there would run on every worker restart. With neither property
+set, `run()` returns having touched nothing — no source read, no batch created, no process exit —
+which is the worker's existing idle behaviour, kept exactly as it was. With a command supplied, the
+process exits once the command is handled, using an injected `IntConsumer` (`System::exit` in
+production) so the exit code can be observed in a test without ending the test JVM.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | `SyncStatus.SUCCESS` |
+| `1` | Attempted and failed unexpectedly (`PipelineFailedException` or any other exception) |
+| `2` | Refused before anything was attempted — bad command, bad id, or any `SyncRefusedException` |
+| `3` | Loaded, but reconciliation blocks publication (`Outcome.blocksPublication()`) |
+
+### No credential leakage, by inheritance rather than by new redaction logic
+
+Every message this class logs is built from a batch id, a source system id, or a domain exception's
+own message — `failure.getClass().getSimpleName()` and `failure.getMessage()`, never a cause's raw
+text, which is where a JDBC exception's own message could otherwise carry a connection detail. That
+guarantee already existed in `SourceReadException` and `SyncRefusedException`; this class relies on
+it rather than re-implementing it. Verified with a Logback `ListAppender` against a deliberately
+planted secret in a wrapped exception's cause.
+
+### Verified
+
+| Suite | Result |
+|---|---|
+| `ManualSyncCommandRunnerTest` (no command, invalid input, delegation, every exit code, no leakage) | **21 run, 0 failures** |
+| `RegistryRuntimeContextTest` (+1: registry reaches neither the trigger nor this runner) | **6 run, 0 failures** |
+| `SyncWorkerRuntimeContextTest` (+1: the runner exists; the boot it just completed touched nothing) | **7 run, 0 failures** |
+| `SyncWorkerProfileBoundaryTest` (+1: the worker assembly includes the runner) | **7 run, 0 failures** |
+| `ManualSyncTriggerE2ETest` (FIN-058, untouched) | **13 run, 0 failures** |
+| Finance regression | **741 run, 0 failures, 0 errors, 0 skipped** |
+
+### No migration, no new status, no frontend, no Kollur
+
+Two new source files (`ManualSyncCommandRunner`, its test) and one new `@Bean` method in
+`SyncWorkerConfig`. `fin_sync_batch`, `SyncStatus` and `SyncRefusedException.Reason` are all
+untouched. No Kollur credential was configured or used; no temple database was contacted.
+
+### What this still does not give you
+
+The CLI exists and is tested; nobody has yet been given the runbook step, the deployment wiring, or
+the authorisation process for invoking it against a reachable source. Q4 (network path) and Q5
+(credential store) remain exactly as unresolved as before this slice — this task changes who can
+ask the pipeline to run, not what it can reach.

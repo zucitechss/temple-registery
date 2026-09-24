@@ -114,6 +114,20 @@ class SyncWorkerRuntimeContextTest {
                 .isEmpty();
     }
 
+    /**
+     * FIN-059. This whole context has just booted with no {@code trm.finance.sync.command}
+     * property set anywhere in this test's configuration -- exactly the state a deployed worker
+     * starts in. {@link ManualSyncCommandRunner} is an {@code ApplicationRunner}, so it already
+     * ran once as part of that boot; this test's mere completion is part of the proof that doing
+     * so touched nothing. The explicit assertion is the other half: the bean that could invoke a
+     * run exists, ready for an operator, having invoked nothing on its own.
+     */
+    @Test
+    @DisplayName("The operator entry point exists, and starting the worker alone never used it")
+    void should_loadTheCommandRunner_when_syncWorkerProfileActive() {
+        assertThat(context.getBean(ManualSyncCommandRunner.class)).isNotNull();
+    }
+
     /** No credential exists unless the operator supplied one; nothing falls back. */
     @Test
     @DisplayName("No credential resolves without explicit configuration")

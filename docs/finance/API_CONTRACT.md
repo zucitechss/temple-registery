@@ -700,6 +700,13 @@ Three routes were considered and none was taken in this slice:
 | A web layer on the worker | `SyncWorkerBoundaryGuard` fails startup if the worker comes up as a web application, on purpose: a process holding temple credentials and a network path into temple estates should not also be listening on a port |
 | A scheduler | FIN-D-094 — the pipeline had never run end to end, and the first execution should not be unattended |
 
-The two live candidates are a CLI argument on the worker, and a request row the worker reads from
-the shared database (which would reuse the existing channel rather than adding one). Until one is
-built, a run is started only from a test, and **`sync_enabled = true` causes no traffic**.
+Two live candidates were named: a CLI argument on the worker, and a request row the worker reads
+from the shared database. **FIN-059 built the first** — `ManualSyncCommandRunner`, a Spring Boot
+`ApplicationRunner` in the sync-worker process, reading `trm.finance.sync.command=run` and
+`trm.finance.sync.source-system-id=<id>` from the process environment and calling
+`ManualSyncTrigger.runNow(id)` exactly once. It is still not an API: nothing in this contract
+changed, no port was opened, and the properties are read from the worker's own process, never from
+an HTTP request. See `HANDOFF.md` for exact invocation syntax and exit codes.
+
+**`sync_enabled = true` still causes no traffic by itself.** A run happens only when the CLI command
+above is explicitly given to a running worker process.

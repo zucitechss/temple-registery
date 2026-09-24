@@ -48,11 +48,12 @@ import java.util.UUID;
  * a later design task with its own failure modes -- overlapping runs, back-off, extraction pressure,
  * and what a schedule means for a temple that closes its books at month end.
  *
- * <p>The consequence is that this class has no production caller either. That is the honest state
- * of the slice rather than an oversight: the worker is not a web application (a startup guard fails
- * it if it ever becomes one), so a manual request has nowhere to arrive from yet. What exists is
- * the executable capability and the tests that drive it; the operator-facing entry point -- a CLI
- * argument, or a registry-to-worker request mechanism nobody has yet designed -- is its own task.
+ * <p>At the time this class was written it had no production caller: the worker is not a web
+ * application (a startup guard fails it if it ever becomes one), so a manual request had nowhere
+ * to arrive from. {@code ManualSyncCommandRunner} (FIN-059) is that caller now -- a thin
+ * {@code ApplicationRunner} that reads two process properties and calls {@link #runNow(long)}
+ * exactly once, adding no validation of its own. This class remains the only place any of the
+ * decisions above are made.
  *
  * <h2>Five refusals, one run</h2>
  *

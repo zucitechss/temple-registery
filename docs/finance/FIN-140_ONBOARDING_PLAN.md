@@ -760,9 +760,30 @@ Two things this does **not** change about the plan. **Activation is still not ex
 one effect — the trigger will no longer refuse. And **140-F stays deferred**: FIN-058 is manual-only,
 with no worker poller and no `DRY_RUN` execution, so the Class B probe still waits on Q4.
 
+**And the trigger now has an operator route too.** **FIN-059** delivers `ManualSyncCommandRunner`, a
+CLI command on the worker process (`trm.finance.sync.command=run`,
+`trm.finance.sync.source-system-id=<id>`) that calls the unmodified `ManualSyncTrigger` exactly once
+and exits with a code describing the outcome. No endpoint was added anywhere; the worker stays
+non-web. This closes the "operator-facing route" gap this section used to list, and it changes
+nothing else this plan describes:
+
+- **Configuration** (source system, capabilities, source-of-truth, mapping) is still the screens
+  §5–§10 describe, done through the registry API, unchanged by this task.
+- **Activation** (`sync_enabled`) is still the permission §11–§13 describe: a switch that authorises
+  a future run and starts nothing by itself, unchanged by this task.
+- **Execution** is the new thing FIN-058 made possible and FIN-059 made reachable: an operator (or a
+  script standing in for one, today) explicitly starting one run of one source system, once, from
+  outside a test.
+
+None of this brings the platform closer to being ready for Kollur specifically. The CLI can start a
+sync for any source whose configuration is complete and whose readiness is clean — a synthetic
+source can be run today — but Kollur has no network path (Q4), no SQL Server driver, and no bespoke
+connector, so invoking this command against Kollur's source system id would still be refused, at
+best, or unable to reach anything, at worst.
+
 What now remains between this screen and a real onboarding is Q4 (a network path), Q5 (a credential
-store), an operator-facing route to the trigger, and — for the first onboarded source specifically —
-a SQL Server driver and a bespoke connector.
+store), and — for the first onboarded source specifically — a SQL Server driver and a bespoke
+connector. The operator-facing route itself is no longer on this list.
 
 ---
 

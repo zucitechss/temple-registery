@@ -1,6 +1,6 @@
 # Finance Platform — Handoff
 
-**Updated:** 2026-09-24 (FIN-058)
+**Updated:** 2026-09-24 (FIN-059)
 **Branch:** `feature/db-integration`
 **Read first**, then [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md),
 [IMPLEMENTATION_TASKS.md](IMPLEMENTATION_TASKS.md),
@@ -3006,8 +3006,8 @@ read": it validates, creates a `fin_sync_batch`, and calls the existing
 ### If you are picking this up
 
 - The trigger is a worker `@Bean` in `SyncWorkerConfig`. It has **no production caller** — the
-  worker is not a web application and no operator-facing entry point exists yet (FIN-D-095). Tests
-  drive it. Giving it one is the next task; see the two candidates in that decision.
+  worker is not a web application, so there is no REST endpoint (FIN-D-095). Its operator entry
+  point is `ManualSyncCommandRunner` (FIN-059) — see the section below for exact usage.
 - **Do not add `@Scheduled`** to make it run (FIN-D-094). Automatic scheduling is a separate design
   slice, deliberately after this one.
 - Readiness is recomputed at run time through `OnboardingConfigurationReader`, which is now shared
@@ -3036,3 +3036,71 @@ production code.
 
 **Kollur is not connected, not activated, its credentials are not used and its migrations are
 unchanged. Q4 and Q5 remain unresolved; TiDB remains unverified.**
+
+---
+
+## FIN-059 — Operator entry point (COMPLETE)
+
+**How an operator invokes a manual sync.** Start (or restart) the worker process with two extra
+properties, as `--key=value` arguments, environment variables, or system properties — whichever the
+deployment mechanism prefers:
+
+```
+java -jar temple-registry-backend.jar \
+  --spring.profiles.active=sync-worker \
+  --trm.finance.sync.command=run \
+  --trm.finance.sync.source-system-id=42
+```
+
+or, as environment variables (useful in a container):
+
+```
+SPRING_PROFILES_ACTIVE=sync-worker \
+TRM_FINANCE_SYNC_COMMAND=run \
+TRM_FINANCE_SYNC_SOURCE_SYSTEM_ID=42 \
+java -jar temple-registry-backend.jar
+```
+
+The process runs the command and **exits**. It does not stay resident the way a worker started with
+neither property does.
+
+### What the operator may supply
+
+Only the source system id. Not a temple id, a JDBC URL, a credential, a connector bean or a mapping
+rule — the source system's own configuration already determines all of those.
+
+### Expected behaviour
+
+| Situation | Result |
+|---|---|
+| Neither property set | The worker starts and stays idle, exactly as before this task — no source is read, no batch is created, the process does not exit |
+| `command=run`, valid id, everything else in order | `ManualSyncTrigger.runNow(id)` runs once, end to end |
+| Unrecognised command, or a missing/non-numeric/non-positive id | Refused before the trigger is ever called |
+| `trm.finance.sync.enabled=false` (the master switch) | Refused — `WORKER_DISABLED` |
+| The source's `sync_enabled` is off | Refused — `NOT_ENABLED_FOR_SYNC` |
+| Readiness has a blocking finding, recomputed at that moment | Refused — `READINESS_BLOCKED` |
+| A batch for that source is already `PENDING` or `RUNNING` | Refused — `ALREADY_IN_PROGRESS` |
+| The batch loads, but reconciliation disagrees with the source | Runs; publication of the affected year(s) is withheld |
+| A stage fails unexpectedly | The batch is `FAILED` with the stage recorded; the process reports it |
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Unexpected failure once the run was actually attempted |
+| `2` | Refused before anything was attempted — bad command, bad id, worker disabled, source not found, source not enabled, readiness blocked, or already in progress |
+| `3` | Loaded, but reconciliation blocks publication |
+
+### Safety restrictions carried over unchanged from FIN-058
+
+Enabling activation (`sync_enabled = true`) still does **not** start a sync — this CLI is the only
+thing that does, and only when explicitly told to. There is still no scheduler, no polling and no
+scan of `sync_enabled`: nothing runs unless this command is given, by a person or a script, once.
+
+### If you are wiring this into automation
+
+The two properties are deliberately absent from `application-sync-worker.yml`. Set them only for
+the single invocation that should run — a scheduler or a deployment step that always passes
+`command=run` on every worker start would recreate exactly the unattended-execution risk FIN-D-094
+exists to avoid.

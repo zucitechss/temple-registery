@@ -2684,3 +2684,84 @@ off is not.
 **Consequence.** A refused request leaves no trace in the database, only in the worker's log with its
 `Reason` as the category. If refusals ever need to be counted, that is an operational log concern or
 its own table, not a status in the batch lifecycle.
+
+---
+
+## FIN-D-099 — The operator entry point is a Spring Boot `ApplicationRunner`, reading two process properties
+
+**Decision:** `ManualSyncCommandRunner` implements `ApplicationRunner`, registered as an explicit
+`@Bean` in `SyncWorkerConfig` beside `manualSyncTrigger`. It reads `trm.finance.sync.command` and
+`trm.finance.sync.source-system-id` from the process `Environment` and, only when the first equals
+`run` and the second is a positive number, calls `ManualSyncTrigger.runNow(sourceSystemId)` exactly
+once. On a supplied command it exits the process afterwards with a code describing the outcome; with
+no command it returns having done nothing, and the process stays exactly as idle as before this
+class existed.
+
+**Why a CLI, and not a registry endpoint.** FIN-D-095 named the constraint this task inherited:
+`ManualSyncTrigger` is the one object that, in a single call, reaches a temple database and writes a
+canonical figure. A registry endpoint calling it would put that one HTTP request away from the
+public API, which is precisely what ADR-001 forbids — so it cannot live in the registry, and it
+cannot be reached from the registry either, which `RegistryRuntimeContextTest` now asserts for this
+class as well as for the trigger. A registry endpoint calling the worker instead would need a
+registry-to-worker channel, and none exists: the only channel between the two runtimes is the shared
+database. Inventing an HTTP one as a side effect of an operator-command task would be an
+architectural change smuggled in as plumbing, not the small, explicit thing this task asked for.
+
+**Why the worker stays non-web rather than gaining a controller of its own.** `SyncWorkerBoundaryGuard`
+already fails startup if the worker becomes a web application, for a reason unrelated to this task
+and not weakened by it: a process holding temple credentials and a network path into temple estates
+should not also be listening on a port. Adding a controller to give the trigger a URL would have
+undone that guarantee to save an operator one deployment step.
+
+**Why `ApplicationRunner`, and why properties rather than raw arguments.** The repository had no
+existing `ApplicationRunner`/`CommandLineRunner` to extend, so the choice was between the two Spring
+Boot interfaces built for exactly a one-shot post-startup action; `ApplicationRunner` was picked over
+`CommandLineRunner` for the typed `ApplicationArguments` it is handed, even though this class ends up
+reading the `Environment` instead. Reading from `Environment` rather than parsing `args` directly
+mirrors `PropertiesJdbcSourceSettingsProvider` and `EnvironmentSourceCredentialProvider`: it lets the
+same two properties arrive as a `--key=value` argument, an environment variable, or a system
+property, whichever fits how a particular deployment starts the worker, without three separate
+parsing paths.
+
+**Why the properties are absent from `application-sync-worker.yml`.** A value committed to that file
+would run on every worker restart, which is exactly the accidental-activation risk a credential
+default in committed YAML already illustrates in this codebase. Leaving both properties completely
+unset is what makes "no command" the default state, and the property is meaningful only for the one
+process invocation it is supplied to.
+
+**Why the id is the only thing the operator may supply.** The source system's own configuration
+already determines the temple, the connector, the credential alias, the table and every mapping and
+source-of-truth rule. Accepting any of those as a second CLI-supplied copy would make the CLI a
+second onboarding mechanism with its own drift risk; accepting only an id keeps this class an
+execution trigger and nothing else, matching the brief's own restriction.
+
+**Why one-shot rather than staying resident.** The worker was never meant to run continuously as a
+batch driver — it stays alive today only because `financeSyncScheduler`'s thread pool happens to be
+non-daemon. Once an explicit command has been handled there is a real answer to give an operator or
+a script, and leaving a completed one-shot invocation sitting in a still-running process would need
+a second mechanism (a health check, a log grep) to learn what the CLI itself already knows. `exit` is
+injected as an `IntConsumer` defaulting to `System::exit`, purely so a test can observe the code
+without ending the test JVM; every production path uses the real one.
+
+**Why no validation was duplicated.** Every decision beyond "is this a well-formed request" —
+`sync_enabled`, readiness recomputed now, the row lock, batch creation, which `SyncType` and window
+apply — stays inside `ManualSyncTrigger`, unmodified by this task. Restating any of it here would
+create a second implementation of the same question, and the two would drift exactly the way FIN-058
+already reasoned about for readiness specifically. This class calls `runNow(long)`, the same
+single-argument overload the E2E test exercises, and no other.
+
+**Exit codes.** `0` success (`SyncStatus.SUCCESS`); `3` the batch loaded but reconciliation blocks
+publication (`Outcome.blocksPublication()`), distinguished from a full success because an operator
+running this from a script needs to tell the two apart; `2` refused before anything was attempted —
+an unrecognised command, a missing or non-numeric id, or any `SyncRefusedException` (worker disabled,
+source missing, not enabled for sync, readiness blocked, already in progress); `1` an unexpected
+failure once a run was actually attempted. Folding invalid CLI input into the same code as a domain
+refusal was deliberate: both mean "nothing was attempted, and the reason is stated", and inventing a
+fifth code to separate them would ask an operator's automation to distinguish two states that call
+for the same corrective action — look at the message and fix the input.
+
+**Consequence.** FIN-058's `ManualSyncTrigger` gains its first production caller, and the pipeline
+can now be started by something other than a test. What remains missing is not a mechanism but an
+operator: nobody has yet been given the runbook step, the deployment wiring, or the authorisation
+process for actually invoking this in an environment that can reach a temple. That is deliberately
+outside this task's scope, which was only to make the invocation possible and safe.

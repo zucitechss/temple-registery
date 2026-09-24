@@ -81,6 +81,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * {@link #financeSyncScheduler} is given no job, so the platform contacts a temple system when a
  * person asks it to and at no other time. Automatic scheduling is a later design task, deliberately
  * after the pipeline has been proven to run end to end.
+ *
+ * <p><b>{@link #manualSyncCommandRunner} is how a person asks it to</b> (FIN-059). It is an
+ * {@code ApplicationRunner}, not an endpoint -- the worker stays non-web -- and it does nothing at
+ * all unless the process was started with an explicit {@code trm.finance.sync.command=run} and a
+ * source system id.
  */
 @Configuration
 @Profile(FinanceProfiles.SYNC_WORKER)
@@ -380,6 +385,25 @@ public class SyncWorkerConfig {
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return new ManualSyncTrigger(sourceSystemRepository, templeRepository, batchRepository,
                 onboardingConfigurationReader, financePipelineOrchestrator, properties, template);
+    }
+
+    /**
+     * The operator's way to call {@link #manualSyncTrigger}, without a web endpoint (FIN-059,
+     * FIN-D-095).
+     *
+     * <p>An {@code ApplicationRunner}, not a controller: the worker remains non-web, and this bean
+     * does nothing unless {@code trm.finance.sync.command=run} and a source system id are supplied
+     * to the process. Absent either, {@code run()} returns immediately and the worker stays exactly
+     * as idle as it was before this bean existed.
+     *
+     * <p>It is a thin caller and nothing more -- see {@link ManualSyncCommandRunner}'s own javadoc
+     * for why every validation, batch and pipeline decision still belongs to
+     * {@link #manualSyncTrigger} alone.
+     */
+    @Bean
+    public ManualSyncCommandRunner manualSyncCommandRunner(ManualSyncTrigger manualSyncTrigger,
+                                                            Environment environment) {
+        return new ManualSyncCommandRunner(manualSyncTrigger, environment);
     }
 
     /**

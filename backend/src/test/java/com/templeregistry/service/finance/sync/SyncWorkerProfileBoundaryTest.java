@@ -128,6 +128,11 @@ class SyncWorkerProfileBoundaryTest {
                                 + "here and nowhere else")
                         .hasBean("manualSyncTrigger");
                 assertThat(context)
+                        .as("FIN-059: the operator's way to call the trigger without a web "
+                                + "endpoint. An ApplicationRunner, not a controller -- the worker "
+                                + "stays non-web")
+                        .hasBean("manualSyncCommandRunner");
+                assertThat(context)
                         .as("extraction is the one stage that touches a connector, so it could "
                                 + "never belong anywhere but the worker")
                         .hasBean("revenueExtractionStage");

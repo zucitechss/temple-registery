@@ -90,6 +90,14 @@ class RegistryRuntimeContextTest {
                 .as("Extraction is the stage that touches a connector")
                 .isEmpty();
         assertThat(context.containsBean("manualSyncTrigger")).isFalse();
+
+        // FIN-059. The operator entry point is a thin caller of ManualSyncTrigger and nothing
+        // more, but a thin caller in the registry runtime would still be a path from an HTTP
+        // request to a temple database -- the trigger it calls just happens to not exist here.
+        assertThat(context.getBeanNamesForType(ManualSyncCommandRunner.class))
+                .as("Nothing in the registry runtime may invoke the operator entry point either")
+                .isEmpty();
+        assertThat(context.containsBean("manualSyncCommandRunner")).isFalse();
     }
 
     /**
