@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
@@ -55,6 +56,7 @@ class TrustIT extends MySQLContainerBase {
     @Autowired TempleRepository templeRepository;
     @Autowired TrustRepository trustRepository;
     @Autowired BoardMemberRepository boardMemberRepository;
+    @Autowired JdbcTemplate jdbcTemplate;
 
     private Long templeId;
 
@@ -306,6 +308,36 @@ class TrustIT extends MySQLContainerBase {
                     .andExpect(jsonPath("$.data.current").isArray())
                     .andExpect(jsonPath("$.data.past").isArray())
                     .andExpect(jsonPath("$.data.current[0].fullName").value("Govinda Rao"));
+        }
+
+        /**
+         * Trust has {@code is_deleted} since V1__initial_schema.sql and follows the same
+         * {@code @SQLRestriction("is_deleted = false")} soft-delete pattern as every other
+         * entity in the codebase (BoardMember included). Deleting a trust that still has
+         * board members must soft-delete, not hard-delete, or the FK from board_members
+         * blocks it since BoardMember rows are never physically removed.
+         */
+        @Test
+        void deleting_trust_with_board_members_soft_deletes_without_fk_violation() throws Exception {
+            Long trustId = createTrustAndGetId();
+
+            mockMvc.perform(post("/api/v1/trusts/" + trustId + "/board-members")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(validMemberRequest())))
+                    .andExpect(status().isCreated());
+
+            boardMemberRepository.deleteAll();
+            trustRepository.deleteAll();
+
+            assertThat(trustRepository.findById(trustId)).isEmpty();
+
+            Long physicalCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM trusts WHERE id = ?", Long.class, trustId);
+            assertThat(physicalCount).as("trust row must still physically exist").isEqualTo(1L);
+
+            Boolean isDeleted = jdbcTemplate.queryForObject(
+                    "SELECT is_deleted FROM trusts WHERE id = ?", Boolean.class, trustId);
+            assertThat(isDeleted).as("trust must be soft-deleted, not hard-deleted").isTrue();
         }
     }
 
