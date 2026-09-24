@@ -139,7 +139,7 @@ class DeclarationConcurrencyIT extends MySQLContainerBase {
         CompleteDeclarationResponse created = createDraftDeclaration(templeId);
         Long declarationId = created.getId();
 
-        declarationService.submit(declarationId);
+        governanceWorkflowService.submitDeclaration(declarationId);
 
         AssetDeclaration afterSubmit = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterSubmit.getStatus()).isEqualTo(DeclarationStatus.SUBMITTED);
