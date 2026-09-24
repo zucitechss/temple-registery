@@ -14,6 +14,8 @@ import com.templeregistry.entity.geo.Taluk;
 import com.templeregistry.entity.temple.Temple;
 import com.templeregistry.entity.temple.TempleGrade;
 import com.templeregistry.entity.temple.ReligiousTradition;
+import com.templeregistry.entity.versioning.EntityVersion;
+import com.templeregistry.entity.versioning.EntityVersionStatus;
 import com.templeregistry.entity.workflow.WorkflowEntityType;
 import com.templeregistry.repository.audit.GovernanceActionRepository;
 import com.templeregistry.repository.declaration.DeclarationRepository;
@@ -182,11 +184,22 @@ class DeclarationSiteVisitIT extends MySQLContainerBase {
         AssetDeclaration afterApprove = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterApprove.getStatus()).isEqualTo(DeclarationStatus.APPROVED);
 
-        // Assert snapshot count = 5
-        // (submit + scheduleSiteVisit + completeSiteVisit + verify + approve)
-        List<?> versions = versionRepository
+        // Assert snapshot count = 6:
+        // v1 is the bootstrap DRAFT_OVERLAY row WorkflowEngineImpl.initiate() writes when the
+        // WorkflowInstance is first created (at declaration creation) — EntityVersion rows are
+        // immutable and append-only (never updated/replaced; version_number/snapshot_json are
+        // updatable=false), so this row is never consumed by later snapshots, only superseded by
+        // higher version numbers. v2-v6 are the five explicit VersionService.snapshot() calls
+        // this flow triggers: submit, scheduleSiteVisit, completeSiteVisit, verify, approve.
+        List<EntityVersion> versions = versionRepository
                 .findAllByEntityTypeAndEntityIdOrderByVersionNumberDesc(WorkflowEntityType.DECLARATION.name(), declarationId);
-        assertThat(versions).hasSize(5);
+        assertThat(versions).hasSize(6);
+        assertThat(versions).extracting(EntityVersion::getVersionNumber)
+                .containsExactly(6, 5, 4, 3, 2, 1); // DESC order
+
+        EntityVersion bootstrap = versions.get(versions.size() - 1);
+        assertThat(bootstrap.getVersionNumber()).isEqualTo(1);
+        assertThat(bootstrap.getStatus()).isEqualTo(EntityVersionStatus.DRAFT_OVERLAY);
     }
 
     // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
