@@ -211,7 +211,11 @@ class TrustIT extends MySQLContainerBase {
 
                 CreateTrustRequest rq = validTrustRequest();
                 rq.setTrustType(type);
-                rq.setRegistrationNumber("TR-" + type.name());
+                // registrationNumber must match CreateTrustRequest's @Pattern
+                // ("^[A-Za-z0-9/\\-]+$" — no underscores), but several TrustType names
+                // contain '_' (e.g. SINGLE_TRUSTEE); substitute '-' to stay within the
+                // allowed charset while keeping the value unique per type.
+                rq.setRegistrationNumber("TR-" + type.name().replace("_", "-"));
 
                 mockMvc.perform(post("/api/v1/temples/" + templeId + "/trusts")
                                 .contentType(MediaType.APPLICATION_JSON)
