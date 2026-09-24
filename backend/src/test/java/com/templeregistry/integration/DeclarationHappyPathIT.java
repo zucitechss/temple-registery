@@ -13,9 +13,10 @@ import com.templeregistry.entity.geo.Taluk;
 import com.templeregistry.entity.temple.Temple;
 import com.templeregistry.entity.temple.TempleGrade;
 import com.templeregistry.entity.temple.ReligiousTradition;
+import com.templeregistry.entity.workflow.WorkflowEntityType;
 import com.templeregistry.repository.audit.GovernanceActionRepository;
-import com.templeregistry.repository.declaration.AssetDeclarationVersionRepository;
 import com.templeregistry.repository.declaration.DeclarationRepository;
+import com.templeregistry.repository.versioning.EntityVersionRepository;
 import com.templeregistry.repository.geo.CityRepository;
 import com.templeregistry.repository.geo.DistrictRepository;
 import com.templeregistry.repository.geo.HobliRepository;
@@ -73,7 +74,7 @@ class DeclarationHappyPathIT extends MySQLContainerBase {
     private DeclarationRepository declarationRepository;
 
     @Autowired
-    private AssetDeclarationVersionRepository versionRepository;
+    private EntityVersionRepository versionRepository;
 
     @Autowired
     private GovernanceActionRepository governanceActionRepository;
@@ -143,13 +144,15 @@ class DeclarationHappyPathIT extends MySQLContainerBase {
         assertThat(afterCreate.getStatus()).isEqualTo(DeclarationStatus.DRAFT);
 
         // Step 2: Submit (TA action)
-        declarationService.submit(declarationId);
+        governanceWorkflowService.submitDeclaration(declarationId);
 
         AssetDeclaration afterSubmit = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterSubmit.getStatus()).isEqualTo(DeclarationStatus.SUBMITTED);
 
         // Assert snapshot created at submit
-        int versionsAfterSubmit = versionRepository.findByDeclarationIdOrderByVersionNumberDesc(declarationId).size();
+        int versionsAfterSubmit = versionRepository
+                .findAllByEntityTypeAndEntityIdOrderByVersionNumberDesc(WorkflowEntityType.DECLARATION.name(), declarationId)
+                .size();
         assertThat(versionsAfterSubmit).isGreaterThanOrEqualTo(1);
 
         // Step 3: Mark under review (DC action)
@@ -171,7 +174,8 @@ class DeclarationHappyPathIT extends MySQLContainerBase {
         assertThat(afterApprove.getAcknowledgementNumber()).matches("ACK-.*");
 
         // Assert snapshot count increased at submit and approve (at least 2 versions)
-        List<?> versions = versionRepository.findByDeclarationIdOrderByVersionNumberDesc(declarationId);
+        List<?> versions = versionRepository
+                .findAllByEntityTypeAndEntityIdOrderByVersionNumberDesc(WorkflowEntityType.DECLARATION.name(), declarationId);
         assertThat(versions).hasSizeGreaterThanOrEqualTo(2);
 
         // Assert audit log entries exist for SUBMIT, UNDER_REVIEW, APPROVED
@@ -183,7 +187,7 @@ class DeclarationHappyPathIT extends MySQLContainerBase {
                 .map(e -> e.getAction())
                 .toList();
         assertThat(actions).anyMatch(a -> a.equalsIgnoreCase("SUBMIT") || a.contains("SUBMIT"));
-        assertThat(actions).anyMatch(a -> a.equalsIgnoreCase("UNDER_REVIEW") || a.contains("UNDER_REVIEW"));
+        assertThat(actions).anyMatch(a -> a.equalsIgnoreCase("BEGIN_REVIEW") || a.contains("BEGIN_REVIEW"));
         assertThat(actions).anyMatch(a -> a.equalsIgnoreCase("APPROVE") || a.contains("APPROVE"));
     }
 

@@ -14,9 +14,10 @@ import com.templeregistry.entity.geo.Taluk;
 import com.templeregistry.entity.temple.Temple;
 import com.templeregistry.entity.temple.TempleGrade;
 import com.templeregistry.entity.temple.ReligiousTradition;
+import com.templeregistry.entity.workflow.WorkflowEntityType;
 import com.templeregistry.repository.audit.GovernanceActionRepository;
-import com.templeregistry.repository.declaration.AssetDeclarationVersionRepository;
 import com.templeregistry.repository.declaration.DeclarationRepository;
+import com.templeregistry.repository.versioning.EntityVersionRepository;
 import com.templeregistry.repository.geo.CityRepository;
 import com.templeregistry.repository.geo.DistrictRepository;
 import com.templeregistry.repository.geo.HobliRepository;
@@ -71,7 +72,7 @@ class DeclarationSiteVisitIT extends MySQLContainerBase {
     private DeclarationRepository declarationRepository;
 
     @Autowired
-    private AssetDeclarationVersionRepository versionRepository;
+    private EntityVersionRepository versionRepository;
 
     @Autowired
     private GovernanceActionRepository governanceActionRepository;
@@ -139,32 +140,38 @@ class DeclarationSiteVisitIT extends MySQLContainerBase {
         assertThat(afterCreate.getStatus()).isEqualTo(DeclarationStatus.DRAFT);
 
         // Step 2: Submit (TA)
-        declarationService.submit(declarationId);
+        governanceWorkflowService.submitDeclaration(declarationId);
 
         AssetDeclaration afterSubmit = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterSubmit.getStatus()).isEqualTo(DeclarationStatus.SUBMITTED);
 
-        // Step 3: Schedule site visit (DC)
+        // Step 3: Mark under review (DC) — required before SCHEDULE_SITE_VISIT per TransitionRuleRegistry
         setSecurityContext(dcClaims);
+        governanceWorkflowService.markUnderReview(declarationId, dcClaims);
+
+        AssetDeclaration afterUnderReview = declarationRepository.findById(declarationId).orElseThrow();
+        assertThat(afterUnderReview.getStatus()).isEqualTo(DeclarationStatus.UNDER_REVIEW);
+
+        // Step 4: Schedule site visit (DC)
         SiteVisitRequest siteVisitRequest = new SiteVisitRequest("Scheduled for inspection");
         governanceWorkflowService.scheduleSiteVisit(declarationId, siteVisitRequest, dcClaims);
 
         AssetDeclaration afterSchedule = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterSchedule.getStatus()).isEqualTo(DeclarationStatus.SITE_VISIT_SCHEDULED);
 
-        // Step 4: Complete site visit (DC)
+        // Step 5: Complete site visit (DC)
         governanceWorkflowService.completeSiteVisit(declarationId, dcClaims);
 
         AssetDeclaration afterComplete = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterComplete.getStatus()).isEqualTo(DeclarationStatus.SITE_VISIT_COMPLETED);
 
-        // Step 5: Verify declaration (DC)
+        // Step 6: Verify declaration (DC)
         governanceWorkflowService.verifyDeclaration(declarationId, dcClaims);
 
         AssetDeclaration afterVerify = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterVerify.getStatus()).isEqualTo(DeclarationStatus.VERIFIED);
 
-        // Step 6: Approve (DC)
+        // Step 7: Approve (DC)
         WorkflowApproveRequest approveRequest = new WorkflowApproveRequest();
         governanceWorkflowService.approveDeclaration(declarationId, approveRequest, dcClaims);
 
@@ -173,7 +180,8 @@ class DeclarationSiteVisitIT extends MySQLContainerBase {
 
         // Assert snapshot count = 5
         // (submit + scheduleSiteVisit + completeSiteVisit + verify + approve)
-        List<?> versions = versionRepository.findByDeclarationIdOrderByVersionNumberDesc(declarationId);
+        List<?> versions = versionRepository
+                .findAllByEntityTypeAndEntityIdOrderByVersionNumberDesc(WorkflowEntityType.DECLARATION.name(), declarationId);
         assertThat(versions).hasSize(5);
     }
 

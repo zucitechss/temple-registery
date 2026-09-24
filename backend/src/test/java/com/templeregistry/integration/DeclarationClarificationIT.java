@@ -16,10 +16,11 @@ import com.templeregistry.entity.geo.Taluk;
 import com.templeregistry.entity.temple.Temple;
 import com.templeregistry.entity.temple.TempleGrade;
 import com.templeregistry.entity.temple.ReligiousTradition;
+import com.templeregistry.entity.workflow.WorkflowEntityType;
 import com.templeregistry.repository.audit.GovernanceActionRepository;
-import com.templeregistry.repository.declaration.AssetDeclarationVersionRepository;
 import com.templeregistry.repository.declaration.DeclarationClarificationRepository;
 import com.templeregistry.repository.declaration.DeclarationRepository;
+import com.templeregistry.repository.versioning.EntityVersionRepository;
 import com.templeregistry.repository.geo.CityRepository;
 import com.templeregistry.repository.geo.DistrictRepository;
 import com.templeregistry.repository.geo.HobliRepository;
@@ -77,7 +78,7 @@ class DeclarationClarificationIT extends MySQLContainerBase {
     private DeclarationRepository declarationRepository;
 
     @Autowired
-    private AssetDeclarationVersionRepository versionRepository;
+    private EntityVersionRepository versionRepository;
 
     @Autowired
     private DeclarationClarificationRepository clarificationRepository;
@@ -146,7 +147,7 @@ class DeclarationClarificationIT extends MySQLContainerBase {
         Long declarationId = created.getId();
 
         // Step 2: Submit (TA)
-        declarationService.submit(declarationId);
+        governanceWorkflowService.submitDeclaration(declarationId);
 
         AssetDeclaration afterSubmit = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterSubmit.getStatus()).isEqualTo(DeclarationStatus.SUBMITTED);
@@ -171,7 +172,9 @@ class DeclarationClarificationIT extends MySQLContainerBase {
         assertThat(afterRespond.getStatus()).isEqualTo(DeclarationStatus.CLARIFICATION_RESPONDED);
 
         // Assert snapshot created at respondToClarification
-        int versionsAfterRespond = versionRepository.findByDeclarationIdOrderByVersionNumberDesc(declarationId).size();
+        int versionsAfterRespond = versionRepository
+                .findAllByEntityTypeAndEntityIdOrderByVersionNumberDesc(WorkflowEntityType.DECLARATION.name(), declarationId)
+                .size();
         assertThat(versionsAfterRespond).isGreaterThanOrEqualTo(2); // submit + respond
 
         // Assert two clarification records exist: one DC_TO_TEMPLE, one TEMPLE_TO_DC
@@ -196,7 +199,9 @@ class DeclarationClarificationIT extends MySQLContainerBase {
         assertThat(afterApprove.getStatus()).isEqualTo(DeclarationStatus.APPROVED);
 
         // Assert snapshot created at approve
-        int versionsAfterApprove = versionRepository.findByDeclarationIdOrderByVersionNumberDesc(declarationId).size();
+        int versionsAfterApprove = versionRepository
+                .findAllByEntityTypeAndEntityIdOrderByVersionNumberDesc(WorkflowEntityType.DECLARATION.name(), declarationId)
+                .size();
         assertThat(versionsAfterApprove).isGreaterThan(versionsAfterRespond);
     }
 
