@@ -158,6 +158,10 @@ class DeclarationSiteVisitIT extends MySQLContainerBase {
 
         AssetDeclaration afterSchedule = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterSchedule.getStatus()).isEqualTo(DeclarationStatus.SITE_VISIT_SCHEDULED);
+        // Regression: physical_verification_status must persist and round-trip the full 34-char
+        // enum name without truncation (V114 widened the column from VARCHAR(30) to VARCHAR(50)).
+        assertThat(afterSchedule.getPhysicalVerificationStatus())
+                .isEqualTo(com.templeregistry.entity.governance.PhysicalVerificationStatus.ORDERED_FOR_PHYSICAL_VERIFICATION);
 
         // Step 5: Complete site visit (DC)
         governanceWorkflowService.completeSiteVisit(declarationId, dcClaims);
