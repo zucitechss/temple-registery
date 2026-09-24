@@ -1,6 +1,6 @@
 # Finance Implementation Tasks
 
-**Updated:** 2026-09-18 (FIN-054B)
+**Updated:** 2026-09-24 (FIN-058)
 **Branch:** `feature/db-integration`
 
 Statuses: `NOT_STARTED` · `IN_PROGRESS` · `BLOCKED` · `COMPLETE` · `NEEDS_REVIEW`
@@ -118,6 +118,7 @@ re-applying the seed.
 | FIN-030 | `TempleFinanceConnector` contract and supporting types | **COMPLETE** | FIN-016 | `connector/finance/*.java` (11 types) | 33/33 pass |
 | FIN-031 | Connector registry resolving `connector_bean` | **COMPLETE** | FIN-030 | `connector/finance/ConnectorRegistry.java`, `ConnectorConfigurationException.java`, a bean method in `SyncWorkerConfig` | 13/13 pass |
 | FIN-032 | Probe and capability declaration wiring into onboarding | NOT_STARTED | FIN-030, FIN-031 | | |
+| FIN-033 | **Generic `JdbcTableConnector`** — the configuration-driven connector ADR-004 promises | **COMPLETE** | FIN-030, FIN-031 | `service/finance/sync/jdbc/*.java` (7 types), 3 bean methods in `SyncWorkerConfig` | 68/68 pass |
 
 Capabilities are declared per connector. No connector implements a capability its temple
 does not have.
@@ -196,7 +197,7 @@ including the Kollur one.
 
 | ID | Description | Status | Depends on | Notes |
 |---|---|---|---|---|
-| FIN-040 | Add `mssql-jdbc` dependency | NOT_STARTED | FIN-030 | Not currently in `pom.xml` |
+| FIN-040 | Add `mssql-jdbc` dependency | NOT_STARTED | FIN-030 | Not currently in `pom.xml`. **Not the generic connector** — that is FIN-033, which is complete and adds no driver. This row exists only for the SQL Server source behind Q4 |
 | FIN-041 | `KollurFinanceConnector` skeleton + `testConnection` | BLOCKED | FIN-040 | Blocked on **Q4** — no agreed network path from the platform to Kollur |
 | FIN-042 | Schema fingerprinting | NOT_STARTED | FIN-041 | |
 | FIN-043 | Revenue extraction: live table + six FY archives | NOT_STARTED | FIN-041 | **Must exclude `DailySevaNewOld`** — it duplicates all six archives |
@@ -214,6 +215,7 @@ including the Kollur one.
 | FIN-050 | `fin_stg_revenue` staging table and entity | **COMPLETE** | FIN-011 (dependency on FIN-043 was not real: the table needs no extract) |
 | FIN-051 | Dimensions: `fin_revenue_category`, `fin_service_dim` | **COMPLETE** | FIN-011 |
 | FIN-052 | `fin_revenue_fact` (daily grain) | **COMPLETE** | FIN-051 |
+| FIN-052A | `uk_frf_grain` gains `source_system_id` (V118) | **COMPLETE** | FIN-052, FIN-070B |
 | FIN-053 | Validation stage, rejections to `fin_sync_error` | **COMPLETE** | FIN-050 |
 | FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | **COMPLETE** | FIN-024, FIN-053 |
 | FIN-055 | Normalization to daily grain | **COMPLETE** | FIN-054 |
@@ -510,11 +512,59 @@ orchestration, no connector, no API. And no deletion detection — an incrementa
 support it (FIN-D-044).
 
 
+### FIN-052A — The canonical grain distinguishes source systems
+
+**Migration:** `V118__finance_fact_grain_source_system.sql`. **Decision:** FIN-D-067, acting on
+FIN-070B D1. **Closes:** limitation 47.
+
+`uk_frf_grain` was seven columns and omitted `source_system_id`, although the column has always
+been `NOT NULL` and populated. Two sources reporting the same temple, day, service, category,
+payment mode, counter and operator collided, and the loader's `ON DUPLICATE KEY UPDATE` replaced
+the first source's figures with the second's rather than keeping both. It is now eight columns,
+with `source_system_id` second:
+
+```
+uk_frf_grain (temple_id, source_system_id, transaction_date, grain_service_key,
+              category_id, payment_mode, grain_counter_key, grain_operator_key)
+```
+
+Second, not last, so the index also serves the `(temple_id, source_system_id)` prefix that every
+source-scoped reconciliation query already filters on — a prefix that did not exist before. No
+benchmark was taken and none is claimed.
+
+**The migration is one `ALTER TABLE` and touches no data.** Widening a UNIQUE key cannot be
+violated by existing rows, and `source_system_id` needed no backfill, so nothing was deleted,
+rewritten or restated. This corrects FIN-070A's reasoning, which had argued the change was cheap
+only while the table was empty; the real deadline was the second source system, not the first fact
+(FIN-D-067).
+
+**Production code changed in two places, both small.** `source_system_id = VALUES(source_system_id)`
+left the upsert's update list, because a matched row now necessarily already holds the value — and
+that assignment was precisely how one source used to take ownership of another's figures.
+`RevenueNormalizer.GrainKey` needed no change at all: normalization runs over one batch, and a
+batch has one temple and one source system, so both are constant across every key it builds.
+
+**What it does not do.** It recovers nothing already overwritten — those figures were replaced in
+place and no history of prior values exists. It does not make the platform multi-source-capable:
+`uk_ftc_temple_capability` and `uk_fsd_temple_service` keep the single-source assumption and stay
+deferred under FIN-070B D9 (limitation 67). And **ADR-003 was not edited**, though it now describes
+a grain the schema no longer has: amending an ADR is a governance act and was explained rather than
+performed.
+
+Verified on MySQL 8.0: `FinanceCanonicalRevenueMigrationTest` 24 (5 new, including the index read
+back from `information_schema` and a check that no column was relaxed), `RevenueLoadStageTest` 20
+(2 new, through the real loader), `RevenueReconciliationStageTest` 26 — whose two-source scoping
+test was moved back onto a single shared day, which the old seven-column grain could not have kept apart. Finance regression **437
+run, 0 failures, 0 errors, 0 skipped**. TiDB is not verified.
+
+---
+
 ## Phase 5b — Pipeline Orchestration
 
 | ID | Description | Status | Depends on |
 |---|---|---|---|
 | FIN-057 | Finance pipeline orchestrator | **COMPLETE** | FIN-053…FIN-056 |
+| FIN-058 | **Manual worker sync trigger** — the first thing that creates a batch and runs the pipeline | **COMPLETE** | FIN-057, FIN-033, FIN-140-D |
 
 **Why here.** FIN-056 finished the last stage, and five stages that each run alone are not a
 pipeline. It sits before FIN-060 because reconciliation compares what a *run* produced against
@@ -592,6 +642,47 @@ behind a synthetic in-test connector. Finance regression 343 green. Decisions FI
 
 One thing the plan did not anticipate: rebuilding entities on the row-by-row retry (FIN-D-046).
 The test found it; reasoning had not.
+
+### FIN-058 — Manual sync trigger
+
+**The pipeline had never run.** FIN-057 composed six stages, FIN-033 registered a real connector and
+FIN-140-D gave an administrator a switch — and nothing read the switch, nothing created a
+`fin_sync_batch`, and nothing called the orchestrator. A fully configured platform read no rows.
+
+**What it delivers.** `ManualSyncTrigger`, a worker `@Bean`: validate → lock → create batch → run
+the existing orchestrator. Plus `SyncRefusedException`, `OnboardingConfigurationReader` (the
+readiness assembly extracted from the registry service so one implementation serves both runtimes),
+two repository finders, two bean methods. **No migration**, no new status, no new enum value, no
+frontend.
+
+```
+MANUAL REQUEST -> sync_enabled? -> readiness? -> lock -> fin_sync_batch (PENDING, MANUAL)
+                                                            |
+                                    FinancePipelineOrchestrator (existing, unchanged)
+                                                            |
+                    extract -> validate -> map -> normalize -> load -> reconcile -> aggregate
+                                                            |
+                                        JdbcTableConnector -> SOURCE DATABASE
+```
+
+**Manual, and only manual** (FIN-D-094). No `@Scheduled`, no cron, no polling, no scan of
+`sync_enabled`. `SchedulingConfig` is untouched and `financeSyncScheduler` is given no job.
+Activation is still a permission, not an action.
+
+**Proven end to end.** `ManualSyncTriggerE2ETest`: a synthetic H2 receipts table read by the real
+`JdbcTableConnector` through the real settings and credential providers, into a real MySQL 8.0
+registry built by the real migrations — three receipts becoming three canonical facts totalling
+₹2,250.00, reconciled against the source's own total and published as a period aggregate. Everything
+except the temple is production code. **No temple database was contacted; Q4 and Q5 are unresolved.**
+
+Also proven: a failed run does not become the position the next one resumes from (FIN-D-005), a
+disabled source and a blocked readiness verdict are refused with no batch written (FIN-D-098), and
+two racing requests produce exactly one run (FIN-D-096).
+
+Decisions FIN-D-094…098. Verified by 13 E2E tests; finance regression green.
+
+**What it does not do:** no scheduler, no operator-facing entry point (FIN-D-095), no retry
+processing, no stale-batch reaper, no Kollur.
 
 ## Phase 6 — Reconciliation
 
@@ -740,9 +831,9 @@ before reconciliation leaves figures nothing has verified — the `PENDING` case
 
 | ID | Description | Status | Depends on |
 |---|---|---|---|
-| FIN-070 | `fin_agg_revenue_period` | NOT_STARTED | FIN-056 |
-| FIN-071 | `fin_agg_revenue_service` | NOT_STARTED | FIN-056 |
-| FIN-072 | Deterministic rebuild of affected periods only | NOT_STARTED | FIN-070, FIN-071, FIN-061 |
+| FIN-070 | `fin_agg_revenue_period` | **COMPLETE** | FIN-056 |
+| FIN-071 | `fin_agg_revenue_service` | **BLOCKED** — no fact carries a `service_id` (FIN-D-069, limitation 73) | service resolution, not yet a task |
+| FIN-072 | Deterministic rebuild of affected periods only | **COMPLETE** for period aggregates; service aggregates wait on FIN-071 | FIN-070, FIN-061 |
 | FIN-070A | Aggregation architecture and implementation plan | **COMPLETE** | FIN-056, FIN-061 |
 | FIN-070B | Aggregation decisions — D1, D3, D5, D8 resolved | **COMPLETE** | FIN-070A |
 
@@ -788,6 +879,49 @@ D10). The amendments: lead with publication gating rather than unmeasured perfor
 `sync_batch_id` on an aggregate row with a contributing-batch reference, and state what a blocked
 period looks like in the table.
 
+
+### FIN-070 — Aggregation foundation
+
+**COMPLETE, verified against MySQL 8.0.** Decision FIN-D-068.
+
+**Migration `V119__finance_revenue_period_aggregate.sql`** creates `fin_agg_revenue_period` at the
+grain FIN-070B decided:
+
+```
+uk_farp_grain (temple_id, source_system_id, period_type, period_key, category_id, payment_mode)
+```
+
+Every column `NOT NULL`, so no generated stand-ins are needed. `period_type` is `FINANCIAL_YEAR` or
+`MONTH` — no `DAY`, because no catalogued report reads one. Totals are a `SUM` over category rows at
+read time; there is deliberately no nullable-category "all" row, because MySQL and TiDB do not
+constrain a NULL in a unique index and every run would insert another total (FIN-D-018 one layer up).
+
+**Four classes, and the split between them is the design.** `RevenueAggregator` is pure — no Spring,
+no repository, no clock — so every rule that could silently produce a wrong figure is testable in
+milliseconds. `RevenueAggregate` and `RevenueAggregateKey` are value objects. `AggregationPeriod`
+delegates the financial year to the existing `FinancialYear` rather than deciding again when a year
+starts. `RevenueAggregationWriter` is the only thing that writes, and it **requires** a publishable
+`ReconciliationGate.Decision` without ever calling the gate: deciding when to recompute is FIN-072's,
+but existing in this table is what publication means, so a writer callable without a verdict is one
+forgotten call away from publishing figures reconciliation does not stand behind.
+
+**82 tests, 0 failures, 0 skipped** — 66 needing no database, 16 against MySQL 8.0 Testcontainers
+with the real migrations. The database assertions read `information_schema` directly rather than
+trusting a mock: the unique key's six columns in order with `non_unique = 0`, every grain column
+`NOT NULL`, `net_amount` as the only generated column, both indexes, and `decimal` money types.
+
+**All five required mutations applied and killed**, each reverted and diffed byte-identical
+afterwards (FIN-D-027). The two that needed a database are the two that matter most: an accumulating
+upsert (which satisfies the unique key perfectly and doubles revenue on every rebuild) and a
+`uk_farp_grain` without `source_system_id`.
+
+**What FIN-070 does not do:** no rebuild orchestration, no trigger, no scheduler, no reporting API,
+no controller, no historical restatement, no `fin_agg_run` table, no `availability` column. It
+changes no canonical fact, and a test on a real database asserts that.
+
+**Not measured:** TiDB, and any performance figure at all.
+
+---
 ### FIN-070A — Aggregation plan
 
 Analysis in [FIN-070A_AGGREGATION_PLAN.md](FIN-070A_AGGREGATION_PLAN.md). Design only: no Java, SQL
@@ -823,11 +957,11 @@ second row and leaves the first. Reachable now that FIN-054B has shipped the edi
 
 | ID | Description | Status | Depends on |
 |---|---|---|---|
-| FIN-080 | Response DTOs carrying the availability envelope | NOT_STARTED | FIN-001 |
-| FIN-081 | `DcFinanceController` — summary, trend, monthly, categories, sevas | NOT_STARTED | FIN-072, FIN-080 |
-| FIN-082 | Capabilities endpoint | NOT_STARTED | FIN-080 |
-| FIN-083 | Reconciliation endpoint | NOT_STARTED | FIN-060 |
-| FIN-084 | RBAC and DACVM wiring, reusing existing infrastructure | NOT_STARTED | FIN-081 |
+| FIN-080 | Response DTOs carrying the availability envelope | **COMPLETE** | FIN-001 |
+| FIN-081 | `DcFinanceController` — summary, trend, monthly, categories | **COMPLETE** except `sevas` (blocked on FIN-071, FIN-D-069) | FIN-072, FIN-080 |
+| FIN-082 | Capabilities endpoint | **COMPLETE** | FIN-080 |
+| FIN-083 | Reconciliation endpoint | **COMPLETE** | FIN-060 |
+| FIN-084 | RBAC wiring, reusing existing infrastructure | **COMPLETE** — `CAN_READ_FINANCE_CONFIG` route guard + `JurisdictionGuard` district scope (FIN-D-071); DACVM field-level filtering not wired, see limitation below | FIN-081 |
 | FIN-054A-BE | Source Mapper **backend** — mapping administration API | **COMPLETE** | FIN-054 |
 | FIN-054A-FE / FIN-054B | Source Mapper **screen** — the administrative UI itself | **COMPLETE** | FIN-054A-BE |
 
@@ -870,10 +1004,10 @@ again.
 
 | ID | Description | Status | Depends on |
 |---|---|---|---|
-| FIN-090 | Finance API client in the frontend | NOT_STARTED | FIN-081 |
-| FIN-091 | Replace the static iframe with a real component | NOT_STARTED | FIN-090 |
-| FIN-092 | `AvailabilityNotice` component — renders a reason, never a zero | NOT_STARTED | FIN-090 |
-| FIN-093 | Delete hardcoded constants and the temple-300001 gate | NOT_STARTED | FIN-091 |
+| FIN-090 | Finance API client in the frontend | **COMPLETE** | FIN-081 |
+| FIN-091 | Replace the static iframe with a real component | **COMPLETE** | FIN-090 |
+| FIN-092 | `AvailabilityNotice` component — renders a reason, never a zero | **COMPLETE** | FIN-090 |
+| FIN-093 | Delete hardcoded constants and the temple-300001 gate | **COMPLETE** | FIN-091 |
 
 FIN-093 includes removing `ASSUMED_VALUE_PER_ITEM_RS = 12000` and
 `ASSUMED_WEIGHT_PER_ITEM_GRAMS = 15`, and correcting the two false caveats in the current
@@ -889,7 +1023,7 @@ dashboard (metal weight *is* recorded; monthly revenue *is* available).
 | FIN-110 | Precious metals — counts and real weights, value `NOT_AVAILABLE` | NOT_STARTED |
 | FIN-120 | Nirantara — four lifecycle tables, execution empty by design | NOT_STARTED |
 | FIN-130 | Capability system end to end in the UI | NOT_STARTED |
-| FIN-140 | Generic multi-temple onboarding | NOT_STARTED |
+| FIN-140 | Generic multi-temple onboarding | **IN_PROGRESS** — slice 140-A COMPLETE, see Phase 13 below |
 | FIN-150 | Incremental sync with watermarks | NOT_STARTED |
 | FIN-160 | Sync monitoring and observability | NOT_STARTED |
 | FIN-170 | Production hardening | NOT_STARTED |
@@ -976,3 +1110,78 @@ Unblocked by Q4 and Q5.
 scoped to `REVENUE_AMOUNT`. It is the natural defence against the discarded
 "assume 15 g and ₹12,000 per item" approach returning, and is a one-row addition whenever the
 reviewer wants it.
+
+---
+
+## Phase 13 — Generic Multi-Temple Onboarding (FIN-140)
+
+Plan in [FIN-140_ONBOARDING_PLAN.md](FIN-140_ONBOARDING_PLAN.md). FIN-032 is analysed inside that
+plan rather than as a separate task, and its connector-dependent half is deferred — see below.
+
+| ID | Description | Status | Depends on |
+|---|---|---|---|
+| FIN-140-A | Source system registration, metadata configuration, registry-side readiness validation | **COMPLETE** | FIN-054A-BE |
+| FIN-140-B | Capability declaration API and screen | **COMPLETE** | FIN-140-A |
+| FIN-140-C | Source-of-truth declaration API and screen | **COMPLETE** | FIN-140-B |
+| FIN-140-D | Activation — switch `sync_enabled` on, gated on readiness | **COMPLETE** | FIN-140-C |
+| FIN-140-E | Full Temple B onboarding, end to end | NOT_STARTED | FIN-140-D |
+| FIN-032 / FIN-140-F | Worker-side probe: reachability and schema drift | **DEFERRED** — needs a connector to probe with | FIN-040/041 (Q4) |
+
+### FIN-140-A — Delivered
+
+**The finding that shaped the whole task, established by reading the runtime boundary rather than
+assuming it: the probe cannot be a button.** A `TempleFinanceConnector` exists only in the
+sync-worker runtime; `RegistryRuntimeContextTest` asserts the registry holds no bean from
+`com.templeregistry.connector.**` at all; the worker refuses to boot as a web application; and the
+only channel between the two runtimes is the shared database. A synchronous connectivity check is
+not a feature that was skipped — it is one the process serving HTTP cannot perform.
+
+So FIN-032 splits. **Class A** — configuration coherence — needs no connector, reads only registry
+tables and ships here. **Class B** — reachability and schema drift — needs the worker, and is
+deferred rather than sequenced: with zero connector implementations in existence, every Class B
+check would return the same answer for every source, and building transport for a constant is
+infrastructure without a product.
+
+**Delivered:** one migration, one pure validator, one service, one controller, four DTOs, and a
+frontend feature module. No connector package touched, no worker touched, no ADR status changed.
+
+| Piece | What |
+|---|---|
+| `V120__finance_source_system_version.sql` | One additive column — `version INT NOT NULL DEFAULT 0` on `fin_source_system`. Same reasoning as V117 applied to mapping rules: two administrators can load the same row and save different connector beans, and without a lock the second silently wins |
+| `OnboardingReadinessValidator` | Pure, static, no Spring. 13 checks over a value record |
+| `SourceSystemAdminService(Impl)` | Register, read, update, readiness. `ADMIN_ONLY` throughout (FIN-D-076) |
+| `FinanceOnboardingController` | Four endpoints under `/api/v1/finance`. No activation endpoint, no probe endpoint, no delete |
+| `frontend/src/features/finance-onboarding/` | Register form and readiness panel, `/finance/source-systems`, SUPER_ADMIN route |
+
+**The checks that earn the task.** `MAPPING_CANONICAL_UNKNOWN` and `MAPPING_RULE_MALFORMED` are
+failures the mapping engine already detects — as `INVALID_CONFIGURATION`, and as a rule that shows
+Active while never matching anything — per row, during a run, long after whoever wrote the rule has
+gone. Detecting them here costs one set lookup and moves the discovery to while the configuration is
+still a draft. `SOURCE_OF_TRUTH_MISSING` reads its required-metric list from `RevenueField` rather
+than restating it, because the pipeline is the authority on what it cannot run without.
+
+**Required declarations are only demanded when revenue is reportable.** A source that declares
+`REVENUE` as `NOT_AVAILABLE` — Temple B's expenses-only variant — needs no revenue declarations and
+no mapping rules, and demanding them would have made such a source impossible to onboard. That is
+the single most important genericity property in the validator and it has its own test.
+
+**A defect found by the tests, not by reasoning.** `uk_fss_temple_system` is
+`(temple_id, system_code)` and does **not** include `is_deleted`, so a soft-deleted source still
+holds its code. The first duplicate check filtered deleted rows out, passed, and let the insert hit
+the constraint — surfacing as a 500 rather than a refusal a caller could act on. The check now
+matches the constraint, and says so when the row in the way is retired.
+
+**Decisions:** FIN-D-073 (readiness computed, never stored), FIN-D-074 (one source per temple; D9
+stays open), FIN-D-075 (credential alias write-only, absent from the response type), FIN-D-076
+(SUPER_ADMIN only), FIN-D-077 (three readiness values, no NOT_READY), FIN-D-078 (possible ambiguity
+warns, never blocks).
+
+**Out of scope, deliberately:** no activation endpoint — readiness reports whether activation would
+be permitted and slice 140-A ends at the check; no probe; no capability or source-of-truth write
+API; no delete; no connector; no worker change; no re-application of the Kollur seed.
+
+**Verified:** `OnboardingReadinessValidatorTest` 23 (no database), `SourceSystemAdminServiceTest` 26
+and `SourceSystemAdminSecurityTest` 14 (MySQL 8.0 Testcontainers, full context), plus 30 frontend
+tests. Finance regression **634 run, 0 failures, 0 errors, 0 skipped**. Worker-boundary tests
+(`RegistryRuntimeContextTest`, `SyncWorkerRuntimeContextTest`, `SyncWorkerProfileBoundaryTest`,
+`FinanceIntegrationBoundaryTest`) **23 run, 0 failures** — ADR-001 intact. TiDB not verified.

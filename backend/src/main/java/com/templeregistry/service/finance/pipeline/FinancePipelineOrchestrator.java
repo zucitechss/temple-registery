@@ -5,6 +5,7 @@ import com.templeregistry.entity.finance.FinSyncError;
 import com.templeregistry.entity.finance.enums.SyncStage;
 import com.templeregistry.entity.finance.enums.SyncStatus;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
+import com.templeregistry.service.finance.aggregation.RevenueAggregationRebuilder;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +70,7 @@ public class FinancePipelineOrchestrator {
     private final RevenueMappingStage mapping;
     private final RevenueLoadStage load;
     private final RevenueReconciliationStage reconciliation;
+    private final RevenueAggregationRebuilder rebuilder;
     private final FinSyncBatchRepository batches;
     private final FinSyncErrorRepository errors;
     private final TransactionTemplate transactionTemplate;
@@ -78,6 +80,7 @@ public class FinancePipelineOrchestrator {
                                        RevenueMappingStage mapping,
                                        RevenueLoadStage load,
                                        RevenueReconciliationStage reconciliation,
+                                       RevenueAggregationRebuilder rebuilder,
                                        FinSyncBatchRepository batches,
                                        FinSyncErrorRepository errors,
                                        TransactionTemplate transactionTemplate) {
@@ -86,6 +89,7 @@ public class FinancePipelineOrchestrator {
         this.mapping = mapping;
         this.load = load;
         this.reconciliation = reconciliation;
+        this.rebuilder = rebuilder;
         this.batches = batches;
         this.errors = errors;
         this.transactionTemplate = transactionTemplate;
@@ -125,14 +129,21 @@ public class FinancePipelineOrchestrator {
             stage = SyncStage.LOAD;
             RevenueLoadStage.Result loaded = load.loadBatch(syncBatchId);
 
-            // Reconciliation runs last and against the batch this run just finished loading.
+            // Reconciliation runs against the batch this run just finished loading.
             // It is a check, not a step: it never repairs, deletes or restates anything, so a
             // disagreement it finds leaves the data exactly where the load put it.
             stage = SyncStage.RECONCILE;
             RevenueReconciliationStage.Result reconciled = reconciliation.reconcileBatch(syncBatchId);
 
+            // Aggregation runs last, and runs unconditionally. It is not conditional on the
+            // reconciliation verdict because the verdict is not one answer: a batch can touch three
+            // financial years and be publishable in two of them. ReconciliationGate is asked per
+            // year inside the rebuild, which is the only place with the scope to ask correctly.
+            stage = SyncStage.AGGREGATE;
+            RevenueAggregationRebuilder.Result aggregated = rebuilder.rebuildBatch(syncBatchId);
+
             Result result = new Result(syncBatchId, extracted, validated, mapped, loaded, reconciled,
-                    Duration.between(startedAt, LocalDateTime.now()));
+                    aggregated, Duration.between(startedAt, LocalDateTime.now()));
 
             // RECONCILE_FAILED, not FAILED: the rows are present and inspectable, and what is
             // blocked is publication of the affected aggregates rather than the load itself.
@@ -143,10 +154,13 @@ public class FinancePipelineOrchestrator {
                     : SyncStatus.SUCCESS;
             finish(syncBatchId, outcome, startedAt);
             log.info("[FinanceSync] Batch {} finished {} in {} ms: {} staged, {} validated, "
-                            + "{} mapped, {} facts written, {} checks ({} failed, {} not available)",
+                            + "{} mapped, {} facts written, {} checks ({} failed, {} not available), "
+                            + "{} year(s) republished ({} withheld), {} aggregate row(s)",
                     syncBatchId, outcome, result.duration().toMillis(), extracted.rowsStaged(),
                     validated.validated(), mapped.decided(), loaded.factsWritten(),
-                    reconciled.checksRun(), reconciled.failed(), reconciled.notAvailable());
+                    reconciled.checksRun(), reconciled.failed(), reconciled.notAvailable(),
+                    aggregated.rebuilt().size(), aggregated.blocked().size(),
+                    aggregated.rowsWritten());
             return result;
 
         } catch (RuntimeException failure) {
@@ -224,6 +238,7 @@ public class FinancePipelineOrchestrator {
                          RevenueMappingStage.Result mapped,
                          RevenueLoadStage.Result loaded,
                          RevenueReconciliationStage.Result reconciled,
+                         RevenueAggregationRebuilder.Result aggregated,
                          Duration duration) {
 
         /** True when reconciliation found a disagreement the aggregates must not be built on. */

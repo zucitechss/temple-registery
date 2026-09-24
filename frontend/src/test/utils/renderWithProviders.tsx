@@ -18,6 +18,8 @@ import { dcApi } from '../../features/dc/dcApi'
 import { geoApi } from '../../features/geo/geoApi'
 import { accessControlApi } from '../../features/access-control/accessControlApi'
 import { financeApi } from '../../features/finance/financeApi'
+import { financeReportApi } from '../../features/finance-reporting/financeReportApi'
+import { financeOnboardingApi } from '../../features/finance-onboarding/financeOnboardingApi'
 
 function buildTestStore(preloadedState?: Parameters<typeof configureStore>[0]['preloadedState']) {
   return configureStore({
@@ -39,6 +41,8 @@ function buildTestStore(preloadedState?: Parameters<typeof configureStore>[0]['p
         geoApi.middleware,
         accessControlApi.middleware,
         financeApi.middleware,
+        financeReportApi.middleware,
+        financeOnboardingApi.middleware,
       ),
   })
 }

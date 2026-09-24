@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -75,4 +76,16 @@ public interface FinSyncBatchRepository extends JpaRepository<FinSyncBatch, Long
                                      @Param("now") LocalDateTime now);
 
     long countByStatus(SyncStatus status);
+
+    /**
+     * How many batches for this source and capability are still in flight (FIN-058).
+     *
+     * <p>Called by {@code ManualSyncTrigger} while it holds a write lock on the source system row,
+     * which is what makes the answer usable as a decision rather than a snapshot. {@code PENDING}
+     * counts as in flight alongside {@code RUNNING}: a batch that exists but has not been claimed
+     * is one somebody is about to run, and admitting a second would put two runs on the same window.
+     */
+    long countBySourceSystemIdAndCapabilityAndStatusIn(Long sourceSystemId,
+                                                       FinanceCapability capability,
+                                                       Collection<SyncStatus> statuses);
 }

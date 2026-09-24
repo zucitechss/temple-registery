@@ -85,6 +85,7 @@ export const ROUTE_PATHS = {
 
   // Finance integration administration (FIN-054B)
   FINANCE_SOURCE_MAPPER: '/finance/source-mapper',
+  FINANCE_SOURCE_SYSTEMS: '/finance/source-systems',
 
   // Notifications (all authenticated users)
   NOTIFICATIONS: '/notifications',

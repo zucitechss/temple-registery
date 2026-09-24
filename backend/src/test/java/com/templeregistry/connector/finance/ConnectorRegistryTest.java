@@ -7,6 +7,7 @@ import com.templeregistry.entity.finance.enums.SourceTechnology;
 import com.templeregistry.repository.finance.FinMappingRuleRepository;
 import com.templeregistry.repository.finance.FinReconciliationResultRepository;
 import com.templeregistry.repository.finance.FinRevenueCategoryRepository;
+import com.templeregistry.repository.finance.FinAggRevenuePeriodRepository;
 import com.templeregistry.repository.finance.FinRevenueFactRepository;
 import com.templeregistry.repository.finance.FinSourceOfTruthDeclRepository;
 import com.templeregistry.repository.finance.FinSourceSystemRepository;
@@ -14,6 +15,8 @@ import com.templeregistry.repository.finance.FinStgRevenueMappingRepository;
 import com.templeregistry.repository.finance.FinStgRevenueRepository;
 import com.templeregistry.repository.finance.FinSyncBatchRepository;
 import com.templeregistry.repository.finance.FinSyncErrorRepository;
+import com.templeregistry.repository.finance.FinTempleCapabilityRepository;
+import com.templeregistry.repository.temple.TempleRepository;
 import com.templeregistry.service.finance.sync.SyncWorkerConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -191,9 +194,17 @@ class ConnectorRegistryTest {
      * assembled sync worker registers no connector at all, so nothing can quietly satisfy
      * the seeded name.
      */
+    /**
+     * Updated by FIN-040, which this assertion named as the thing that would change it.
+     *
+     * <p>It previously required the registry to be empty "until a connector implementation
+     * exists". One now does — the generic {@code jdbcTableConnector} — so the assertion has been
+     * moved forward rather than removed: the worker registers exactly that one connector, and a
+     * name nobody registered still fails loudly, which is the guarantee that mattered.
+     */
     @Test
-    @DisplayName("The assembled sync worker registers a registry and no connectors")
-    void should_registerAnEmptyRegistry_when_workerRuntimeAssembled() {
+    @DisplayName("The assembled sync worker registers the generic JDBC connector, and only that")
+    void should_registerTheGenericConnector_when_workerRuntimeAssembled() {
         new ApplicationContextRunner()
                 .withUserConfiguration(SyncWorkerConfig.class)
                 .withPropertyValues("spring.profiles.active=sync-worker")
@@ -205,22 +216,31 @@ class ConnectorRegistryTest {
                         .withBean(FinMappingRuleRepository.class, () -> mock(FinMappingRuleRepository.class))
                         .withBean(FinRevenueCategoryRepository.class, () -> mock(FinRevenueCategoryRepository.class))
                         .withBean(FinRevenueFactRepository.class, () -> mock(FinRevenueFactRepository.class))
+                        .withBean(FinAggRevenuePeriodRepository.class, () -> mock(FinAggRevenuePeriodRepository.class))
                         .withBean(FinReconciliationResultRepository.class, () -> mock(FinReconciliationResultRepository.class))
                 .withBean(FinSourceOfTruthDeclRepository.class, () -> mock(FinSourceOfTruthDeclRepository.class))
                         .withBean(FinSourceSystemRepository.class, () -> mock(FinSourceSystemRepository.class))
                 .withBean(FinSyncErrorRepository.class, () -> mock(FinSyncErrorRepository.class))
                 .withBean(FinSyncBatchRepository.class, () -> mock(FinSyncBatchRepository.class))
+                // FIN-058's manual trigger recomputes readiness before it starts a run, which
+                // is why the worker now needs these two as well.
+                .withBean(FinTempleCapabilityRepository.class, () -> mock(FinTempleCapabilityRepository.class))
+                .withBean(TempleRepository.class, () -> mock(TempleRepository.class))
                 .withBean(PlatformTransactionManager.class, () -> mock(PlatformTransactionManager.class))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(ConnectorRegistry.class);
                     assertThat(context.getBeanNamesForType(TempleFinanceConnector.class))
-                            .as("no connector implementation exists yet (FIN-040)")
-                            .isEmpty();
+                            .as("exactly one connector implementation exists (FIN-040), and it is "
+                                    + "generic — a per-temple connector would show up here")
+                            .containsExactly("jdbcTableConnector");
 
                     ConnectorRegistry registry = context.getBean(ConnectorRegistry.class);
-                    assertThat(registry.registeredConnectorIds()).isEmpty();
+                    assertThat(registry.registeredConnectorIds()).containsExactly("jdbcTableConnector");
+
+                    // The guarantee this test has always been about: configuration naming a
+                    // connector that does not exist fails loudly rather than synchronizing nothing.
                     assertThatThrownBy(() -> registry.resolve(configuredKollurConnector(), SOURCE))
                             .isInstanceOf(ConnectorConfigurationException.class);
                 });

@@ -221,4 +221,29 @@ public interface FinRevenueFactRepository extends JpaRepository<FinRevenueFact, 
     List<Long> findContributingBatchIds(@Param("templeId") Long templeId,
                                         @Param("sourceSystemId") Long sourceSystemId,
                                         @Param("financialYear") String financialYear);
+
+    /**
+     * Every fact in one publication scope, oldest first (FIN-072).
+     *
+     * <p>The rebuild unit. {@code (temple, source, financial year)} is deliberately the same triple
+     * {@code ReconciliationGate} decides on, so the facts a rebuild reads are exactly the facts the
+     * verdict covers. Ordered for determinism: two rebuilds of an unchanged scope must produce byte-
+     * identical aggregates, and an unordered read makes that a coincidence rather than a guarantee.
+     *
+     * <p>Month rows need no query of their own. {@code RevenueAggregator} emits a {@code MONTH}
+     * candidate alongside the {@code FINANCIAL_YEAR} one from these same facts, so a year's rebuild
+     * necessarily rebuilds the months inside it.
+     */
+    List<FinRevenueFact> findByTempleIdAndSourceSystemIdAndFinancialYearOrderByIdAsc(
+            Long templeId, Long sourceSystemId, String financialYear);
+
+    /**
+     * The latest business date any of a temple's facts recorded, across every source (FIN-081).
+     *
+     * <p>The "source data through" half of the data-freshness block. Deliberately not
+     * {@code sync_batch.finished_at} — that says when the platform last talked to the source,
+     * not the newest date the source actually had anything to report.
+     */
+    @Query("SELECT MAX(f.transactionDate) FROM FinRevenueFact f WHERE f.templeId = :templeId")
+    Optional<LocalDate> findMaxTransactionDateByTempleId(@Param("templeId") Long templeId);
 }

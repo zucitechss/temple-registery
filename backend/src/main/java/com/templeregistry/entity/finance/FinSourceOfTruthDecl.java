@@ -25,6 +25,15 @@ import java.time.LocalDateTime;
  * <p>Changing a declaration creates a <b>new version</b> and a restatement. It
  * never edits history in place, so any previously published figure stays
  * explicable via {@code source_of_truth_version} stamped on the facts.
+ *
+ * <p><b>There is deliberately no {@code @Version} optimistic lock here</b>, unlike
+ * {@code FinSourceSystem} and {@code FinTempleCapability} (FIN-D-083). Those are
+ * edited in place, so a lock guards what actually happens to them. This table is
+ * append-only: the only in-place write is closing {@code effective_to} on the row
+ * being superseded, in the same transaction that inserts its replacement. The race
+ * this table does have — two administrators each computing the next version number —
+ * is caught by {@code uk_fsotd_source_metric_version}, which an optimistic lock would
+ * not have caught, because neither writer overwrites the row they read.
  */
 @Entity
 @Table(

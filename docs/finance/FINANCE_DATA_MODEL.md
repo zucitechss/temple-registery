@@ -329,11 +329,33 @@ Kollur loads `subscription_status = UNKNOWN`, `status_confidence = ASSUMED` — 
 
 Rebuilt deterministically from facts; publishable only after reconciliation passes ([ADR-011](adr/ADR-011-reporting-aggregation.md)).
 
-**`fin_agg_revenue_period`** — `temple_id`, `period_type` (`FY`/`MONTH`/`DAY`), `period_key` (`2025-26`, `2025-04`), `period_start`, `period_end`, `category_id` nullable (null = all), `transaction_count`, `gross_amount`, `cancelled_amount`, `net_amount`, `digital_payment_count`, `cash_inferred_count`, `computed_at`, `sync_batch_id`, `availability`.
+**`fin_agg_revenue_period`** — **BUILT in V119 (FIN-070), applied and verified on MySQL 8.0.** Grain:
+`uk_farp_grain (temple_id, source_system_id, period_type, period_key, category_id, payment_mode)`,
+every column `NOT NULL`.
 
-**`fin_agg_revenue_service`** — `temple_id`, `financial_year`, `service_id`, `category_id`, `booking_count`, `gross_amount`, `cancelled_amount`, `net_amount`, `avg_transaction_amount`, `rate_card_amount`, `pct_of_total`.
+Columns: `temple_id`, `source_system_id`, `period_type` (`FINANCIAL_YEAR` \| `MONTH` — the
+`PeriodType` enum spelling), `period_key` (`2025-26`, `2025-04`), `category_id`, `payment_mode`,
+`financial_year`, `period_start`, `period_end`, `fact_count`, `transaction_count` nullable,
+`facts_with_unknown_count`, `gross_amount` nullable, `facts_with_unknown_gross`, `cancelled_count`
+nullable, `cancelled_amount` nullable, `quantity` nullable, `currency`, `net_amount` **generated**,
+`payment_mode_inferred_facts`, `reconciliation_status`, `reconciliation_inherited`, `calc_version`,
+`computed_at`, `created_at`, `updated_at`.
 
-Carrying `availability` on the aggregate row means the API never has to infer it, and a period with no data is distinguishable from a period with zero revenue.
+Four differences from what this section described before it was built, all recorded in FIN-D-068:
+`source_system_id` is in the grain (aggregates are never summed across sources, because the gate
+decides per source); `category_id` is `NOT NULL` and there is **no** "null = all" total row, because
+MySQL and TiDB do not constrain a NULL in a unique index and every run would insert another total —
+totals are a `SUM` at read time; there is no `availability` column, because
+`uk_ftc_temple_capability` is per temple and cannot describe a per-source row (limitation 67, decision
+D9); and `DAY` is not built, because no catalogued report reads one.
+
+**`fin_agg_revenue_service`** — **NOT BUILT, and BLOCKED** (FIN-071): no canonical fact has ever carried a `service_id`, so this table has no input until a service-resolution step exists (FIN-D-069, limitation 73). Two columns below are also withdrawn: `rate_card_amount` is one join away on `fin_service_dim` and would go stale if copied, and `avg_transaction_amount` is one division at read time. Planned shape: `temple_id`, `source_system_id`,
+`financial_year`, `service_id`, `category_id`, `booking_count`, `gross_amount`, `cancelled_amount`,
+`net_amount`, `avg_transaction_amount`, `rate_card_amount`. `pct_of_total` is deliberately dropped —
+a stored percentage goes stale the moment any sibling row changes, and it is one division at read
+time.
+
+Availability is resolved by the reporting layer rather than carried on the row (FIN-D-068); a period with no data has no row at all, which stays distinguishable from a period with zero revenue.
 
 ---
 
