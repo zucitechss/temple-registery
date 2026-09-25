@@ -58,6 +58,15 @@ class ApplicationContextIT {
         registry.add("app.jwt.public-key-path", () -> "");
         // Verifies the production Flyway location set: schema + reference data, no dev seed (C-5).
         registry.add("spring.flyway.locations", () -> "classpath:db/migration");
+        // Blank these explicitly rather than trusting the ambient environment to have
+        // nothing set. @ActiveProfiles("dev") makes application-dev.yml's
+        // spring.config.import=optional:file:./dev-secrets.properties active, and that
+        // file may legitimately set these for local development — @DynamicPropertySource
+        // overrides win regardless, keeping this test's V116-must-be-a-no-op assertion
+        // deterministic no matter what a developer's own dev-secrets.properties contains.
+        registry.add("spring.flyway.placeholders.bootstrapAdminUsername", () -> "");
+        registry.add("spring.flyway.placeholders.bootstrapAdminEmail", () -> "");
+        registry.add("spring.flyway.placeholders.bootstrapAdminPasswordHash", () -> "");
         registry.add("cloud.aws.s3.bucket-name", () -> "test-bucket");
         registry.add("cloud.aws.region.static", () -> "ap-south-1");
         registry.add("app.encryption.aes-key", () -> "12345678901234567890123456789012");
