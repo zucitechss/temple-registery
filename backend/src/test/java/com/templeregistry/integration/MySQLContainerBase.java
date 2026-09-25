@@ -72,16 +72,15 @@ public abstract class MySQLContainerBase {
         registry.add("spring.flyway.enabled", () -> "true");
         // Let Flyway own the schema — never let Hibernate recreate it
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
-        // Drop the TiDB-only init SQL from application.yml — plain MySQL rejects it
-        registry.add("spring.datasource.hikari.connection-init-sql", () -> "SELECT 1");
         // JWT keys: generated per run and injected as PEM, exactly as production
         // supplies APP_JWT_PRIVATE_KEY/APP_JWT_PUBLIC_KEY. No key file is committed (C-1).
         registry.add("app.jwt.private-key", TEST_JWT_KEYS::privateKeyPem);
         registry.add("app.jwt.public-key",  TEST_JWT_KEYS::publicKeyPem);
         registry.add("app.jwt.private-key-path", () -> "");
         registry.add("app.jwt.public-key-path",  () -> "");
-        // Integration tests exercise the dev fixture set alongside the schema.
-        registry.add("spring.flyway.locations", () -> "classpath:db/migration,classpath:db/seed");
+        // Same location set as production (C-5) — no dev seed data exists anymore;
+        // every IT builds its own fixtures programmatically.
+        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
         // AWS/S3 stubs — no real bucket needed for unit/integration tests
         registry.add("cloud.aws.s3.bucket-name",   () -> "test-bucket");
         registry.add("cloud.aws.region.static",    () -> "ap-south-1");

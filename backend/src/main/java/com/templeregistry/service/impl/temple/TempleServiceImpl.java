@@ -447,7 +447,7 @@ public class TempleServiceImpl implements TempleService {
     public Resource serveProfilePhoto(Long templeId) {
         Temple temple = findOrThrow(templeId);
 
-        // Try DB-stored bytes first (available on every machine that shares the TiDB database).
+        // Try DB-stored bytes first (available on every machine that shares the database).
         TemplePhoto primaryPhoto = templePhotoRepository
                 .findFirstByTempleIdAndIsPrimaryTrue(templeId).orElse(null);
         if (primaryPhoto != null && primaryPhoto.getImageData() != null) {
@@ -477,7 +477,7 @@ public class TempleServiceImpl implements TempleService {
             throw new EntityNotFoundException("TemplePhoto", photoId);
         }
 
-        // Serve from DB if bytes are stored (works on every machine sharing the TiDB database).
+        // Serve from DB if bytes are stored (works on every machine sharing the database).
         if (photo.getImageData() != null) {
             byte[] data = photo.getImageData();
             String filename = photo.getOriginalFilename();

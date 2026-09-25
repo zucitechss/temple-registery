@@ -37,7 +37,7 @@ public class TemplePhoto extends BaseEntity {
      * Raw image bytes stored in the database.
      * NULL for photos uploaded before V103 (those are served from the local filesystem via filePath).
      * New uploads always populate this column so the image is accessible on every machine
-     * that connects to the shared TiDB Cloud database.
+     * that connects to the shared database.
      */
     @Lob
     @Column(name = "image_data", columnDefinition = "MEDIUMBLOB")

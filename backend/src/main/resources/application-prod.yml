@@ -60,9 +60,6 @@ spring:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
-    hikari:
-      # TiDB requires "SET tidb_enable_noop_functions=1"; plain MySQL rejects it.
-      connection-init-sql: ${DB_INIT_SQL:SELECT 1}
 
   jpa:
     hibernate:
@@ -72,9 +69,8 @@ spring:
 
   flyway:
     enabled: true
-    # Schema + production reference data ONLY. classpath:db/seed holds the
-    # development fixture set (dev users, sample temples) and is deliberately
-    # excluded here so no seeded account can ever exist in production (C-5).
+    # Schema + mandatory reference data ONLY — no dummy accounts, geo
+    # hierarchy or sample temples are seeded anywhere, in any environment (C-5).
     locations: classpath:db/migration
     validate-on-migrate: true
     # A failed migration in production must be investigated by a human.
@@ -145,15 +141,9 @@ app:
   legacy:
     enabled: false
 
-  # Initial SUPER_ADMIN provisioning (C-5). Disabled by default. Enable for a
-  # single boot against a brand-new database, then turn it off and redeploy.
-  # It is a no-op whenever a SUPER_ADMIN already exists.
-  bootstrap:
-    admin:
-      enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}
-      username: ${APP_BOOTSTRAP_ADMIN_USERNAME:}
-      email: ${APP_BOOTSTRAP_ADMIN_EMAIL:}
-      password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:}
+  # Initial SUPER_ADMIN provisioning (C-5) is seed data now, not code: see
+  # db/migration/V116__bootstrap_super_admin.sql and this file's
+  # spring.flyway.placeholders (inherited from application.yml).
 
 trm:
   # Generated export files. MUST be a persistent, restart-surviving mount (H-7).

@@ -58,7 +58,15 @@ class SchemaDriftIT {
 
             Flyway.configure()
                     .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
-                    .locations("classpath:db/migration", "classpath:db/seed")
+                    .locations("classpath:db/migration")
+                    // V116__bootstrap_super_admin.sql's placeholders — this test builds its
+                    // own standalone Flyway instance rather than going through Spring, so it
+                    // never sees application.yml's spring.flyway.placeholders defaults. Blank
+                    // here matches that default and keeps the migration a no-op, same as dev/test.
+                    .placeholders(java.util.Map.of(
+                            "bootstrapAdminUsername", "",
+                            "bootstrapAdminEmail", "",
+                            "bootstrapAdminPasswordHash", ""))
                     .load()
                     .migrate();
 

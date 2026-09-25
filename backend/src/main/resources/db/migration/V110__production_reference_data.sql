@@ -2,130 +2,40 @@
 -- V110: Production reference data
 --
 -- WHY THIS FILE EXISTS (audit finding C-5)
---   V2__master_seed_data.sql mixed three different things in one migration:
---     1. Karnataka geo hierarchy      — required in every environment
---     2. SLA / feature system_config  — required in every environment
---     3. notification routing rules   — required in every environment
---     4. SEVEN dev user accounts, including a SUPER_ADMIN whose password
---        is a well-known literal published in this repository
---   Because Flyway ran classpath:db/migration unconditionally, item 4 was
---   created in production too.
+--   This migration seeds the mandatory reference data every environment
+--   needs to boot: SLA/feature system_config and notification routing rules.
+--   Nothing else. It originally also re-supplied a Karnataka geo hierarchy
+--   (to backfill what a since-removed dev-only seed migration used to insert
+--   in every environment), but that was removed once the geo hierarchy
+--   became purely administrator-managed — see below.
 --
--- THE SPLIT
---   V2 (and the V100/V101/V102 temple fixtures) moved BYTE-IDENTICALLY to
---   classpath:db/seed, which only the dev/test profiles load. Their version
---   numbers, descriptions and checksums are unchanged, so existing databases
---   that already applied them still validate.
---   This migration re-supplies items 1-3 — and nothing else — on the
---   production-only classpath:db/migration path.
+-- ONE LOCATION SET, EVERY ENVIRONMENT
+--   classpath:db/migration is the only Flyway location in dev, test AND
+--   production (application.yml / application-dev.yml / application-prod.yml
+--   all agree). There is no separate dev/test seed path anymore: no dummy
+--   users, no geo hierarchy, no sample temples, in any environment. A fresh
+--   dev database starts exactly like a fresh production database.
 --
--- IDEMPOTENCY (this migration runs on dev databases too, after V2)
---   * states/cities/districts/taluks/hoblis insert explicit PKs -> INSERT IGNORE
---     collides on PRIMARY KEY and is a no-op.
+-- GEO HIERARCHY IS NOT SEEDED HERE ON PURPOSE
+--   States/cities/districts/taluks/hoblis are administrator-configurable
+--   master data, not application-startup reference data: GeoController's
+--   POST /states, /cities, /districts, /taluks, /hoblis endpoints
+--   (SUPER_ADMIN only) and the frontend's GeoManagementPage already let an
+--   administrator build this hierarchy from an empty table.
+--
+-- IDEMPOTENCY
 --   * system_config has UNIQUE KEY uq_sc_key(config_key) -> INSERT IGNORE is a no-op.
 --   * notification_rules has NO unique key, so INSERT IGNORE would DUPLICATE
 --     rows. It uses an explicit anti-join instead. Do not "simplify" it.
 --
--- Initial production SUPER_ADMIN provisioning is handled by
--- BootstrapAdminInitializer, driven by APP_BOOTSTRAP_ADMIN_* environment
--- variables. No credential is ever seeded from SQL.
+-- Initial SUPER_ADMIN provisioning is seed data, not code: see
+-- db/migration/V116__bootstrap_super_admin.sql. No credential is ever
+-- committed — V116's values are Flyway placeholders resolved from
+-- APP_BOOTSTRAP_ADMIN_* environment variables at deploy time.
 -- ============================================================================
 
-SET FOREIGN_KEY_CHECKS = 0;
 SET @ts  = NOW();
 SET @sys = 1;
-
--- ─────────────────────────────────────────────────────────────────────────────
--- GEO HIERARCHY — Karnataka (5 divisions, 20 districts, key taluks + hoblis)
--- ─────────────────────────────────────────────────────────────────────────────
-
-INSERT IGNORE INTO states (id, name, code, is_deleted, created_at, updated_at, created_by, updated_by)
-VALUES (1, 'Karnataka', 'KA', 0, @ts, @ts, @sys, @sys);
-
--- Revenue divisions (cities)
-INSERT IGNORE INTO cities (id, state_id, name, is_deleted, created_at, updated_at, created_by, updated_by) VALUES
-(1, 1, 'Mysuru',       0, @ts, @ts, @sys, @sys),
-(2, 1, 'Bengaluru',    0, @ts, @ts, @sys, @sys),
-(3, 1, 'Kalaburagi',   0, @ts, @ts, @sys, @sys),
-(4, 1, 'Belagavi',     0, @ts, @ts, @sys, @sys),
-(5, 1, 'Shivamogga',   0, @ts, @ts, @sys, @sys);
-
--- Districts
-INSERT IGNORE INTO districts (id, city_id, name, is_deleted, created_at, updated_at, created_by, updated_by) VALUES
--- Mysuru Division
-(1,  1, 'Mysuru',          0, @ts, @ts, @sys, @sys),
-(2,  1, 'Mandya',          0, @ts, @ts, @sys, @sys),
-(3,  1, 'Chamarajanagar',  0, @ts, @ts, @sys, @sys),
-(4,  1, 'Kodagu',          0, @ts, @ts, @sys, @sys),
-(5,  1, 'Hassan',          0, @ts, @ts, @sys, @sys),
--- Bengaluru Division
-(6,  2, 'Bengaluru Urban', 0, @ts, @ts, @sys, @sys),
-(7,  2, 'Bengaluru Rural', 0, @ts, @ts, @sys, @sys),
-(8,  2, 'Ramanagara',      0, @ts, @ts, @sys, @sys),
-(9,  2, 'Tumkuru',         0, @ts, @ts, @sys, @sys),
-(10, 2, 'Kolar',           0, @ts, @ts, @sys, @sys),
--- Kalaburagi Division
-(11, 3, 'Kalaburagi',      0, @ts, @ts, @sys, @sys),
-(12, 3, 'Bidar',           0, @ts, @ts, @sys, @sys),
-(13, 3, 'Raichur',         0, @ts, @ts, @sys, @sys),
--- Belagavi Division
-(14, 4, 'Belagavi',        0, @ts, @ts, @sys, @sys),
-(15, 4, 'Vijayapura',      0, @ts, @ts, @sys, @sys),
-(16, 4, 'Bagalkot',        0, @ts, @ts, @sys, @sys),
-(17, 4, 'Dharwad',         0, @ts, @ts, @sys, @sys),
--- Shivamogga Division
-(18, 5, 'Shivamogga',      0, @ts, @ts, @sys, @sys),
-(19, 5, 'Davanagere',      0, @ts, @ts, @sys, @sys),
-(20, 5, 'Chitradurga',     0, @ts, @ts, @sys, @sys);
-
--- Taluks (representative set; 3 per district for key districts)
-INSERT IGNORE INTO taluks (id, district_id, name, is_deleted, created_at, updated_at, created_by, updated_by) VALUES
--- Mysuru district (1)
-(1,  1, 'Mysuru',            0, @ts, @ts, @sys, @sys),
-(2,  1, 'Hunsur',            0, @ts, @ts, @sys, @sys),
-(3,  1, 'Krishnarajanagara', 0, @ts, @ts, @sys, @sys),
--- Mandya district (2)
-(4,  2, 'Mandya',            0, @ts, @ts, @sys, @sys),
-(5,  2, 'Nagamangala',       0, @ts, @ts, @sys, @sys),
-(6,  2, 'Malavalli',         0, @ts, @ts, @sys, @sys),
--- Chamarajanagar district (3)
-(7,  3, 'Chamarajanagar',    0, @ts, @ts, @sys, @sys),
-(8,  3, 'Gundlupet',         0, @ts, @ts, @sys, @sys),
--- Kodagu district (4)
-(9,  4, 'Madikeri',          0, @ts, @ts, @sys, @sys),
-(10, 4, 'Virajpet',          0, @ts, @ts, @sys, @sys),
--- Hassan district (5)
-(11, 5, 'Hassan',            0, @ts, @ts, @sys, @sys),
-(12, 5, 'Arsikere',          0, @ts, @ts, @sys, @sys),
--- Bengaluru Urban (6)
-(13, 6, 'Bengaluru North',   0, @ts, @ts, @sys, @sys),
-(14, 6, 'Bengaluru South',   0, @ts, @ts, @sys, @sys),
-(15, 6, 'Bengaluru East',    0, @ts, @ts, @sys, @sys),
--- Tumkuru (9)
-(16, 9, 'Tumkuru',           0, @ts, @ts, @sys, @sys),
-(17, 9, 'Tiptur',            0, @ts, @ts, @sys, @sys),
--- Dharwad (17)
-(18, 17, 'Dharwad',          0, @ts, @ts, @sys, @sys),
-(19, 17, 'Hubli',            0, @ts, @ts, @sys, @sys),
--- Shivamogga (18)
-(20, 18, 'Shivamogga',       0, @ts, @ts, @sys, @sys);
-
--- Hoblis (2 per key taluk)
-INSERT IGNORE INTO hoblis (id, taluk_id, name, is_deleted, created_at, updated_at, created_by, updated_by) VALUES
-(1,  1,  'Chamundi Hobli',         0, @ts, @ts, @sys, @sys),
-(2,  1,  'Kasaba Hobli',           0, @ts, @ts, @sys, @sys),
-(3,  2,  'Hunsur Hobli',           0, @ts, @ts, @sys, @sys),
-(4,  3,  'Krishnarajanagara Hobli',0, @ts, @ts, @sys, @sys),
-(5,  4,  'Mandya Hobli',           0, @ts, @ts, @sys, @sys),
-(6,  4,  'Pandavapura Hobli',      0, @ts, @ts, @sys, @sys),
-(7,  7,  'Chamarajanagar Hobli',   0, @ts, @ts, @sys, @sys),
-(8,  9,  'Madikeri Hobli',         0, @ts, @ts, @sys, @sys),
-(9,  11, 'Hassan Hobli',           0, @ts, @ts, @sys, @sys),
-(10, 13, 'Bengaluru North Hobli',  0, @ts, @ts, @sys, @sys),
-(11, 14, 'Bengaluru South Hobli',  0, @ts, @ts, @sys, @sys),
-(12, 16, 'Tumkuru Hobli',          0, @ts, @ts, @sys, @sys),
-(13, 18, 'Dharwad Hobli',          0, @ts, @ts, @sys, @sys),
-(14, 20, 'Shivamogga Hobli',       0, @ts, @ts, @sys, @sys);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SYSTEM CONFIG — SLA and feature defaults
@@ -150,8 +60,8 @@ VALUES
 -- zero rows, so the canonical values must be inserted correctly here.
 --
 -- notification_rules has no unique constraint, so this is an explicit anti-join
--- rather than INSERT IGNORE. On a dev database (where V2 already inserted these
--- eleven rules) the LEFT JOIN matches and nothing is inserted.
+-- rather than INSERT IGNORE, guarding against a second run ever duplicating
+-- these eleven rows.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 INSERT INTO notification_rules
@@ -178,5 +88,3 @@ LEFT JOIN notification_rules nr
       AND nr.action         = d.action
       AND nr.recipient_type = d.recipient_type
 WHERE nr.id IS NULL;
-
-SET FOREIGN_KEY_CHECKS = 1;

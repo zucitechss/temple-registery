@@ -44,7 +44,7 @@ spring:
       keepalive-time: 120000
       minimum-idle: 2
       maximum-pool-size: 8
-      connection-init-sql: ${DB_INIT_SQL:SELECT 1}
+      connection-init-sql: SELECT 1
 
   jpa:
     hibernate:
@@ -57,11 +57,20 @@ spring:
 
   flyway:
     enabled: true
-    # Schema + production reference data only. The dev fixture set lives in
-    # classpath:db/seed and is opted into by the dev profile alone (C-5).
+    # Schema + mandatory reference data only, in every environment (C-5). No
+    # dummy users, geo hierarchy or sample temples are seeded anywhere.
     locations: classpath:db/migration
     validate-on-migrate: false
     repair-on-migrate: true
+    # V116__bootstrap_super_admin.sql's placeholders. Defaulted to blank here
+    # so a database with none of the APP_BOOTSTRAP_ADMIN_* variables set (the
+    # out-of-the-box dev/test case) leaves this migration a no-op. Set them in
+    # dev-secrets.properties for a working local login, exactly as a
+    # production deploy would.
+    placeholders:
+      bootstrapAdminUsername: ${APP_BOOTSTRAP_ADMIN_USERNAME:}
+      bootstrapAdminEmail: ${APP_BOOTSTRAP_ADMIN_EMAIL:}
+      bootstrapAdminPasswordHash: ${APP_BOOTSTRAP_ADMIN_PASSWORD_HASH:}
 
   security:
     debug: false

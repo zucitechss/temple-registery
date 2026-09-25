@@ -4,7 +4,6 @@ spring:
   datasource:
     # Defaults to a LOCAL database. Point DB_URL at your own instance in
     # dev-secrets.properties (git-ignored). Never put a shared/production host here.
-    # TiDB users must also set: DB_INIT_SQL=SET tidb_enable_noop_functions=1
     url: ${DB_URL:jdbc:mysql://localhost:3306/temple_registry?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
@@ -16,7 +15,7 @@ spring:
       keepalive-time: 120000
       minimum-idle: 2
       maximum-pool-size: 8
-      connection-init-sql: ${DB_INIT_SQL:SELECT 1}
+      connection-init-sql: SELECT 1
 
   jpa:
     hibernate:
@@ -27,9 +26,12 @@ spring:
         format_sql: false
 
   flyway:
-    # Dev/test ONLY: additionally load the fixture set (dev users, sample
-    # temples) from classpath:db/seed. Production uses db/migration alone (C-5).
-    locations: classpath:db/migration,classpath:db/seed
+    # Same location set as production (C-5) — dev/test no longer seed dummy
+    # users, geo hierarchy or sample temples. A fresh dev database starts
+    # exactly like a fresh production database: bootstrap the SUPER_ADMIN via
+    # APP_BOOTSTRAP_ADMIN_* in dev-secrets.properties, then build geo/temples
+    # through the UI.
+    locations: classpath:db/migration
     validate-on-migrate: false
     repair-on-migrate: true
 

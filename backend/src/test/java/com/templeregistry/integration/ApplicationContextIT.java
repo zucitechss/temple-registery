@@ -51,8 +51,6 @@ class ApplicationContextIT {
         registry.add("spring.datasource.username", mysql::getUsername);
         registry.add("spring.datasource.password", mysql::getPassword);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
-        // Drop the TiDB-only init SQL from application-dev.yml — plain MySQL rejects it
-        registry.add("spring.datasource.hikari.connection-init-sql", () -> "SELECT 1");
         // Generated per run and injected as PEM — no committed key file (C-1).
         registry.add("app.jwt.private-key", TEST_JWT_KEYS::privateKeyPem);
         registry.add("app.jwt.public-key", TEST_JWT_KEYS::publicKeyPem);
