@@ -20,6 +20,15 @@ public interface AdminService {
 
     void activateUser(Long id);
 
+    /**
+     * Super Admin action: replace a user's password with a freshly generated temporary one,
+     * email it to the user's registered address and require them to change it at next login.
+     *
+     * <p>The generated password is never returned, logged or stored in plaintext — the email
+     * channel is the only place it appears.
+     */
+    void resetUserPassword(Long id);
+
     void rebuildSearchSummary();
 
     void refreshTempleSearchSummary(Long templeId);

@@ -8,6 +8,7 @@ import type {
   RegisterRequest,
   PasswordResetRequest,
   PasswordResetConfirmRequest,
+  ChangePasswordRequest,
   AuthTokenResponse,
   MfaChallengeResponse,
   AadhaarOtpResponse,
@@ -55,6 +56,16 @@ export const authApi = createApi({
       query: () => '/auth/me',
       providesTags: ['CurrentUser'],
     }),
+
+    /**
+     * Change the signed-in user's own password. Lives under /profile (not /auth) because
+     * /api/v1/auth/** is permitAll on the backend for the login and reset flows.
+     */
+    changePassword: builder.mutation<ApiResponse<void>, ChangePasswordRequest>({
+      query: (body) => ({ url: '/profile/password', method: 'PATCH', body }),
+      // The forced-change flag and passwordUpdatedAt both change on success.
+      invalidatesTags: ['CurrentUser'],
+    }),
   }),
   tagTypes: ['CurrentUser'],
 })
@@ -69,4 +80,5 @@ export const {
   useAadhaarOtpVerifyMutation,
   useRegisterMutation,
   useGetCurrentUserQuery,
+  useChangePasswordMutation,
 } = authApi

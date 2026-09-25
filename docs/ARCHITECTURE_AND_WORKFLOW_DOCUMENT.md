@@ -376,9 +376,13 @@ Handles all authentication including login, MFA, JWT issuance, token refresh, lo
 | POST | `/api/v1/auth/refresh` | Rotate refresh token → new auth cookies |
 | POST | `/api/v1/auth/logout` | Revoke refresh token, clear cookies |
 | GET | `/api/v1/auth/me` | Get current user profile + effective permissions |
-| POST | `/api/v1/auth/forgot-password` | Send password reset email |
-| POST | `/api/v1/auth/reset-password` | Complete password reset via token |
+| POST | `/api/v1/auth/password-reset-req` | Send password reset email (generic response — no account enumeration) |
+| POST | `/api/v1/auth/password-reset` | Complete password reset via token |
 | POST | `/api/v1/auth/register` | Create TA account (ADMIN_ONLY) |
+| PATCH | `/api/v1/profile/password` | Change your own password (any authenticated role) |
+| POST | `/api/v1/admin/users/{id}/reset-password` | Issue + email a temporary password (SUPER_ADMIN only) |
+
+See [Profile & Password Management](./PROFILE_AND_PASSWORD_MANAGEMENT.md) for the full flows.
 
 ---
 
@@ -1181,9 +1185,14 @@ Every `BaseEntity` has:
 | POST | `/refresh` | Cookie | Rotate access+refresh tokens |
 | POST | `/logout` | Cookie | Revoke session |
 | GET | `/me` | JWT | Get current user + permissions |
-| POST | `/forgot-password` | Public | Send reset email |
-| POST | `/reset-password` | Public | Reset via token |
+| POST | `/password-reset-req` | Public | Send reset email (rate limited, generic response) |
+| POST | `/password-reset` | Public | Reset via single-use token |
 | POST | `/register` | ADMIN_ONLY | Create TA account |
+
+#### Profile APIs (`/api/v1/profile/`)
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| PATCH | `/password` | JWT | Change your own password |
 
 #### Geo APIs (`/api/v1/geo/`) — All Public
 | Method | Path | Purpose |

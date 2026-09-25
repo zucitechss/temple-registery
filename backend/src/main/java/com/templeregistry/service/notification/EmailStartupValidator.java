@@ -67,7 +67,8 @@ public class EmailStartupValidator implements ApplicationListener<ApplicationRea
         }
 
         // Always validate fixed templates
-        for (String fixedTemplate : List.of("email/password-reset", "email/account-created", "email/notification")) {
+        for (String fixedTemplate : List.of("email/password-reset", "email/account-created",
+                "email/temporary-password", "email/notification")) {
             if (!templateExists(fixedTemplate)) {
                 log.error("[EmailStartupValidator] MISSING FIXED TEMPLATE: {}", fixedTemplate);
                 missing.add(fixedTemplate);
@@ -116,6 +117,7 @@ public class EmailStartupValidator implements ApplicationListener<ApplicationRea
             ctx.setVariable("loginUrl",      "http://localhost/login");
             ctx.setVariable("resetLink",     "http://localhost/reset");
             ctx.setVariable("expiryMinutes", 30);
+            ctx.setVariable("fullName",      "Test User");
             templateEngine.process(templatePath, ctx);
             return true;
         } catch (Exception e) {

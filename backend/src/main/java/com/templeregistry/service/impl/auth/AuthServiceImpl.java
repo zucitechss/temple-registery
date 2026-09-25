@@ -8,13 +8,17 @@ import com.templeregistry.entity.auth.RefreshToken;
 import com.templeregistry.entity.auth.User;
 import com.templeregistry.exception.AccountLockedException;
 import com.templeregistry.exception.EntityNotFoundException;
+import com.templeregistry.exception.RateLimitExceededException;
 import com.templeregistry.repository.auth.RefreshTokenRepository;
 import com.templeregistry.repository.auth.UserRepository;
 import com.templeregistry.security.TokenRevocationGuard;
+import com.templeregistry.service.audit.AuditService;
 import com.templeregistry.service.auth.AuthService;
 import com.templeregistry.service.auth.JwtService;
 import com.templeregistry.service.auth.MfaService;
 import com.templeregistry.service.notification.EmailService;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +33,8 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +51,7 @@ public class AuthServiceImpl implements AuthService {
     private final MfaService mfaService;
     private final TokenRevocationGuard tokenRevocationGuard;
     private final EmailService emailService;
+    private final AuditService auditService;
 
     @Value("${app.jwt.refresh-token-expiry-days:7}")
     private int refreshTokenExpiryDays;
@@ -53,6 +60,15 @@ public class AuthServiceImpl implements AuthService {
     private String baseUrl;
 
     private static final int RESET_TOKEN_EXPIRY_MINUTES = 30;
+
+    /** Password-reset abuse protection: at most N requests per email address per window. */
+    private static final int MAX_RESET_REQUESTS_PER_WINDOW = 3;
+    private static final int RESET_REQUEST_WINDOW_MINUTES = 15;
+
+    private final Cache<String, Integer> resetRequestCounts = Caffeine.newBuilder()
+            .expireAfterWrite(RESET_REQUEST_WINDOW_MINUTES, TimeUnit.MINUTES)
+            .maximumSize(10_000)
+            .build();
 
     @Override
     @Transactional
@@ -139,6 +155,10 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public void requestPasswordReset(PasswordResetRequest request) {
+        // Throttled on the SUBMITTED address, before the account lookup, so an attacker cannot
+        // tell a real address from an unknown one by which requests get throttled.
+        assertResetRequestAllowed(request.getEmail());
+
         userRepository.findByEmail(request.getEmail()).ifPresent(user -> {
             // Generate a 32-byte cryptographically random token
             byte[] tokenBytes = new byte[32];
@@ -152,18 +172,44 @@ public class AuthServiceImpl implements AuthService {
 
             String resetLink = baseUrl + "/reset-password?token=" + rawToken;
             emailService.sendPasswordResetEmail(user.getEmail(), resetLink);
+            auditService.logAuthEvent(user.getId(), user.getUsername(), "PASSWORD_RESET_REQUESTED",
+                    null, "SUCCESS", "Password reset link issued");
+            // Log the user id only — never the raw token or its hash.
             log.info("Password reset token issued for user [{}]", user.getId());
         });
         // Always return without error to prevent user enumeration
     }
 
+    /**
+     * Caps password-reset requests per submitted email address. Keeps abuse from turning the
+     * endpoint into a free mail relay without pulling in an external rate-limiting dependency —
+     * Caffeine is already on the classpath for {@link com.templeregistry.config.CacheConfig}.
+     *
+     * <p>ponytail: per-instance counter, fine for the current single-node deployment. Move to a
+     * shared store (Redis) if the backend is ever scaled horizontally.
+     */
+    private void assertResetRequestAllowed(String email) {
+        String key = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        int attempts = resetRequestCounts.asMap().merge(key, 1, Integer::sum);
+        if (attempts > MAX_RESET_REQUESTS_PER_WINDOW) {
+            log.warn("Password reset request throttled after {} attempts in the current window", attempts);
+            throw new RateLimitExceededException(RESET_REQUEST_WINDOW_MINUTES * 60);
+        }
+    }
+
     @Override
     @Transactional
     public void confirmPasswordReset(PasswordResetConfirmRequest request) {
+        // Verify the confirmation server-side whenever the client sent one.
+        if (request.getConfirmPassword() != null
+                && !request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new IllegalStateException("New password and confirmation password do not match.");
+        }
+
         String tokenHash = sha256(request.getToken());
 
         User user = userRepository.findByPasswordResetTokenHash(tokenHash)
-                .orElseThrow(() -> new IllegalStateException("Invalid or expired password reset token."));
+                .orElseThrow(() -> new IllegalStateException("This password reset link is no longer valid."));
 
         if (user.getPasswordResetTokenExpiresAt() == null
                 || user.getPasswordResetTokenExpiresAt().isBefore(LocalDateTime.now())) {
@@ -171,18 +217,26 @@ public class AuthServiceImpl implements AuthService {
             user.setPasswordResetTokenHash(null);
             user.setPasswordResetTokenExpiresAt(null);
             userRepository.save(user);
-            throw new IllegalStateException("Password reset token has expired. Please request a new one.");
+            throw new IllegalStateException("This password reset link has expired. Please request a new one.");
         }
 
-        // Update password and invalidate reset token
+        // Update password and invalidate reset token (single use)
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setPasswordResetTokenHash(null);
         user.setPasswordResetTokenExpiresAt(null);
+        user.setPasswordUpdatedAt(LocalDateTime.now());
+        // A self-service reset satisfies any outstanding forced-change requirement.
+        user.setMustChangePassword(false);
+        // Let the user back in if they were locked out before resetting.
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
         userRepository.save(user);
 
         // Revoke all outstanding refresh tokens for security
         refreshTokenRepository.revokeAllByUserId(user.getId(), LocalDateTime.now());
 
+        auditService.logAuthEvent(user.getId(), user.getUsername(), "PASSWORD_RESET_COMPLETED",
+                null, "SUCCESS", "Password reset completed via emailed link");
         log.info("Password reset completed for user [{}] — all refresh tokens revoked", user.getId());
     }
 

@@ -51,7 +51,18 @@ public class ScopeHelper {
         this.publicKey = loadPublicKey(publicKeyResource);
     }
 
+    /**
+     * A parsed token: the principal claims plus token-level flags that are deliberately kept
+     * off {@link Claims} so the principal record (constructed in ~50 places) stays unchanged.
+     */
+    public record ParsedToken(Claims claims, boolean mustChangePassword) {
+    }
+
     public Claims parse(String token) {
+        return parseFull(token).claims();
+    }
+
+    public ParsedToken parseFull(String token) {
         io.jsonwebtoken.Claims body = Jwts.parser()
                 .verifyWith(publicKey)
                 .build()
@@ -64,8 +75,12 @@ public class ScopeHelper {
         Long templeId    = body.get("templeId", Long.class);
         String username  = body.getSubject();
         String accessType = body.get("accessType", String.class);
+        // Absent in tokens minted before this claim existed — treat as "no change required".
+        Boolean mustChange = body.get("mustChangePassword", Boolean.class);
 
-        return new Claims(userId, role, districtId, templeId, username, accessType);
+        return new ParsedToken(
+                new Claims(userId, role, districtId, templeId, username, accessType),
+                Boolean.TRUE.equals(mustChange));
     }
 
     private RSAPublicKey loadPublicKey(Resource resource) throws Exception {

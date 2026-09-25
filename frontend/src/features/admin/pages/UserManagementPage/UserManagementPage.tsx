@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import {
   useListUsersQuery, useDeactivateUserMutation, useActivateUserMutation,
+  useResetUserPasswordMutation,
   useCreateUserMutation, useUpdateUserMutation,
   type UserAdminResponse,
 } from '../../adminApi'
@@ -11,13 +12,14 @@ import { TableSkeleton } from '@/components/feedback/Skeleton/Skeleton'
 import { EmptyState } from '@/components/feedback/EmptyState/EmptyState'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Users, Plus, Pencil, Building2, MapPin, ShieldCheck, ClipboardCheck, Landmark, UserCog, Search, X, Eye } from 'lucide-react'
+import { Users, Plus, Pencil, Building2, MapPin, ShieldCheck, ClipboardCheck, Landmark, UserCog, Search, X, Eye, KeyRound } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { UserFormDialog } from '../../components/UserFormDialog/UserFormDialog'
 import { UserViewModal } from '../../components/UserViewModal/UserViewModal'
 import { ConfirmDialog } from '@/components/feedback/ConfirmDialog/ConfirmDialog'
 import { USER_ROLES, type UserRole } from '@/constants/roles'
 import { cn } from '@/lib/utils'
+import { extractApiErrorMessage } from '@/lib/apiError'
 import { PaginationControl } from '@/components/navigation/PaginationControl/PaginationControl'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -193,11 +195,12 @@ interface UsersTableProps {
   onView: (u: UserAdminResponse) => void
   onEdit: (u: UserAdminResponse) => void
   onToggleStatus: (u: UserAdminResponse) => void
+  onResetPassword: (u: UserAdminResponse) => void
   deactivating: boolean
   activating: boolean
 }
 
-function UsersTable({ users, role, onView, onEdit, onToggleStatus, deactivating, activating }: UsersTableProps) {
+function UsersTable({ users, role, onView, onEdit, onToggleStatus, onResetPassword, deactivating, activating }: UsersTableProps) {
   const showDistrict = role === 'ALL' || DISTRICT_ROLES.has(role as 'DISTRICT_COLLECTOR' | 'DC_STAFF' | 'TEMPLE_AUTHORITY')
   const showTemple = role === 'ALL' || TEMPLE_ROLES.has(role as 'TEMPLE_AUTHORITY')
 
@@ -331,6 +334,16 @@ function UsersTable({ users, role, onView, onEdit, onToggleStatus, deactivating,
                     <Pencil size={13} />
                   </Button>
                   <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => onResetPassword(user)}
+                    title="Reset password"
+                    aria-label={`Reset password for ${user.fullName}`}
+                  >
+                    <KeyRound size={13} />
+                  </Button>
+                  <Button
                     variant={user.active ? 'destructive' : 'outline'}
                     size="sm"
                     className="h-7 text-xs px-2.5 whitespace-nowrap"
@@ -352,12 +365,13 @@ function UsersTable({ users, role, onView, onEdit, onToggleStatus, deactivating,
 // ─── Per-role tab content ──────────────────────────────────────────────────────
 
 function RoleTabContent({
-  role, onView, onEdit, onToggleStatus, deactivating, activating,
+  role, onView, onEdit, onToggleStatus, onResetPassword, deactivating, activating,
 }: {
   role: UserRole | 'ALL'
   onView: (u: UserAdminResponse) => void
   onEdit: (u: UserAdminResponse) => void
   onToggleStatus: (u: UserAdminResponse) => void
+  onResetPassword: (u: UserAdminResponse) => void
   deactivating: boolean
   activating: boolean
 }) {
@@ -468,6 +482,7 @@ function RoleTabContent({
               onView={onView}
               onEdit={onEdit}
               onToggleStatus={onToggleStatus}
+              onResetPassword={onResetPassword}
               deactivating={deactivating}
               activating={activating}
             />
@@ -497,11 +512,13 @@ export function UserManagementPage() {
   const [activate, { isLoading: activating }] = useActivateUserMutation()
   const [createUser, { isLoading: creating }] = useCreateUserMutation()
   const [updateUser, { isLoading: updating }] = useUpdateUserMutation()
+  const [resetUserPassword, { isLoading: resettingPassword }] = useResetUserPasswordMutation()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<UserAdminResponse | null>(null)
   const [viewUser, setViewUser] = useState<UserAdminResponse | null>(null)
   const [confirmStatusUser, setConfirmStatusUser] = useState<UserAdminResponse | null>(null)
+  const [confirmResetUser, setConfirmResetUser] = useState<UserAdminResponse | null>(null)
 
   const totalUsers = countData?.data?.totalElements ?? 0
 
@@ -509,6 +526,19 @@ export function UserManagementPage() {
   const handleView = (user: UserAdminResponse) => setViewUser(user)
   const handleEdit = (user: UserAdminResponse) => { setSelectedUser(user); setDialogOpen(true) }
   const handleToggleStatus = (user: UserAdminResponse) => setConfirmStatusUser(user)
+  const handleResetPassword = (user: UserAdminResponse) => setConfirmResetUser(user)
+
+  const resetUserPasswordFor = async (user: UserAdminResponse) => {
+    try {
+      await resetUserPassword(user.id).unwrap()
+      // The temporary password itself is never returned to the browser — only emailed.
+      toast.success(`Temporary password sent to ${user.email}`)
+    } catch (err) {
+      toast.error(extractApiErrorMessage(err, 'Failed to reset the password. Please try again.'))
+    } finally {
+      setConfirmResetUser(null)
+    }
+  }
 
   const toggleUserStatus = async (user: UserAdminResponse) => {
     try {
@@ -555,7 +585,7 @@ export function UserManagementPage() {
     { value: USER_ROLES.AUDITOR,              label: 'Auditor',            icon: <ClipboardCheck size={14} />,count: null },
   ] as const
 
-  const tabProps = { onView: handleView, onEdit: handleEdit, onToggleStatus: handleToggleStatus, deactivating, activating }
+  const tabProps = { onView: handleView, onEdit: handleEdit, onToggleStatus: handleToggleStatus, onResetPassword: handleResetPassword, deactivating, activating }
 
   return (
     <div className="space-y-6">
@@ -673,6 +703,16 @@ export function UserManagementPage() {
         confirmLabel={confirmStatusUser?.active ? 'Deactivate' : 'Activate'}
         confirmVariant={confirmStatusUser?.active ? 'destructive' : 'default'}
         onConfirm={() => confirmStatusUser && toggleUserStatus(confirmStatusUser)}
+      />
+
+      <ConfirmDialog
+        open={confirmResetUser !== null}
+        onOpenChange={(open) => { if (!open) setConfirmResetUser(null) }}
+        title={`Reset password for ${confirmResetUser?.fullName}?`}
+        description={`A temporary password will be generated and emailed to ${confirmResetUser?.email}. Their current password stops working immediately, all their sessions are signed out, and they must set a new password at next login.`}
+        confirmLabel={resettingPassword ? 'Resetting…' : 'Reset Password'}
+        confirmVariant="destructive"
+        onConfirm={() => confirmResetUser && resetUserPasswordFor(confirmResetUser)}
       />
     </div>
   )

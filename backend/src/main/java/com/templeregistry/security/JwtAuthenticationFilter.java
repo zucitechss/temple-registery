@@ -37,10 +37,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         
         if (token != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
-                ScopeHelper.Claims claims = scopeHelper.parse(token);
+                ScopeHelper.ParsedToken parsed = scopeHelper.parseFull(token);
+                ScopeHelper.Claims claims = parsed.claims();
                 log.debug("JWT parsed successfully for user: {}", claims.username());
                 MDC.put("userId", String.valueOf(claims.userId()));
                 MDC.put("role", claims.role());
+
+                // A user holding an admin-issued temporary password may only reach the endpoints
+                // needed to replace it. Hiding the UI is not enough — this is the real gate.
+                if (parsed.mustChangePassword() && !isPasswordChangePath(request)) {
+                    log.debug("Blocking [{}] for user [{}] — password change required",
+                            request.getRequestURI(), claims.userId());
+                    writePasswordChangeRequired(response);
+                    return;
+                }
 
                 var authority = new SimpleGrantedAuthority("ROLE_" + claims.role());
                 var auth = new UsernamePasswordAuthenticationToken(
@@ -53,6 +63,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Endpoints a user must still reach while their password change is outstanding: the change
+     * endpoint itself, plus the whole auth module (login, logout, refresh, me) which carries no
+     * application data and is already {@code permitAll} in {@code SecurityConfig}.
+     */
+    private static final List<String> PASSWORD_CHANGE_ALLOWED_PATHS = List.of(
+            "/api/v1/profile/password",
+            "/api/v1/auth/");
+
+    private boolean isPasswordChangePath(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri != null && PASSWORD_CHANGE_ALLOWED_PATHS.stream().anyMatch(uri::startsWith);
+    }
+
+    /** Matches the application-wide ApiResponse error shape so the frontend parses it normally. */
+    private void writePasswordChangeRequired(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(
+                "{\"success\":false,"
+                        + "\"message\":\"You must change your temporary password before continuing.\","
+                        + "\"errorCode\":\"PASSWORD_CHANGE_REQUIRED\"}");
     }
 
     private String extractBearerToken(HttpServletRequest request) {

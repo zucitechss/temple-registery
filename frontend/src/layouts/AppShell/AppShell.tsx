@@ -43,6 +43,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/viewer/export': 'Export Reports',
   '/notifications': 'Notifications',
   '/notifications/preferences': 'Notification Preferences',
+  '/profile': 'My Profile',
 }
 
 export function AppShell() {

@@ -30,6 +30,7 @@ public class JwtServiceImpl implements JwtService {
     private static final String CLAIM_DISTRICT   = "districtId";
     private static final String CLAIM_TEMPLE     = "templeId";
     private static final String CLAIM_ACCESS_TYPE = "accessType";
+    private static final String CLAIM_MUST_CHANGE_PASSWORD = "mustChangePassword";
     private static final String TOKEN_TYPE_TEMP  = "TEMP";
 
     private final RSAPrivateKey privateKey;
@@ -55,6 +56,8 @@ public class JwtServiceImpl implements JwtService {
                 .claim(CLAIM_DISTRICT,  user.getDistrictId())
                 .claim(CLAIM_TEMPLE,    user.getTempleId())
                 .claim(CLAIM_ACCESS_TYPE, user.getAccessType() != null ? user.getAccessType().name() : null)
+                // Carried in the token so JwtAuthenticationFilter can gate requests without a DB read.
+                .claim(CLAIM_MUST_CHANGE_PASSWORD, user.isMustChangePassword())
                 .issuedAt(new Date(now))
                 .expiration(new Date(now + accessTokenExpiryMs))
                 .signWith(privateKey)

@@ -12,6 +12,10 @@ import { TaTempleReviewPage } from '@/features/temple-profile/pages/TaTempleRevi
 
 // ── Lazy-loaded pages ─────────────────────────────────────────────────────────
 const LoginPage       = lazy(() => import('@/features/auth/pages/LoginPage/LoginPage').then(m => ({ default: m.LoginPage })))
+const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })))
+const ResetPasswordPage = lazy(() => import('@/features/auth/pages/ResetPasswordPage/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })))
+const ForcePasswordChangePage = lazy(() => import('@/features/auth/pages/ForcePasswordChangePage/ForcePasswordChangePage').then(m => ({ default: m.ForcePasswordChangePage })))
+const ProfilePage = lazy(() => import('@/features/profile/pages/ProfilePage/ProfilePage').then(m => ({ default: m.ProfilePage })))
 const DcDashboardPage = lazy(() => import('@/features/dc/pages/DcDashboardPage/DcDashboardPage').then(m => ({ default: m.DcModuleDashboardPage })))
 const DcTempleSearchPage = lazy(() => import('@/features/dc/pages/DcTempleSearchPage/DcTempleSearchPage').then(m => ({ default: m.DcTempleSearchPage })))
 const DcTempleProfilePage = lazy(() => import('@/features/dc/pages/DcTempleProfilePage/DcTempleProfilePage').then(m => ({ default: m.DcTempleProfilePage })))
@@ -73,12 +77,17 @@ const router = createBrowserRouter([
   // ── Public routes ─────────────────────────────────────────────────────────
   { path: ROUTE_PATHS.PUBLIC_SEARCH, element: <Suspense fallback={<PageLoader />}><PublicTempleSearchPage /></Suspense> },
   { path: ROUTE_PATHS.LOGIN, element: <Suspense fallback={<PageLoader />}><LoginPage /></Suspense> },
+  { path: ROUTE_PATHS.FORGOT_PASSWORD, element: <Suspense fallback={<PageLoader />}><ForgotPasswordPage /></Suspense> },
+  { path: ROUTE_PATHS.RESET_PASSWORD, element: <Suspense fallback={<PageLoader />}><ResetPasswordPage /></Suspense> },
   { path: ROUTE_PATHS.UNAUTHORIZED, element: <div className="flex min-h-screen items-center justify-center"><h1 className="text-2xl font-bold text-destructive">403 — Access Denied</h1></div> },
 
   // ── Protected routes ──────────────────────────────────────────────────────
   {
     element: <PrivateRoute />,
     children: [
+      // Forced password change — deliberately outside AppShell: while it is pending the
+      // backend blocks every other endpoint, so there is nothing to navigate to.
+      { path: ROUTE_PATHS.CHANGE_PASSWORD, element: <Suspense fallback={<PageLoader />}><ForcePasswordChangePage /></Suspense> },
       {
         element: <AppShell />,
         children: [
@@ -185,6 +194,12 @@ const router = createBrowserRouter([
             children: [
               { path: ROUTE_PATHS.NOTIFICATIONS, element: <Suspense fallback={<PageLoader />}><NotificationInboxPage /></Suspense> },
               { path: ROUTE_PATHS.NOTIFICATION_PREFERENCES, element: <Suspense fallback={<PageLoader />}><NotificationPreferencesPage /></Suspense> },
+            ],
+          },
+          // Profile (all authenticated users — no RoleRoute, every role has a profile)
+          {
+            children: [
+              { path: ROUTE_PATHS.PROFILE, element: <Suspense fallback={<PageLoader />}><ProfilePage /></Suspense> },
             ],
           },
         ],

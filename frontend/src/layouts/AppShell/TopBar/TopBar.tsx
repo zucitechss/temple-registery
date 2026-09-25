@@ -1,6 +1,8 @@
 import { Menu } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useAppSelector } from '@/app/store'
 import { NotificationBell } from '@/features/notification/components/NotificationBell'
+import { ROUTE_PATHS } from '@/constants/routePaths'
 
 interface TopBarProps {
   title?: string
@@ -34,9 +36,14 @@ export function TopBar({ title, onMenuClick }: TopBarProps) {
         {/* Notification bell with dropdown */}
         <NotificationBell />
 
-        {/* User profile / Avatar */}
+        {/* User profile / Avatar — opens the profile page */}
         {currentUser && (
-          <div className="flex items-center gap-3 pl-2 border-l border-border ml-1">
+          <Link
+            to={ROUTE_PATHS.PROFILE}
+            aria-label="View your profile"
+            title="View your profile"
+            className="flex items-center gap-3 pl-2 border-l border-border ml-1 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
             <div className="hidden sm:block text-right">
               <p className="text-xs font-semibold text-foreground leading-none">{currentUser.fullName}</p>
               <p className="text-[10px] text-muted-foreground leading-none mt-1">{currentUser.role.replace(/_/g, ' ')}</p>
@@ -44,7 +51,7 @@ export function TopBar({ title, onMenuClick }: TopBarProps) {
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-gold shadow-gold text-xs font-bold text-white cursor-pointer hover:scale-105 transition-transform">
               {currentUser.fullName.charAt(0).toUpperCase()}
             </div>
-          </div>
+          </Link>
         )}
       </div>
     </header>

@@ -147,6 +147,14 @@ export const adminApi = createApi({
       query: (id) => ({ url: `/admin/users/${id}/activate`, method: 'POST' }),
       invalidatesTags: ['AdminUser'],
     }),
+    /**
+     * Super Admin only. The backend generates the temporary password, stores it hashed and
+     * emails it to the user — it is deliberately never returned in the response body.
+     */
+    resetUserPassword: builder.mutation<ApiResponse<void>, number>({
+      query: (id) => ({ url: `/admin/users/${id}/reset-password`, method: 'POST' }),
+      invalidatesTags: ['AdminUser'],
+    }),
     listAllDistricts: builder.query<ApiResponse<DistrictOption[]>, void>({
       query: () => ({ url: '/geo/districts' }),
       providesTags: ['Districts'],
@@ -234,7 +242,7 @@ export const adminApi = createApi({
 
 export const {
   useListUsersQuery, useCreateUserMutation, useUpdateUserMutation,
-  useDeactivateUserMutation, useActivateUserMutation,
+  useDeactivateUserMutation, useActivateUserMutation, useResetUserPasswordMutation,
   useListAllDistrictsQuery, useSearchTemplesQuery,
   useListAuditEventsQuery, useListAuthEventsQuery,
   useRebuildSearchSummaryMutation, useGetPhysicalVerificationPendingQuery,

@@ -87,4 +87,22 @@ public interface EmailService {
                                               String loginUrl) {
         // No-op default — override in EmailServiceImpl
     }
+
+    /**
+     * Sends an admin-issued temporary password to an existing user whose password was reset
+     * by a Super Admin.
+     *
+     * <p>The {@code temporaryPassword} is used <em>only</em> for rendering the email. It is never
+     * logged, never stored in plaintext, and discarded immediately after the email is sent.
+     *
+     * @param recipientEmail    user's registered email address
+     * @param fullName          user's full name, for the greeting
+     * @param username          the account's username
+     * @param temporaryPassword plaintext temporary password — MUST NOT be logged
+     * @param loginUrl          full login URL for the CTA button
+     */
+    default void sendTemporaryPasswordEmail(String recipientEmail, String fullName, String username,
+                                             String temporaryPassword, String loginUrl) {
+        // No-op default — override in EmailServiceImpl
+    }
 }

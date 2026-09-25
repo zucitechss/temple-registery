@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -27,6 +28,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -62,13 +65,17 @@ class TrustIntegrationTest extends MySQLContainerBase {
 
     @BeforeEach
     void setUp() {
-        boardMemberRepository.deleteAll();
-        trustRepository.deleteAll();
-        templeRepository.deleteAll();
-
+        // No global wipe here. Flyway seeds this database (V100/V101) and those temples are
+        // referenced by nine other tables, so deleting every temple is neither safe nor needed:
+        // deleteAll() would only soft-delete (Temple and BoardMember carry @SQLDelete, leaving
+        // rows that then block the trusts FK), and a bulk hard delete would break the seed FKs.
+        // Every test below scopes itself to the temple created here, so a fresh temple per test
+        // is the isolation this fixture actually needs.
         Temple temple = Temple.builder()
                 .name("Test Temple")
-                .registrationNumber("REG-INTEG-001")
+                // Unique per test: uq_temples_registration is a plain unique key, so it collides
+                // with soft-deleted and seeded rows alike if this is a fixed literal.
+                .registrationNumber("REG-INTEG-" + UUID.randomUUID().toString().substring(0, 8))
                 .grade(TempleGrade.A)
                 .tradition(ReligiousTradition.OTHER)
                 .doorNumber("1")
@@ -82,9 +89,29 @@ class TrustIntegrationTest extends MySQLContainerBase {
         templeId = saved.getId();
 
         // TA security context
-        ScopeHelper.Claims claims = new ScopeHelper.Claims(1L, "TEMPLE_AUTHORITY", null, templeId, "ta_user", "EDIT");
+        authenticateAs(new ScopeHelper.Claims(1L, "TEMPLE_AUTHORITY", null, templeId, "ta_user", "EDIT"));
+    }
+
+    /**
+     * Installs an authentication exactly as {@code JwtAuthenticationFilter} does — principal plus
+     * a {@code ROLE_<role>} authority. The authority is not optional: this test runs with
+     * {@code addFilters = false}, so nothing else grants it, and every {@code @PreAuthorize}
+     * built on {@code hasAnyRole(...)} (such as {@code RoleConstants.CAN_SUBMIT}) would otherwise
+     * deny with 403 no matter which role the claims name.
+     */
+    /**
+     * A reference that is unique per call. Trust registration numbers are validated for global
+     * uniqueness (TrustValidationServiceImpl), so a fixed literal would make the second test to
+     * run fail with 409 now that this fixture no longer wipes the trusts table.
+     */
+    private static String uniqueRef(String prefix) {
+        return prefix + "-" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private void authenticateAs(ScopeHelper.Claims claims) {
         SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(claims, null, Collections.emptyList()));
+                new UsernamePasswordAuthenticationToken(claims, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_" + claims.role()))));
     }
 
     // â”€â”€â”€ Trust CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -142,7 +169,7 @@ class TrustIntegrationTest extends MySQLContainerBase {
 
             // Attempt second trust for same temple
             CreateTrustRequest second = validTrustRequest();
-            second.setRegistrationNumber("TR999"); // different reg number
+            second.setRegistrationNumber(uniqueRef("TR")); // different reg number
             mockMvc.perform(post("/api/v1/temples/" + templeId + "/trusts")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(second)))
@@ -202,13 +229,16 @@ class TrustIntegrationTest extends MySQLContainerBase {
         @Test
         void all_trust_types_are_accepted() throws Exception {
             for (TrustType type : TrustType.values()) {
-                // Reset state for each type
-                boardMemberRepository.deleteAll();
-                trustRepository.deleteAll();
+                // Only this temple's trust needs clearing between iterations — "one trust per
+                // temple" is what the next create would trip over. A global deleteAll() would
+                // hard-delete the seeded trusts too and break the board_members foreign key.
+                trustRepository.findAllByTempleId(templeId).forEach(trustRepository::delete);
 
                 CreateTrustRequest rq = validTrustRequest();
                 rq.setTrustType(type);
-                rq.setRegistrationNumber("TR-" + type.name());
+                // Underscores are not allowed by CreateTrustRequest's alphanumeric pattern, and
+                // enum names such as MULTI_TRUSTEE contain one — so the type cannot go in here.
+                rq.setRegistrationNumber(uniqueRef("TR"));
 
                 mockMvc.perform(post("/api/v1/temples/" + templeId + "/trusts")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -238,6 +268,35 @@ class TrustIntegrationTest extends MySQLContainerBase {
                     .andReturn();
             String body = result.getResponse().getContentAsString();
             return objectMapper.readTree(body).path("data").path("id").asLong();
+        }
+
+        /**
+         * Regression: deleting a trust that has board members used to fail with
+         * "Cannot delete or update a parent row: fk_bm_trust". Trust was the only entity in this
+         * package without @SQLDelete, so it hard-deleted while its soft-deleted children kept
+         * their rows and held the foreign key. Needs a real database — a mocked repository cannot
+         * reproduce a constraint violation.
+         */
+        @Test
+        void deletes_trust_that_has_board_members() throws Exception {
+            Long trustId = createTrustAndGetId();
+            mockMvc.perform(post("/api/v1/trusts/" + trustId + "/board-members")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(validMemberRequest())))
+                    .andExpect(status().isCreated());
+
+            // Deleting a trust is ADMIN_ONLY.
+            authenticateAs(new ScopeHelper.Claims(3L, "SUPER_ADMIN", null, null, "admin", "EDIT"));
+
+            mockMvc.perform(delete("/api/v1/trusts/" + trustId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true));
+
+            // Soft-deleted: hidden from the API and from the "one trust per temple" rule,
+            // while the row itself survives so the board-member foreign key stays satisfied.
+            mockMvc.perform(get("/api/v1/trusts/" + trustId))
+                    .andExpect(status().isNotFound());
+            assertThat(trustRepository.findAllByTempleId(templeId)).isEmpty();
         }
 
         @Test
@@ -328,9 +387,7 @@ class TrustIntegrationTest extends MySQLContainerBase {
                     .path("data").path("id").asLong();
 
             // Switch to a different TA (different templeId)
-            ScopeHelper.Claims otherClaims = new ScopeHelper.Claims(2L, "TEMPLE_AUTHORITY", null, 9999L, "other_ta", "EDIT");
-            SecurityContextHolder.getContext().setAuthentication(
-                    new UsernamePasswordAuthenticationToken(otherClaims, null, Collections.emptyList()));
+            authenticateAs(new ScopeHelper.Claims(2L, "TEMPLE_AUTHORITY", null, 9999L, "other_ta", "EDIT"));
 
             // Should be blocked by OwnershipGuard
             mockMvc.perform(get("/api/v1/trusts/" + trustId))
@@ -344,7 +401,7 @@ class TrustIntegrationTest extends MySQLContainerBase {
         return CreateTrustRequest.builder()
                 .trustName("Integration Trust")
                 .trustType(TrustType.MULTI_TRUSTEE)
-                .registrationNumber("TR-INTEG-001")
+                .registrationNumber(uniqueRef("TR-INTEG"))
                 .registeringAuthority("Sub-Registrar Office")
                 .dateOfRegistration(LocalDate.now().minusDays(30))
                 .panNumber("ABCDE1234F")

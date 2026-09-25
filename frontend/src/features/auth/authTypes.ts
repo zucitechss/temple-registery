@@ -55,6 +55,29 @@ export const passwordResetConfirmSchema = z
     path: ['confirmPassword'],
   })
 
+/**
+ * Minimum length mirrors the backend policy (`@Size(min = 8, max = 128)` on
+ * ChangePasswordRequest / PasswordResetConfirmRequest). The backend re-validates everything
+ * here — this only gives the user immediate feedback.
+ */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .max(128, 'Password must be at most 128 characters'),
+    confirmPassword: z.string().min(1, 'Please confirm your new password'),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: 'New password and confirmation password do not match',
+    path: ['confirmPassword'],
+  })
+  .refine((d) => d.newPassword !== d.currentPassword, {
+    message: 'New password must be different from the current password',
+    path: ['newPassword'],
+  })
+
 // ── Inferred TypeScript types ─────────────────────────────────────────────────
 
 export type LoginRequest = z.infer<typeof loginSchema>
@@ -64,6 +87,7 @@ export type AadhaarOtpVerifyRequest = z.infer<typeof aadhaarOtpVerifySchema>
 export type RegisterRequest = z.infer<typeof registerSchema>
 export type PasswordResetRequest = z.infer<typeof passwordResetRequestSchema>
 export type PasswordResetConfirmRequest = z.infer<typeof passwordResetConfirmSchema>
+export type ChangePasswordRequest = z.infer<typeof changePasswordSchema>
 
 // ── Response types ────────────────────────────────────────────────────────────
 
@@ -89,15 +113,25 @@ export interface AadhaarOtpResponse {
 export interface CurrentUser {
   userId: number
   username: string
+  email?: string
   fullName: string
   mobile?: string
   role: UserRole
+  active?: boolean
   districtId?: number
   templeId?: number
   aadhaarVerified: boolean
   designation?: string
   /** VIEW = read-only; EDIT = full write access. Only meaningful for TEMPLE_AUTHORITY. */
   accessType?: 'VIEW' | 'EDIT'
+  /** Resolved names for the assigned districtId / templeId, when assigned. */
+  districtName?: string
+  templeName?: string
+  /** ISO timestamps. Absent when the user has never logged in / never changed their password. */
+  lastLoginAt?: string
+  passwordUpdatedAt?: string
+  /** True while an admin-issued temporary password must still be replaced. */
+  mustChangePassword?: boolean
   completionChecklist?: TempleCompletionChecklist
 }
 

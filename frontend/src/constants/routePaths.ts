@@ -7,7 +7,12 @@ export const ROUTE_PATHS = {
   MFA_VERIFY: '/mfa-verify',
   REGISTER: '/register',
   FORGOT_PASSWORD: '/forgot-password',
+  RESET_PASSWORD: '/reset-password',
+  CHANGE_PASSWORD: '/change-password',
   UNAUTHORIZED: '/403',
+
+  // Profile (all authenticated roles)
+  PROFILE: '/profile',
 
   // DC / DC Staff
   DC_DASHBOARD: '/dc/dashboard',
