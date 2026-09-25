@@ -210,8 +210,11 @@ export function ChatModal({ declarationId, declarationStatus, readonly, unreadCo
             : 'Communication history will appear here'}
         </p>
       </div>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 py-4 border-b bg-gradient-to-r from-primary/5 to-primary/10">
+      <DialogContent
+        data-testid="chat-dialog-content"
+        className="w-[calc(100%-2rem)] max-w-3xl h-[85vh] flex flex-col p-0 gap-0"
+      >
+        <DialogHeader className="shrink-0 px-6 py-4 border-b bg-gradient-to-r from-primary/5 to-primary/10">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
@@ -219,8 +222,8 @@ export function ChatModal({ declarationId, declarationStatus, readonly, unreadCo
               </div>
               <div>
                 <DialogTitle className="text-lg">
-                  {declarationStatus === 'CLARIFICATION_REQUIRED' 
-                    ? 'Clarification Required' 
+                  {declarationStatus === 'CLARIFICATION_REQUIRED'
+                    ? 'Clarification Required'
                     : 'Conversation History'}
                 </DialogTitle>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -233,73 +236,88 @@ export function ChatModal({ declarationId, declarationStatus, readonly, unreadCo
           </div>
         </DialogHeader>
 
-        {/* Info banner */}
-        {declarationStatus === 'CLARIFICATION_REQUIRED' && (
-          <div className="bg-orange-50 border-b border-orange-200 px-6 py-3">
-            <p className="text-xs text-orange-800">
-              💡 <strong>What is this?</strong> The District Collector has requested additional information or clarification about your declaration. 
-              Please review their message below and provide a response in the text box at the bottom.
-            </p>
-          </div>
-        )}
-
-        {!declarationStatus.includes('CLARIFICATION') && totalCount > 0 && (
-          <div className="bg-blue-50 border-b border-blue-200 px-6 py-3">
-            <p className="text-xs text-blue-800">
-              💬 <strong>About this conversation:</strong> This is your communication history with the District Collector regarding this declaration. 
-              All messages, clarifications, and site visit updates are shown here.
-            </p>
-          </div>
-        )}
-
-        {/* Chat Messages Area */}
-        <div className="flex-1 overflow-y-auto bg-muted/20 p-6 my-4">
-          {isLoading ? (
-            <ChatSkeletonBubbles />
-          ) : isError ? (
-            <div className="flex h-full items-center justify-center">
-              <EmptyState title="Could not load conversation history." />
+        {/*
+          Single scrollable region for everything below the header: info
+          banners, the message list, and the response box all scroll
+          together. Keeping the response box inside this same scroll
+          container (rather than as a separate flex sibling) guarantees the
+          Submit button is always reachable by scrolling — it can no longer
+          get squeezed out of view when a short viewport can't fit
+          everything at once. `min-h-0` is required so this flex child can
+          shrink below its content and actually activate `overflow-y-auto`.
+        */}
+        <div data-testid="chat-scroll-area" className="flex-1 min-h-0 overflow-y-auto">
+          {/* Info banner */}
+          {declarationStatus === 'CLARIFICATION_REQUIRED' && (
+            <div className="bg-orange-50 border-b border-orange-200 px-6 py-3">
+              <p className="text-xs text-orange-800">
+                💡 <strong>What is this?</strong> The District Collector has requested additional information or clarification about your declaration.
+                Please review their message below and provide a response in the text box at the bottom.
+              </p>
             </div>
-          ) : totalCount === 0 ? (
-            <div className="flex h-full items-center justify-center">
-              <EmptyState 
-                title="No messages yet" 
-                description="When the District Collector sends a message or requests clarification, it will appear here. You can respond directly through this interface."
-              />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {messages.map((msg) => {
-                const originalIndex = messages.indexOf(msg)
-                const isActionRequired =
-                  declarationStatus === 'CLARIFICATION_REQUIRED' &&
-                  msg.type === 'CLARIFICATION' &&
-                  originalIndex === lastClarificationIndex
+          )}
 
-                return (
-                  <MessageBubble
-                    key={msg.id}
-                    message={msg}
-                    isActionRequired={isActionRequired}
-                  />
-                )
-              })}
+          {!declarationStatus.includes('CLARIFICATION') && totalCount > 0 && (
+            <div className="bg-blue-50 border-b border-blue-200 px-6 py-3">
+              <p className="text-xs text-blue-800">
+                💬 <strong>About this conversation:</strong> This is your communication history with the District Collector regarding this declaration.
+                All messages, clarifications, and site visit updates are shown here.
+              </p>
+            </div>
+          )}
+
+          {/* Chat Messages Area */}
+          <div
+            data-testid="chat-messages-area"
+            className="min-h-[200px] bg-muted/20 p-6"
+          >
+            {isLoading ? (
+              <ChatSkeletonBubbles />
+            ) : isError ? (
+              <div className="flex h-full items-center justify-center">
+                <EmptyState title="Could not load conversation history." />
+              </div>
+            ) : totalCount === 0 ? (
+              <div className="flex h-full items-center justify-center">
+                <EmptyState
+                  title="No messages yet"
+                  description="When the District Collector sends a message or requests clarification, it will appear here. You can respond directly through this interface."
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {messages.map((msg) => {
+                  const originalIndex = messages.indexOf(msg)
+                  const isActionRequired =
+                    declarationStatus === 'CLARIFICATION_REQUIRED' &&
+                    msg.type === 'CLARIFICATION' &&
+                    originalIndex === lastClarificationIndex
+
+                  return (
+                    <MessageBubble
+                      key={msg.id}
+                      message={msg}
+                      isActionRequired={isActionRequired}
+                    />
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Response Box */}
+          {showResponseBox && (
+            <div className="border-t bg-background px-6 py-4">
+              <div className="mb-3">
+                <p className="text-xs font-medium text-foreground mb-1">Your Response</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Type your response to the District Collector's clarification request below. Be clear and provide all requested information.
+                </p>
+              </div>
+              <ResponseBox declarationId={declarationId} />
             </div>
           )}
         </div>
-
-        {/* Response Box */}
-        {showResponseBox && (
-          <div className="border-t bg-background px-6 py-4 mt-auto">
-            <div className="mb-3">
-              <p className="text-xs font-medium text-foreground mb-1">Your Response</p>
-              <p className="text-[10px] text-muted-foreground">
-                Type your response to the District Collector's clarification request below. Be clear and provide all requested information.
-              </p>
-            </div>
-            <ResponseBox declarationId={declarationId} />
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   )
