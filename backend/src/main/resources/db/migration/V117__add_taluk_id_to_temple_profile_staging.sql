@@ -1,0 +1,26 @@
+-- ============================================================================
+-- V117: Add taluk_id to temple_profile_staging
+--
+-- WHY THIS FILE EXISTS
+--   temple_profile_staging only ever stored hobli_id; taluk_id was meant to be
+--   purely derived from it (Hobli -> Taluk). That works for DISPLAY (every read
+--   path already derives taluk from hobli), but breaks the case where a TA
+--   picks a District + Taluk in the geo hierarchy selector but no Hobli exists
+--   yet for their location (a real gap in the master geo data) — there was
+--   nowhere to persist that taluk selection at all, so it was silently dropped
+--   before the request ever left the browser.
+--
+--   Every other temple write path already treats taluk_id as an independent,
+--   directly-settable column (temples.taluk_id, TempleServiceImpl.applyUpdates,
+--   RegistrationServiceImpl) — this migration brings temple_profile_staging to
+--   parity with that established pattern instead of being the one place that's
+--   hobli-derivation-only.
+--
+-- NULLABLE, NO BACKFILL
+--   Existing staging rows keep taluk_id = NULL; read paths that already derive
+--   taluk from hobli_id continue to do so as a fallback when this column is
+--   unset, so no existing data or behavior changes for rows written before
+--   this migration.
+-- ============================================================================
+
+ALTER TABLE temple_profile_staging ADD COLUMN taluk_id BIGINT NULL;

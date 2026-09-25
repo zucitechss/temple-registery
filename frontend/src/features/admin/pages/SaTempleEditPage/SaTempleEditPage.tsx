@@ -113,6 +113,7 @@ export function SaTempleEditPage() {
       grade: undefined,
       tradition: undefined,
       hobliId: undefined,
+      talukId: undefined,
       addressLine1: '',
       pinCode: '',
       latitude: null,
@@ -170,6 +171,12 @@ export function SaTempleEditPage() {
     setGeoSelection(sel)
     if (sel.hobliId) {
       form.setValue('hobliId', sel.hobliId, { shouldDirty: true })
+    }
+    // Taluk must be submitted independently of hobli — a temple's location may not have
+    // a Hobli in the master geo data yet, in which case this is the only geo selection
+    // that can be made and saved.
+    if (sel.talukId) {
+      form.setValue('talukId', sel.talukId, { shouldDirty: true })
     }
   }, [form])
 
@@ -235,6 +242,7 @@ export function SaTempleEditPage() {
       grade: (staging?.grade ?? (current as any)?.grade ?? temple.grade) as any ?? undefined,
       tradition: (staging?.tradition ?? (current as any)?.tradition ?? temple.tradition) as any ?? undefined,
       hobliId: staging?.hobliId ?? temple.hobliId ?? undefined,
+      talukId: staging?.talukId ?? temple.talukId ?? undefined,
       addressLine1: resolve('addressLine1', 'addressLine1', 'street'),
       pinCode: resolve('pinCode', 'pinCode', 'pinCode'),
       latitude: staging?.latitude ?? temple.latitude ?? null,
@@ -265,6 +273,7 @@ export function SaTempleEditPage() {
     grade: values.grade || undefined,
     tradition: values.tradition || undefined,
     hobliId: values.hobliId || undefined,
+    talukId: values.talukId || undefined,
     addressLine1: values.addressLine1 || undefined,
     pinCode: values.pinCode || undefined,
     latitude: values.latitude ?? undefined,
