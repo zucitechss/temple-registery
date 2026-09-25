@@ -12,6 +12,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.List;
@@ -26,7 +27,7 @@ class GlobalExceptionHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new GlobalExceptionHandler();
+        handler = new GlobalExceptionHandler(DataSize.ofMegabytes(10));
     }
 
     // ─── EntityNotFoundException ──────────────────────────────────────────────
@@ -257,14 +258,26 @@ class GlobalExceptionHandlerTest {
     @Nested
     class MaxUploadSizeHandling {
         @Test
-        void should_return400_withFixedMessage_when_fileTooLarge() {
+        void should_return400_withTheConfiguredLimit_when_fileTooLarge() {
+            // The message used to be hardcoded to "5 MB" while the servlet actually rejected
+            // at 1 MB and the domain allowed 10 MB, so it told the user a number that was
+            // true nowhere. It now reports whatever spring.servlet.multipart is configured to.
             MaxUploadSizeExceededException ex = mock(MaxUploadSizeExceededException.class);
 
             ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSize(ex);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
             assertThat(response.getBody().getErrorCode()).isEqualTo("FILE_TOO_LARGE");
-            assertThat(response.getBody().getMessage()).contains("5 MB");
+            assertThat(response.getBody().getMessage()).contains("10 MB");
+        }
+
+        @Test
+        void should_reportTheLimitItIsGiven_when_configurationChanges() {
+            ResponseEntity<ApiResponse<Void>> response =
+                    new GlobalExceptionHandler(DataSize.ofMegabytes(25))
+                            .handleMaxUploadSize(mock(MaxUploadSizeExceededException.class));
+
+            assertThat(response.getBody().getMessage()).contains("25 MB");
         }
     }
 
@@ -487,6 +500,44 @@ class GlobalExceptionHandlerTest {
             // Must NOT expose internal error details - use fixed safe message
             assertThat(response.getBody().getMessage()).doesNotContain("NPE during processing");
             assertThat(response.getBody().getErrorCode()).isEqualTo("INTERNAL_ERROR");
+        }
+    }
+
+    // ─── NoResourceFoundException (unmatched path) ─────────────────────────────
+    //
+    // Found while verifying H-6: an AUTHENTICATED request to a path that matches no
+    // controller and no static resource returned 500 INTERNAL_ERROR instead of 404.
+    // NoResourceFoundException is thrown by ResourceHttpRequestHandler for exactly this
+    // case; before a dedicated handler existed here, the plain @ExceptionHandler(
+    // Exception.class) catch-all matched it (most specific handler always wins, but
+    // nothing more specific than Exception.class was registered for it), producing a
+    // 500 for what is, from the client's point of view, an ordinary "no such endpoint".
+    @Nested
+    class NoResourceFoundHandling {
+        @Test
+        void should_return404_when_pathMatchesNoHandler() {
+            org.springframework.web.servlet.resource.NoResourceFoundException ex =
+                    new org.springframework.web.servlet.resource.NoResourceFoundException(
+                            org.springframework.http.HttpMethod.GET, "no-such-endpoint");
+
+            ResponseEntity<ApiResponse<Void>> response = handler.handleNoResourceFound(ex);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            assertThat(response.getBody().isSuccess()).isFalse();
+            assertThat(response.getBody().getErrorCode()).isEqualTo("NOT_FOUND");
+        }
+
+        @Test
+        void should_notLeakTheRequestPath_inTheResponseMessage() {
+            // The path is attacker-controlled input; echoing it back unfiltered would be
+            // a reflected-content smell for no operational benefit.
+            org.springframework.web.servlet.resource.NoResourceFoundException ex =
+                    new org.springframework.web.servlet.resource.NoResourceFoundException(
+                            org.springframework.http.HttpMethod.GET, "admin/../../etc/passwd");
+
+            ResponseEntity<ApiResponse<Void>> response = handler.handleNoResourceFound(ex);
+
+            assertThat(response.getBody().getMessage()).doesNotContain("etc/passwd");
         }
     }
 }

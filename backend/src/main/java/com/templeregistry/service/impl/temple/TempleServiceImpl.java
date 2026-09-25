@@ -10,6 +10,7 @@ import com.templeregistry.entity.temple.TempleSearchSummary;
 import com.templeregistry.entity.temple.TempleStatus;
 import com.templeregistry.exception.DuplicateResourceException;
 import com.templeregistry.exception.EntityNotFoundException;
+import com.templeregistry.exception.FileValidationException;
 import com.templeregistry.mapper.temple.TempleMapper;
 import com.templeregistry.repository.temple.TemplePhotoRepository;
 import com.templeregistry.repository.temple.TempleProfileStagingRepository;
@@ -41,6 +42,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.core.io.ByteArrayResource;
 
@@ -48,6 +50,19 @@ import org.springframework.core.io.ByteArrayResource;
 @RequiredArgsConstructor
 @Slf4j
 public class TempleServiceImpl implements TempleService {
+
+    /**
+     * VAL-006: "Temple profile photograph | JPEG or PNG only; max 5 MB; enforced client +
+     * server".
+     *
+     * <p>Server-side enforcement was previously absent — only the browser checked — and was
+     * partly masked by Boot's undeclared 1 MB multipart default. Now that H-4 raises that
+     * default to 10 MB so documents can reach their VAL-005 size, photos need their own,
+     * smaller check: these bytes are read into a byte[] and persisted into a database
+     * column.</p>
+     */
+    private static final long MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024L; // 5 MB (VAL-006)
+    private static final Set<String> ALLOWED_PHOTO_MIME = Set.of("image/jpeg", "image/png");
 
     private final TempleRepository templeRepository;
     private final TempleSearchSummaryRepository summaryRepository;
@@ -330,6 +345,19 @@ public class TempleServiceImpl implements TempleService {
                 .build();
     }
 
+    private static void validatePhoto(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new FileValidationException("Photograph must not be empty.");
+        }
+        String mimeType = file.getContentType();
+        if (mimeType == null || !ALLOWED_PHOTO_MIME.contains(mimeType.toLowerCase())) {
+            throw new FileValidationException("Unsupported image type. Allowed: JPEG, PNG.");
+        }
+        if (file.getSize() > MAX_PHOTO_SIZE_BYTES) {
+            throw new FileValidationException("Photograph exceeds maximum allowed size of 5 MB.");
+        }
+    }
+
     @Override
     @Transactional
     @PreAuthorize("isAuthenticated()")
@@ -346,6 +374,10 @@ public class TempleServiceImpl implements TempleService {
         if (files == null || files.isEmpty()) {
             return List.of();
         }
+
+        // Validate the whole batch before writing any of it, so one bad photo cannot leave
+        // its predecessors already persisted to storage and the database.
+        files.forEach(TempleServiceImpl::validatePhoto);
 
         List<TemplePhoto> existing = templePhotoRepository.findByTempleIdOrderByDisplayOrderAsc(templeId);
         int nextOrder = existing.size();
@@ -415,7 +447,7 @@ public class TempleServiceImpl implements TempleService {
     public Resource serveProfilePhoto(Long templeId) {
         Temple temple = findOrThrow(templeId);
 
-        // Try DB-stored bytes first (available on every machine that shares the TiDB database).
+        // Try DB-stored bytes first (available on every machine that shares the database).
         TemplePhoto primaryPhoto = templePhotoRepository
                 .findFirstByTempleIdAndIsPrimaryTrue(templeId).orElse(null);
         if (primaryPhoto != null && primaryPhoto.getImageData() != null) {
@@ -445,7 +477,7 @@ public class TempleServiceImpl implements TempleService {
             throw new EntityNotFoundException("TemplePhoto", photoId);
         }
 
-        // Serve from DB if bytes are stored (works on every machine sharing the TiDB database).
+        // Serve from DB if bytes are stored (works on every machine sharing the database).
         if (photo.getImageData() != null) {
             byte[] data = photo.getImageData();
             String filename = photo.getOriginalFilename();

@@ -1,5 +1,6 @@
 import { APIRequestContext, APIResponse, request } from '@playwright/test';
 import { env, RoleKey } from '../setup/env';
+import { csrfHeader, fetchCsrfToken, withCsrfAutoToken } from './csrf';
 
 export interface ApiEnvelope<T> {
   success: boolean;
@@ -32,11 +33,16 @@ export async function createAuthenticatedApiContext(role: RoleKey): Promise<APIR
     },
   });
 
+  // Login is a POST and is deliberately not exempt from CSRF (H-5), so a token is needed
+  // before authenticating. This also seeds the XSRF-TOKEN cookie into the context's jar.
+  const csrfToken = await fetchCsrfToken(loginContext);
+
   const loginResponse = await loginContext.post('/api/v1/auth/login', {
     data: {
       username: credential.username,
       password: credential.password,
     },
+    headers: csrfHeader(csrfToken),
   });
 
   if (!loginResponse.ok()) {
@@ -45,13 +51,16 @@ export async function createAuthenticatedApiContext(role: RoleKey): Promise<APIR
     throw new Error(`Unable to login as ${role}: ${loginResponse.status()} - ${body}`);
   }
 
+  // storageState carries both the auth cookies and the XSRF-TOKEN cookie. The header half
+  // cannot be pinned here: the server rotates the token on every authenticated request, so
+  // the wrapper re-reads the cookie for each unsafe call.
   const storageState = await loginContext.storageState();
   await loginContext.dispose();
 
-  return request.newContext({
+  return withCsrfAutoToken(await request.newContext({
     baseURL: env.apiOrigin,
     storageState,
-  });
+  }));
 }
 
 export async function parseApiEnvelope<T>(response: APIResponse): Promise<ApiEnvelope<T>> {

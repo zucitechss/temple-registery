@@ -2,6 +2,7 @@ import { fetchBaseQuery } from '@reduxjs/toolkit/query/react'
 import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query'
 import { clearCurrentUser } from '../features/auth/authSlice'
 import { getApiV1BaseUrl } from '@/lib/apiBase'
+import { withCsrfProtection } from './csrfBaseQuery'
 
 // Store tokens in memory for cross-domain requests (not in Redux per security policy)
 let currentAccessToken: string | null = null
@@ -20,6 +21,9 @@ const rawBaseQuery = fetchBaseQuery({
   },
 })
 
+// Every unsafe method carries the CSRF token and retries once on rejection (H-5).
+const baseQuery = withCsrfProtection(rawBaseQuery)
+
 /**
  * RTK Query base query with automatic token refresh.
  * Supports both:
@@ -31,7 +35,7 @@ export const baseQueryWithReauth: BaseQueryFn<
   unknown,
   FetchBaseQueryError
 > = async (args, api, extraOptions) => {
-  let result = await rawBaseQuery(args, api, extraOptions)
+  let result = await baseQuery(args, api, extraOptions)
 
   // Intercept login/mfa-verify responses to extract tokens from body
   const url = typeof args === 'string' ? args : args.url
@@ -54,7 +58,7 @@ export const baseQueryWithReauth: BaseQueryFn<
 
     // Attempt silent token refresh
     const refreshBody = currentRefreshToken ? { refreshToken: currentRefreshToken } : {}
-    const refreshResult = await rawBaseQuery(
+    const refreshResult = await baseQuery(
       { url: '/auth/refresh', method: 'POST', body: refreshBody },
       api,
       extraOptions,
@@ -70,7 +74,7 @@ export const baseQueryWithReauth: BaseQueryFn<
         currentRefreshToken = refreshResponse.data.refreshToken
       }
       // Retry original request with new token
-      result = await rawBaseQuery(args, api, extraOptions)
+      result = await baseQuery(args, api, extraOptions)
     } else {
       // Refresh failed — clear state and redirect to login
       currentAccessToken = null

@@ -5,18 +5,13 @@ import com.templeregistry.service.auth.JwtService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.Date;
 import java.util.Map;
 import java.util.UUID;
@@ -36,12 +31,28 @@ public class JwtServiceImpl implements JwtService {
     private final RSAPublicKey  publicKey;
     private final long accessTokenExpiryMs;
 
+    /**
+     * Production/Spring constructor. The keypair is resolved by
+     * {@link JwtKeyProvider}, which prefers environment-supplied PEM values so
+     * that no key material has to be committed to Git (C-1).
+     *
+     * <p>{@code @Autowired} is required, not decorative: this class has a second public
+     * constructor for tests, and with two candidates Spring cannot pick one implicitly. It
+     * fell back to a non-existent no-arg constructor and aborted startup.</p>
+     */
+    @Autowired
     public JwtServiceImpl(
-            @Value("${app.jwt.private-key-path}") Resource privateKeyResource,
-            @Value("${app.jwt.public-key-path}")  Resource publicKeyResource,
-            @Value("${app.jwt.access-token-expiry-ms:900000}") long accessTokenExpiryMs) throws Exception {
-        this.privateKey = loadPrivateKey(privateKeyResource);
-        this.publicKey  = loadPublicKey(publicKeyResource);
+            JwtKeyProvider keyProvider,
+            @Value("${app.jwt.access-token-expiry-ms:900000}") long accessTokenExpiryMs) {
+        this(keyProvider.getPrivateKey(), keyProvider.getPublicKey(), accessTokenExpiryMs);
+    }
+
+    /** Direct-key constructor, used by tests that generate an ephemeral keypair. */
+    public JwtServiceImpl(RSAPrivateKey privateKey,
+                          RSAPublicKey publicKey,
+                          long accessTokenExpiryMs) {
+        this.privateKey = privateKey;
+        this.publicKey  = publicKey;
         this.accessTokenExpiryMs = accessTokenExpiryMs;
     }
 
@@ -97,33 +108,5 @@ public class JwtServiceImpl implements JwtService {
     @Override
     public String generateRefreshToken() {
         return UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
-    }
-
-    private RSAPrivateKey loadPrivateKey(Resource resource) throws Exception {
-        String pem = resource.getContentAsString(StandardCharsets.UTF_8)
-                .lines()
-                .filter(line -> !line.startsWith("#"))
-                .collect(java.util.stream.Collectors.joining("\n"))
-                .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-                .replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END RSA PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
-                .replaceAll("\\s+", "");
-        byte[] encoded = Base64.getDecoder().decode(pem);
-        KeyFactory kf = KeyFactory.getInstance("RSA");
-        return (RSAPrivateKey) kf.generatePrivate(new PKCS8EncodedKeySpec(encoded));
-    }
-
-    private RSAPublicKey loadPublicKey(Resource resource) throws Exception {
-        String pem = resource.getContentAsString(StandardCharsets.UTF_8)
-                .lines()
-                .filter(line -> !line.startsWith("#"))
-                .collect(java.util.stream.Collectors.joining("\n"))
-                .replace("-----BEGIN PUBLIC KEY-----", "")
-                .replace("-----END PUBLIC KEY-----", "")
-                .replaceAll("\\s+", "");
-        byte[] encoded = Base64.getDecoder().decode(pem);
-        KeyFactory kf = KeyFactory.getInstance("RSA");
-        return (RSAPublicKey) kf.generatePublic(new X509EncodedKeySpec(encoded));
     }
 }

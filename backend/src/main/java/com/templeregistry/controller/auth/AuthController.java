@@ -4,6 +4,7 @@ import com.templeregistry.common.ApiResponse;
 import com.templeregistry.dto.request.auth.*;
 import com.templeregistry.dto.response.accesscontrol.EffectivePermissionsResponse;
 import com.templeregistry.dto.response.auth.AuthTokenResponse;
+import com.templeregistry.dto.response.auth.CsrfTokenResponse;
 import com.templeregistry.dto.response.auth.UserProfileResponse;
 import com.templeregistry.security.ScopeHelper;
 import com.templeregistry.service.accesscontrol.PolicyEvaluationService;
@@ -18,6 +19,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -97,6 +99,19 @@ public class AuthController {
         }
         clearAuthCookies(httpResponse);
         return ResponseEntity.ok(ApiResponse.success("Logged out successfully."));
+    }
+
+    @GetMapping("/csrf")
+    @Operation(summary = "Issue the CSRF token the SPA must echo on state-changing requests.")
+    public ResponseEntity<ApiResponse<CsrfTokenResponse>> csrf(CsrfToken csrfToken) {
+        // Safe GET, so it needs no CSRF token itself. Resolving the CsrfToken argument is what
+        // makes Spring Security write the readable XSRF-TOKEN cookie on this response.
+        return ResponseEntity.ok(ApiResponse.success("CSRF token issued.",
+                CsrfTokenResponse.builder()
+                        .token(csrfToken.getToken())
+                        .headerName(csrfToken.getHeaderName())
+                        .parameterName(csrfToken.getParameterName())
+                        .build()));
     }
 
     @GetMapping("/me")

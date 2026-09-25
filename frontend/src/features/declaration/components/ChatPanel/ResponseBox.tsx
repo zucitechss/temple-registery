@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
@@ -11,7 +11,6 @@ interface ResponseBoxProps {
 export function ResponseBox({ declarationId }: ResponseBoxProps) {
   const [message, setMessage] = useState('')
   const [messageError, setMessageError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [clarificationRespond, { isLoading, error }] = useClarificationRespondMutation()
 
@@ -29,9 +28,6 @@ export function ResponseBox({ declarationId }: ResponseBoxProps) {
       await clarificationRespond({ id: declarationId, body: { message: message.trim() } }).unwrap()
       // On success: clear the form
       setMessage('')
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
     } catch {
       // Error is captured in the `error` field from useClarificationRespondMutation
       // and displayed inline below the submit button. Form is intentionally not cleared.
@@ -71,17 +67,6 @@ export function ResponseBox({ declarationId }: ResponseBoxProps) {
             {messageError}
           </p>
         )}
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="response-document">Attach document (optional)</Label>
-        <input
-          id="response-document"
-          ref={fileInputRef}
-          type="file"
-          className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-accent"
-          aria-label="Attach supporting document"
-        />
       </div>
 
       <div className="space-y-2">

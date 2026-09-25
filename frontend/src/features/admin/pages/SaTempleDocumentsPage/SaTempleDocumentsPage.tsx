@@ -15,7 +15,7 @@ import {
 } from '@/features/document/documentApi'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
-const MAX_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
+const MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB (VAL-005)
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -51,7 +51,7 @@ export function SaTempleDocumentsPage() {
       return
     }
     if (file.size > MAX_SIZE_BYTES) {
-      toast.error('File size must be under 5 MB.')
+      toast.error('File size must be under 10 MB.')
       e.target.value = ''
       return
     }
@@ -100,7 +100,7 @@ export function SaTempleDocumentsPage() {
       <Alert className="border-blue-200 bg-blue-50 text-blue-800">
         <Info className="h-4 w-4" />
         <AlertDescription>
-          You are managing documents as <strong>Super Administrator</strong>. Allowed: JPEG, PNG, PDF — max 5 MB.
+          You are managing documents as <strong>Super Administrator</strong>. Allowed: JPEG, PNG, PDF — max 10 MB.
         </AlertDescription>
       </Alert>
 

@@ -10,6 +10,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.http.HttpHeaders;
 
@@ -19,6 +21,22 @@ import java.util.concurrent.ThreadLocalRandom;
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    private final DataSize maxFileSize;
+
+    /**
+     * Single constructor on purpose: a second one would leave Spring unable to choose, which
+     * is exactly how JwtServiceImpl silently lost its wiring.
+     *
+     * <p>The limit is injected as a property rather than as a {@code MultipartProperties}
+     * bean because that bean is absent from the {@code @WebMvcTest} slices the controller
+     * tests use. The fallback is Boot's own default, so the message stays truthful even in a
+     * context that does not load the application configuration.</p>
+     */
+    public GlobalExceptionHandler(
+            @Value("${spring.servlet.multipart.max-file-size:1MB}") DataSize maxFileSize) {
+        this.maxFileSize = maxFileSize;
+    }
 
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleEntityNotFound(EntityNotFoundException ex) {
@@ -126,11 +144,20 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ex.getMessage(), "FILE_VALIDATION_ERROR"));
     }
 
+    /**
+     * Raised during multipart parsing, before any controller runs.
+     *
+     * <p>The limit is read from configuration rather than hardcoded: the message used to say
+     * "5 MB" while the servlet in fact rejected at Boot's undeclared 1 MB default and the
+     * domain allowed 10 MB, so it quoted a number that was correct nowhere (H-4).</p>
+     */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse<Void>> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
         log.warn("Upload size exceeded: {}", ex.getMessage());
+        String limit = maxFileSize.toMegabytes() + " MB";
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("File size exceeds the allowed limit of 5 MB.", "FILE_TOO_LARGE"));
+                .body(ApiResponse.error("File size exceeds the allowed limit of " + limit + ".",
+                        "FILE_TOO_LARGE"));
     }
 
     @ExceptionHandler(MfaVerificationException.class)
@@ -242,6 +269,27 @@ public class GlobalExceptionHandler {
         // The SSE emitter's onCompletion/onError callback handles cleanup.
         // Do NOT attempt to write a response body — the connection is already gone.
         log.debug("SSE client disconnected (expected): {}", ex.getMessage());
+    }
+
+    /**
+     * Thrown by {@code ResourceHttpRequestHandler} when a request matches no controller
+     * and no static resource. Without this handler, an authenticated request to an
+     * unknown path fell through to {@link #handleUnexpected}, returning 500
+     * INTERNAL_ERROR for what is, from the client's point of view, an ordinary
+     * "no such endpoint" — found while verifying H-6, where every documentation path
+     * answered this way once springdoc was disabled without this handler present.
+     *
+     * <p>Registered as its own handler rather than folded into the generic one because
+     * Spring resolves by most-specific exception type: without a dedicated handler here,
+     * {@code Exception.class} is the closest match and wins regardless of declaration
+     * order.</p>
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        log.debug("No handler for request path (expected for unknown endpoints)");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("The requested resource was not found.", "NOT_FOUND"));
     }
 
     @ExceptionHandler(Exception.class)

@@ -212,6 +212,107 @@ class TempleProfileStagingServiceImplTest {
         verify(stagingRepository).save(argThat(s -> "existing-place-id".equals(s.getPlaceId())));
     }
 
+    // ── Taluk ID: independent field, not purely hobli-derived (bug repro) ──
+    //
+    // Expected: a TA can persist a Taluk selection even when no Hobli exists yet for
+    // their location (a real geo-master-data gap) — talukId must be an independently
+    // settable/persistable column on the staging row, mirroring how hobliId/districtId
+    // already work on every other temple write path (TempleServiceImpl.applyUpdates,
+    // RegistrationServiceImpl).
+    //
+    // Actual (bug, before V117): TempleProfileStaging had no talukId column at all, so
+    // an explicitly submitted talukId was silently dropped — never bound to anything.
+
+    @Test
+    void should_persist_talukId_independently_of_hobliId() {
+        when(templeRepository.findById(1L)).thenReturn(Optional.of(activeTemple));
+        when(stagingRepository.findFirstByTempleIdAndStatus(1L, WorkflowStatus.DRAFT))
+                .thenReturn(Optional.empty());
+        lenient().when(stagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
+                eq(1L), any())).thenReturn(Optional.empty());
+        when(stagingRepository.findMaxVersionNumberByTempleId(1L)).thenReturn(Optional.of(0));
+        mockWorkflow(WorkflowStatus.DRAFT, 1);
+
+        // No hobliId at all — simulates a location with no hobli yet in the master geo data.
+        CreateTempleProfileStagingRequest request = CreateTempleProfileStagingRequest.builder()
+                .talukId(77L)
+                .build();
+
+        stagingService.createOrUpdateDraft(1L, request);
+
+        verify(stagingRepository).save(argThat(s ->
+                Long.valueOf(77L).equals(s.getTalukId()) && s.getHobliId() == null));
+    }
+
+    @Test
+    void should_not_overwrite_talukId_when_null_in_request() {
+        TempleProfileStaging existing = TempleProfileStaging.builder()
+                .templeId(1L)
+                .talukId(9L)
+                .build();
+        existing.setId(201L);
+
+        when(templeRepository.findById(1L)).thenReturn(Optional.of(activeTemple));
+        when(stagingRepository.findFirstByTempleIdAndStatus(1L, WorkflowStatus.DRAFT))
+                .thenReturn(Optional.of(existing));
+        lenient().when(stagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
+                eq(1L), any())).thenReturn(Optional.empty());
+        mockWorkflow(WorkflowStatus.DRAFT, 1);
+
+        CreateTempleProfileStagingRequest request = CreateTempleProfileStagingRequest.builder()
+                .phone("9876543210")
+                .build();
+
+        stagingService.createOrUpdateDraft(1L, request);
+
+        verify(stagingRepository).save(argThat(s -> Long.valueOf(9L).equals(s.getTalukId())));
+    }
+
+    @Test
+    void response_should_prefer_stored_talukId_over_hobli_derivation() {
+        TempleProfileStaging existing = TempleProfileStaging.builder()
+                .templeId(1L)
+                .hobliId(10L)
+                .talukId(5L)
+                .build();
+        existing.setId(202L);
+
+        when(templeRepository.findById(1L)).thenReturn(Optional.of(activeTemple));
+        when(stagingRepository.findFirstByTempleIdAndStatus(1L, WorkflowStatus.DRAFT))
+                .thenReturn(Optional.of(existing));
+        lenient().when(stagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
+                eq(1L), any())).thenReturn(Optional.empty());
+        mockWorkflow(WorkflowStatus.DRAFT, 1);
+
+        TempleProfileStagingResponse response =
+                stagingService.createOrUpdateDraft(1L, CreateTempleProfileStagingRequest.builder().build());
+
+        assertThat(response.getTalukId()).isEqualTo(5L);
+        verifyNoInteractions(hobliRepository);
+    }
+
+    @Test
+    void response_should_derive_talukId_from_hobli_when_not_stored() {
+        TempleProfileStaging existing = TempleProfileStaging.builder()
+                .templeId(1L)
+                .hobliId(10L)
+                .build();
+        existing.setId(203L);
+
+        when(templeRepository.findById(1L)).thenReturn(Optional.of(activeTemple));
+        when(stagingRepository.findFirstByTempleIdAndStatus(1L, WorkflowStatus.DRAFT))
+                .thenReturn(Optional.of(existing));
+        lenient().when(stagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
+                eq(1L), any())).thenReturn(Optional.empty());
+        when(hobliRepository.findTalukIdById(10L)).thenReturn(Optional.of(4L));
+        mockWorkflow(WorkflowStatus.DRAFT, 1);
+
+        TempleProfileStagingResponse response =
+                stagingService.createOrUpdateDraft(1L, CreateTempleProfileStagingRequest.builder().build());
+
+        assertThat(response.getTalukId()).isEqualTo(4L);
+    }
+
     // ── AccessGuard: VIEW-only enforcement ──────────────────────────────────
 
     @Test

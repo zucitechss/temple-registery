@@ -1,17 +1,40 @@
 server:
   port: ${PORT:8080}
 
+  tomcat:
+    # Tomcat discards at most this much of a request body it has already decided to
+    # reject, then closes the connection. At the 2MB default an over-limit upload is
+    # answered with a connection reset instead of the FILE_TOO_LARGE JSON body, so this
+    # must stay comfortably above spring.servlet.multipart.max-request-size.
+    max-swallow-size: 30MB
+
 spring:
   application:
     name: temple-registry-backend
+
+  servlet:
+    multipart:
+      # H-4. Boot defaults to 1MB/10MB, which rejected uploads during multipart parsing —
+      # before any controller ran — regardless of what the domain allowed. The limits below
+      # are the ones the application actually enforces:
+      #   VAL-005  documents          max 10 MB per file
+      #   VAL-006  temple photographs max  5 MB per file
+      max-file-size: 10MB
+      # Temple photos are submitted as one batched multipart request, so the request budget
+      # must hold several 5MB photos. It is deliberately not 20x5MB: the photo bytes are read
+      # into memory and stored in a database column, and this service runs as one replica.
+      # The SPA uploads in batches sized to fit here.
+      max-request-size: 25MB
 
   profiles:
     default: dev
 
   datasource:
-    url: jdbc:mysql://gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/test?useSSL=true&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: ${DB_USERNAME:3Nkwm2fKtuGqoiu.root}
-    password: ${DB_PASSWORD:6sXYNlDhrX80xnDz}
+    # No defaults on purpose (C-6). A missing DB_URL/DB_USERNAME/DB_PASSWORD must
+    # fail startup loudly rather than silently connect to someone else's database.
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
 
     hikari:
       connection-timeout: 20000
@@ -21,7 +44,7 @@ spring:
       keepalive-time: 120000
       minimum-idle: 2
       maximum-pool-size: 8
-      connection-init-sql: "SET tidb_enable_noop_functions=1"
+      connection-init-sql: SELECT 1
 
   jpa:
     hibernate:
@@ -34,8 +57,20 @@ spring:
 
   flyway:
     enabled: true
+    # Schema + mandatory reference data only, in every environment (C-5). No
+    # dummy users, geo hierarchy or sample temples are seeded anywhere.
+    locations: classpath:db/migration
     validate-on-migrate: false
     repair-on-migrate: true
+    # V116__bootstrap_super_admin.sql's placeholders. Defaulted to blank here
+    # so a database with none of the APP_BOOTSTRAP_ADMIN_* variables set (the
+    # out-of-the-box dev/test case) leaves this migration a no-op. Set them in
+    # dev-secrets.properties for a working local login, exactly as a
+    # production deploy would.
+    placeholders:
+      bootstrapAdminUsername: ${APP_BOOTSTRAP_ADMIN_USERNAME:}
+      bootstrapAdminEmail: ${APP_BOOTSTRAP_ADMIN_EMAIL:}
+      bootstrapAdminPasswordHash: ${APP_BOOTSTRAP_ADMIN_PASSWORD_HASH:}
 
   security:
     debug: false
@@ -73,19 +108,28 @@ trm:
     base-dir: ./exports
 
 app:
+  # JWT RS256 keys (C-1). Preferred: supply the PEM bodies via
+  # APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY so nothing is committed.
+  # The *-path values are a local-dev fallback only and resolve to git-ignored
+  # files; JwtKeyProvider fails startup if neither source yields a key.
   jwt:
-    private-key-path: classpath:keys/jwt-private.pem
-    public-key-path: classpath:keys/jwt-public.pem
+    private-key: ${APP_JWT_PRIVATE_KEY:}
+    public-key: ${APP_JWT_PUBLIC_KEY:}
+    private-key-path: ${APP_JWT_PRIVATE_KEY_PATH:classpath:keys/jwt-private.pem}
+    public-key-path: ${APP_JWT_PUBLIC_KEY_PATH:classpath:keys/jwt-public.pem}
     access-token-expiry-ms: 7200000
 
   cors:
     allowed-origins: http://localhost:5173,http://localhost:5174,https://temple-registery.vercel.app
 
+  # Both keys must be exactly 32 bytes and are required (no defaults, C-6).
+  # CryptoKeyValidator additionally rejects the historic dev placeholders
+  # outside the dev/test profiles.
   encryption:
-    key: ${APP_ENCRYPTION_KEY:TempleRegDev32ByteKey!!Replace!!}
+    key: ${APP_ENCRYPTION_KEY}
 
   hmac:
-    key: ${APP_HMAC_KEY:TempleRegHmacDev32ByteKey!Repl!!}
+    key: ${APP_HMAC_KEY}
 
   storage:
     base-dir: ./uploads

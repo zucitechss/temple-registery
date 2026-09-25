@@ -59,7 +59,7 @@ public class DcExportServiceImpl implements DcExportService {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
-    @Value("${trm.export.base-dir:/data/exports}")
+    @Value("${trm.export.base-dir:./exports}")
     private String exportBaseDir;
 
     @Override

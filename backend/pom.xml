@@ -26,6 +26,23 @@
         <jjwt.version>0.12.6</jjwt.version>
         <springdoc.version>2.8.5</springdoc.version>
         <testcontainers.version>1.20.6</testcontainers.version>
+        <!--
+          Docker Engine 29.x advertises "API version: 1.55 (minimum version 1.40)" and
+          answers anything older with a bodiless HTTP 400. docker-java (3.4.x, as pulled
+          in by Testcontainers 1.20.6 and 1.21.x alike) negotiates down to 1.32, so every
+          Testcontainers test failed to find a Docker environment (H-9).
+
+          Verified on Docker Engine 29.6.1:
+            DOCKER_API_VERSION=1.32 docker info -> 400 Bad Request, no error message
+            DOCKER_API_VERSION=1.40 docker info -> OK
+            DOCKER_API_VERSION=1.44 docker info -> OK
+
+          Pinning docker-java's "api.version" is the narrowest fix: Testcontainers 2.x
+          would resolve this via docker-java 3.7.x, but it renames its artifacts
+          (testcontainers-mysql, testcontainers-junit-jupiter) and is a breaking upgrade.
+          1.44 is supported by every Docker Engine from 25 through 29.
+        -->
+        <docker.api.version>1.44</docker.api.version>
         <itext.version>8.0.5</itext.version>
         <opencsv.version>5.9</opencsv.version>
         <totp.version>1.7.1</totp.version>
@@ -261,7 +278,15 @@
                 </configuration>
             </plugin>
 
-            <!-- Surefire: JUnit 5 + jqwik -->
+            <!--
+              Surefire: unit tests only (JUnit 5 + jqwik). These run on H2 and must stay
+              runnable without Docker.
+
+              Previously this block both included **/*IT.java and excluded
+              **/integration/**IT.java, which cancelled out: every integration test was
+              dropped silently, producing no report at all (H-9). Integration tests now
+              belong to Failsafe below.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -276,12 +301,40 @@
                         <include>**/*Test.java</include>
                         <include>**/*Tests.java</include>
                         <include>**/*PropertyTest.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+
+            <!--
+              Failsafe: Testcontainers-backed integration tests, bound to `mvn verify`.
+
+              These REQUIRE Docker. The matching test classes no longer carry
+              @Testcontainers(disabledWithoutDocker = true), so an unreachable Docker
+              daemon fails the build instead of turning into a green "Skipped".
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>
+                        --add-opens java.base/java.lang=ALL-UNNAMED
+                        --add-opens java.base/java.util=ALL-UNNAMED
+                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                        --add-opens java.base/java.io=ALL-UNNAMED
+                    </argLine>
+                    <includes>
                         <include>**/*IT.java</include>
                     </includes>
-                    <excludes>
-                        <exclude>**/integration/**IT.java</exclude>
-                    </excludes>
+                    <systemPropertyVariables>
+                        <!-- See the docker.api.version property for why this is pinned. -->
+                        <api.version>${docker.api.version}</api.version>
+                    </systemPropertyVariables>
                 </configuration>
+                <!--
+                  No <executions> here on purpose: spring-boot-starter-parent already
+                  binds failsafe's integration-test and verify goals. Declaring another
+                  execution only adds a redundant second run of the same suite.
+                -->
             </plugin>
 
             <!-- JaCoCo: Coverage reporting -->

@@ -136,10 +136,24 @@ public class MfaServiceImpl implements MfaService {
         }
     }
 
+    /**
+     * Login-time SMS OTP verification is NOT implemented.
+     *
+     * <p>This method used to log and return, i.e. report success for any code
+     * (audit finding C-3). No persisted OTP store exists to check against and
+     * {@link #sendSmsOtp(String)} never dispatches anything, so it now fails
+     * closed. {@code AuthServiceImpl.verifyMfa} rejects the SMS_OTP factor
+     * before reaching this point; this is the backstop.</p>
+     *
+     * @throws MfaVerificationException always, until a real OTP store and SMS
+     *         provider are wired up.
+     */
     @Override
     public void verifySmsOtp(String referenceKey, String code) {
-        // TODO: look up OTP hash from Redis by referenceKey and compare.
-        log.info("Login SMS OTP verification attempted for ref [{}]", referenceKey);
+        log.warn("Login SMS OTP verification attempted but the factor is not implemented — refusing.");
+        throw new MfaVerificationException(
+                "SMS one-time passcodes are not available. "
+                        + "Contact an administrator to switch this account to an authenticator app.");
     }
 
     @Override

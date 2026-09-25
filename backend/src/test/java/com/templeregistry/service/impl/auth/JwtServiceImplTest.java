@@ -7,8 +7,9 @@ import io.jsonwebtoken.ExpiredJwtException;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
 
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.util.Map;
 
@@ -16,19 +17,23 @@ import static org.assertj.core.api.Assertions.*;
 
 /**
  * Unit tests for JwtServiceImpl.
- * Uses the actual RSA keys from src/main/resources/keys/ (same as production keys for local dev).
+ *
+ * <p>Uses an ephemeral RSA keypair generated per test run (see
+ * {@link RsaTestKeys}). Nothing here depends on committed key material, so the
+ * suite passes on a clean checkout where src/main/resources/keys/ is absent (C-1).</p>
  */
 class JwtServiceImplTest {
 
     private static JwtServiceImpl jwtService;
+    private static RSAPrivateKey privateKey;
+    private static RSAPublicKey publicKey;
 
     @BeforeAll
-    static void setUp() throws Exception {
-        jwtService = new JwtServiceImpl(
-            new ClassPathResource("keys/jwt-private.pem"),
-            new ClassPathResource("keys/jwt-public.pem"),
-            900_000L // 15 minutes
-        );
+    static void setUp() {
+        RsaTestKeys keys = RsaTestKeys.generate();
+        privateKey = keys.privateKey();
+        publicKey = keys.publicKey();
+        jwtService = new JwtServiceImpl(privateKey, publicKey, 900_000L); // 15 minutes
     }
 
     private User buildDcUser() {
@@ -289,11 +294,8 @@ class JwtServiceImplTest {
         @Test
         void should_throwException_when_expiredTokenProvided() throws Exception {
             // Create service with 1ms expiry
-            JwtServiceImpl shortLivedService = new JwtServiceImpl(
-                new ClassPathResource("keys/jwt-private.pem"),
-                new ClassPathResource("keys/jwt-public.pem"),
-                1L  // 1ms expiry
-            );
+            JwtServiceImpl shortLivedService =
+                new JwtServiceImpl(privateKey, publicKey, 1L); // 1ms expiry
             User user = buildDcUser();
             String token = shortLivedService.generateAccessToken(user);
             Thread.sleep(10); // Let it expire

@@ -2,6 +2,7 @@ import { fetchBaseQuery } from '@reduxjs/toolkit/query/react'
 import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query'
 import { clearCurrentUser } from '../features/auth/authSlice'
 import { getApiRootBaseUrl } from '@/lib/apiBase'
+import { withCsrfProtection } from './csrfBaseQuery'
 
 const apiRootBaseUrl = getApiRootBaseUrl()
 
@@ -11,12 +12,15 @@ const rawV2BaseQuery = fetchBaseQuery({
   // No Authorization header: JWT stored exclusively in an httpOnly cookie.
 })
 
+// Every unsafe method carries the CSRF token and retries once on rejection (H-5).
+const v2BaseQuery = withCsrfProtection(rawV2BaseQuery)
+
 export const baseQueryV2WithReauth: BaseQueryFn<
   string | FetchArgs,
   unknown,
   FetchBaseQueryError
 > = async (args, api, extraOptions) => {
-  let result = await rawV2BaseQuery(args, api, extraOptions)
+  let result = await v2BaseQuery(args, api, extraOptions)
 
   if (result.error?.status === 401) {
     const url = typeof args === 'string' ? args : args.url
@@ -24,7 +28,7 @@ export const baseQueryV2WithReauth: BaseQueryFn<
       return result
     }
 
-    const refreshResult = await rawV2BaseQuery(
+    const refreshResult = await v2BaseQuery(
       { url: '/api/v1/auth/refresh', method: 'POST' },
       api,
       extraOptions,
@@ -33,7 +37,7 @@ export const baseQueryV2WithReauth: BaseQueryFn<
     if (refreshResult.data) {
       // Refresh succeeded — server has issued a new httpOnly cookie.
       // No token is dispatched to Redux.
-      result = await rawV2BaseQuery(args, api, extraOptions)
+      result = await v2BaseQuery(args, api, extraOptions)
     } else {
       api.dispatch(clearCurrentUser())
       window.location.href = '/login'

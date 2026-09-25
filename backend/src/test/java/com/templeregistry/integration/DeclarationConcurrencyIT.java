@@ -33,11 +33,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.LocalDate;
-import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -105,11 +106,7 @@ class DeclarationConcurrencyIT extends MySQLContainerBase {
         versionRepository.deleteAll();
         declarationRepository.deleteAll();
         templeRepository.deleteAll();
-        hobliRepository.deleteAll();
-        talukRepository.deleteAll();
-        districtRepository.deleteAll();
-        cityRepository.deleteAll();
-        stateRepository.deleteAll();
+        hardDeleteGeoHierarchy();
 
         // Set up bootstrap security context for JPA auditing
         ScopeHelper.Claims bootstrapClaims = new ScopeHelper.Claims(1L, "TEMPLE_AUTHORITY", null, null, "ta_user", "EDIT");
@@ -138,7 +135,7 @@ class DeclarationConcurrencyIT extends MySQLContainerBase {
         CompleteDeclarationResponse created = createDraftDeclaration(templeId);
         Long declarationId = created.getId();
 
-        declarationService.submit(declarationId);
+        governanceWorkflowService.submitDeclaration(declarationId);
 
         AssetDeclaration afterSubmit = declarationRepository.findById(declarationId).orElseThrow();
         assertThat(afterSubmit.getStatus()).isEqualTo(DeclarationStatus.SUBMITTED);
@@ -156,7 +153,7 @@ class DeclarationConcurrencyIT extends MySQLContainerBase {
         Runnable approveTask = () -> {
             // Each thread sets its own security context (ThreadLocal)
             SecurityContextHolder.getContext().setAuthentication(
-                    new UsernamePasswordAuthenticationToken(dcClaimsForThread, null, Collections.emptyList()));
+                    new UsernamePasswordAuthenticationToken(dcClaimsForThread, null, List.of(new SimpleGrantedAuthority("ROLE_" + dcClaimsForThread.role()))));
             try {
                 startLatch.await(); // wait for both threads to be ready
                 governanceWorkflowService.approveDeclaration(declarationId, approveRequest, dcClaimsForThread);
@@ -247,6 +244,6 @@ class DeclarationConcurrencyIT extends MySQLContainerBase {
 
     private void setSecurityContext(ScopeHelper.Claims claims) {
         SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(claims, null, Collections.emptyList()));
+                new UsernamePasswordAuthenticationToken(claims, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role()))));
     }
 }

@@ -18,9 +18,14 @@ spring:
     enabled: false
 
 app:
+  # No JWT key material is committed (C-1). Context-loading tests inject a
+  # freshly generated keypair via @DynamicPropertySource using RsaTestKeys,
+  # mirroring how production supplies APP_JWT_PRIVATE_KEY/APP_JWT_PUBLIC_KEY.
   jwt:
-    public-key-path: classpath:keys/jwt-public.pem
-    private-key-path: classpath:keys/jwt-private.pem
+    public-key: ""
+    private-key: ""
+    public-key-path: ""
+    private-key-path: ""
   encryption:
     key: "TestEncryptionKey2024ABCDEFGHIJ!"
   hmac:

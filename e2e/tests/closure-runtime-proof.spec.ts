@@ -38,11 +38,13 @@ test('should_execute_closure_smoke_flow_with_runtime_proof', async ({ browser },
   const apiBase = `${apiOrigin}/api/v1`;
 
   const db = await mysql.createConnection({
-    host: process.env.DB_HOST || 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com',
-    port: Number(process.env.DB_PORT || '4000'),
-    user: process.env.DB_USER || '3Nkwm2fKtuGqoiu.root',
-    password: process.env.DB_PASSWORD || '6sXYNlDhrX80xnDz',
-    database: process.env.DB_NAME || 'test',
+    // Credentials come from the environment only (C-4). Defaults mirror
+    // e2e/setup/env.ts and point at a local database — never a shared one.
+    host: process.env.DB_HOST ?? 'localhost',
+    port: Number(process.env.DB_PORT ?? '3306'),
+    user: process.env.DB_USER ?? 'root',
+    password: process.env.DB_PASSWORD ?? '',
+    database: process.env.DB_NAME ?? 'temple_registry',
     ssl: {
       minVersion: 'TLSv1.2',
       rejectUnauthorized: false,
