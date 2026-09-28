@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { PasswordStrengthMeter } from '@/components/feedback/PasswordStrengthMeter/PasswordStrengthMeter'
 import { extractApiErrorMessage } from '@/lib/apiError'
 import { useChangePasswordMutation } from '@/features/auth/authApi'
 import { useLogout } from '@/features/auth/authHooks'
@@ -76,6 +77,8 @@ export function ChangePasswordForm({
     defaultValues: { currentPassword: '', newPassword: '', confirmPassword: '' },
   })
 
+  const newPassword = form.watch('newPassword')
+
   const onSubmit = async (values: ChangePasswordRequest) => {
     try {
       const res = await changePassword(values).unwrap()
@@ -129,6 +132,7 @@ export function ChangePasswordForm({
             />
           )}
         />
+        <PasswordStrengthMeter password={newPassword} />
 
         <FormField
           control={form.control}

@@ -81,6 +81,17 @@ describe('ChangePasswordForm', () => {
     expect(changePassword).not.toHaveBeenCalled()
   })
 
+  it('should_blockSubmit_when_newPasswordIsWeak', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ChangePasswordForm />)
+
+    // 8+ chars but lowercase-only — passes the length check, fails the strength check.
+    await fill(user, 'OldPass123', 'alllowercase', 'alllowercase')
+
+    expect(await screen.findByText(/too weak/i)).toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
+  })
+
   it('should_blockSubmit_when_newPasswordMatchesCurrent', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ChangePasswordForm />)

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { UserRole } from '@/constants/roles'
+import { getPasswordStrength, MIN_ACCEPTABLE_PASSWORD_SCORE } from '@/components/feedback/PasswordStrengthMeter/PasswordStrengthMeter'
 
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -75,6 +76,10 @@ export const changePasswordSchema = z
   })
   .refine((d) => d.newPassword !== d.currentPassword, {
     message: 'New password must be different from the current password',
+    path: ['newPassword'],
+  })
+  .refine((d) => getPasswordStrength(d.newPassword) >= MIN_ACCEPTABLE_PASSWORD_SCORE, {
+    message: 'Password is too weak. Add uppercase letters, numbers, or symbols.',
     path: ['newPassword'],
   })
 
