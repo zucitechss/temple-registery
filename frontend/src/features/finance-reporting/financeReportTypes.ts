@@ -7,40 +7,35 @@
  * actually serialises.
  */
 
-export type DataAvailability = 'AVAILABLE' | 'PARTIALLY_AVAILABLE' | 'NOT_AVAILABLE' | 'NOT_APPLICABLE'
-
-export type ReconciliationStatus = 'PASSED' | 'FAILED' | 'NOT_AVAILABLE' | 'PENDING'
-
-export type FinanceCapability =
-  | 'REVENUE' | 'SEVA' | 'DONATION' | 'PRASADAM_SALE' | 'PAYMENT_MODE' | 'CANCELLATION'
-  | 'PRECIOUS_METAL_COUNT' | 'PRECIOUS_METAL_WEIGHT' | 'PRECIOUS_METAL_VALUE'
-  | 'NIRANTARA_SUBSCRIPTION' | 'NIRANTARA_PAYMENT' | 'NIRANTARA_SCHEDULE' | 'NIRANTARA_EXECUTION'
-  | 'EXPENSE' | 'EXPENSE_CATEGORY' | 'GRANT' | 'GRANT_UTILISATION' | 'WORKS' | 'IN_KIND_DONATION'
-
-export type ReconciliationCheckType =
-  | 'STAGE_COMPLETENESS' | 'REJECTION_ACCOUNTING' | 'SOURCE_VS_CENTRAL' | 'SUSPECTED_SOURCE_DELETION'
-
 /**
- * Every numeric metric this API returns is wrapped in this shape (API_CONTRACT §2), so absence
- * and presence share one code path. `value` is non-null only when `availability` is `AVAILABLE`
- * or `PARTIALLY_AVAILABLE` — never render a `0` when it is null; that is exactly the "convert
- * missing data to zero" failure this envelope exists to prevent (ADR-007).
+ * The shared finance types now live in `features/finance/financeCoreTypes.ts` (Phase 0), because
+ * the temple input, Excel and alert features need them too and importing across a feature
+ * boundary invites a copy.
+ *
+ * They are re-exported here so that existing imports from this module keep working. New code
+ * should import from `financeCoreTypes` directly.
  */
-export interface MetricEnvelope {
-  value: number | null
-  unit: string | null
-  availability: DataAvailability
-  reason: string | null
-  asOfDate: string | null
-  reconciliation: ReconciliationStatus
-}
+export type {
+  DataAvailability,
+  ReconciliationStatus,
+  ReconciliationCheckType,
+  FinanceCapability,
+  MetricEnvelope,
+  DataFreshnessBlock,
+  ReconciliationSummary,
+  ReportColumn,
+  ReportColumnType,
+  ReportTableResponse,
+} from '../finance/financeCoreTypes'
 
-export interface DataFreshnessBlock {
-  lastSyncedAt: string | null
-  sourceDataThrough: string | null
-  status: 'FRESH' | 'STALE'
-  stalenessReason: string | null
-}
+import type {
+  DataAvailability,
+  ReconciliationStatus,
+  ReconciliationCheckType,
+  FinanceCapability,
+  MetricEnvelope,
+  DataFreshnessBlock,
+} from '../finance/financeCoreTypes'
 
 export interface FinanceCapabilityRow {
   capability: FinanceCapability

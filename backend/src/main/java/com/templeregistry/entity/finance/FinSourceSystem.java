@@ -64,8 +64,19 @@ public class FinSourceSystem extends BaseEntity {
     /**
      * Spring bean name of the {@code TempleFinanceConnector} implementation,
      * e.g. {@code kollurFinanceConnector}. Resolved only inside the sync worker.
+     *
+     * <p><b>Null for a manual channel</b> (V122). {@code MANUAL_ENTRY} and
+     * {@code FILE_UPLOAD} sources extract nothing: the data arrives inbound over
+     * HTTP, so there is no bean, and storing a placeholder would be a name the
+     * registry could later try to resolve.
+     *
+     * <p>The pairing is an application invariant rather than a column
+     * constraint, because it depends on {@link #connectorType}:
+     * {@code ConnectorType.isAutomated()} implies this is set, and its negation
+     * implies this is null. {@code SourceSystemAdminService} enforces it on
+     * registration.
      */
-    @Column(name = "connector_bean", nullable = false, length = 150)
+    @Column(name = "connector_bean", length = 150)
     private String connectorBean;
 
     /** Temple identifier as used <em>inside the source system</em>, e.g. {@code 43}. */

@@ -85,4 +85,25 @@ public final class RoleConstants {
 
     public static final String TEMPLE_AUTHORITY_ONLY =
             "hasRole('TEMPLE_AUTHORITY')";
+
+        /**
+         * Entering and correcting a temple own financial figures: expenditure, DC-approved funds
+         * and their utilisation, precious-item valuations, Nirantara details, nil returns, the
+         * special-seva flags, and Excel uploads of the same (Financial Dashboard FR4&ndash;FR8,
+         * FR11, FR19).
+         *
+         * <p><b>The DC roles are deliberately absent.</b> The specification gives the DC office no
+         * data-entry role, and the point of the separation is that a figure on the DC dashboard was
+         * reported by the temple rather than typed by the office reading it. {@code SUPER_ADMIN} is
+         * included only because it is included everywhere in this codebase; it is not an invitation
+         * to enter figures on a temple behalf.
+         *
+         * <p><b>This grants nothing on its own.</b> It says which role may enter finance data, not
+         * whose data. Every endpoint it guards must also resolve the path temple against
+         * {@code ScopeHelper.Claims}, because a temple authority user holding this authority could
+         * otherwise post to another temple id. The two checks are independent and both are
+         * required.
+         */
+        public static final String CAN_ENTER_TEMPLE_FINANCE =
+                        "hasAnyRole('SUPER_ADMIN', 'TEMPLE_AUTHORITY')";
 }

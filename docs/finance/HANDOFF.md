@@ -2536,6 +2536,21 @@ database user.
 If the answer is `PUSH_AGENT`: one `UPDATE` to `connector_type`, and a different connector
 implementation. The canonical model, aggregation, APIs and dashboard are untouched.
 
+**Full infrastructure investigation and handoff checklist: [`Q4_NETWORK_PATH.md`](Q4_NETWORK_PATH.md).**
+The short version:
+
+- **Required decision:** can `sync-worker` reach the Kollur SQL Server, and by what mechanism?
+- **Known:** the source schema and financial content, in full — but only from an offline copy
+  restored locally (`KOLSOHAM_LOCAL` on `localhost`/`ZTLW-18`, via Windows Auth), never from a
+  live connection to the production system. That analysis proves the schema; it proves nothing
+  about network reachability.
+- **Unknown:** every item in `Q4_NETWORK_PATH.md` §4 — worker deployment location (also Q10),
+  production hostname/port, firewall/VPN/DNS/TLS requirements, and whether inbound access is
+  even permitted as policy.
+- **Engineering dependency:** FIN-040/FIN-041 (the Kollur connector) cannot proceed against the
+  real source until Q4 is confirmed. Everything else — canonical model, pipeline, reconciliation,
+  APIs, dashboard — is already built and proven against a synthetic source.
+
 ## Q5 Status
 
 **UNRESOLVED, and no credential was introduced.** `credential_ref = 'kollur-readonly'` is an
@@ -2553,11 +2568,21 @@ Choosing the permanent store still changes one `@Bean` method in `SyncWorkerConf
 1. Read this file, then `IMPLEMENTATION_STATUS.md` and `IMPLEMENTATION_TASKS.md`.
 2. `git status` and `git log --oneline -10` on `feature/db-integration`.
 3. Confirm the baseline:
-   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*,*RevenueStaging*'`
-   — expect **370 passing, 0 failures, 0 errors** as of FIN-060 (requires Docker). The filter needs
-   `*Normaliz*`, `*RevenueLoad*`, `*Orchestrator*` and `*Reconcil*` too; the pattern in step 3
-   above is the current one. A stage whose test class matches none of these is not in the
+   `cd backend && mvn -o test -Dtest='*Finance*,*SyncWorker*,*RegistryRuntime*,*SourceCredential*,*Connector*,*Kollur*,*RevenueStaging*,*Normaliz*,*RevenueLoad*,*Orchestrator*,*Reconcil*,*Mapping*,*Onboarding*,*Aggregat*,*Phase0*'`
+   — expect **370 passing, 0 failures, 0 errors** as of FIN-060 (requires Docker), and
+   **578 run / 0 failures / 238 skipped** as of Phase 0 on a machine without Docker, where every
+   Testcontainers class skips. A stage whose test class matches none of these is not in the
    baseline, which is how a failing termination test once survived being recorded as green.
+
+   **Phase 0 extended the pattern** with `*Mapping*`, `*Onboarding*`, `*Aggregat*` and `*Phase0*`.
+   The first three were already missing: `MappingAdminServiceTest`, `OnboardingReadinessValidatorTest`
+   and the four aggregation classes matched none of the previous filter, so roughly a hundred tests
+   were outside the documented baseline. This is the second time that has happened, for the same
+   reason, which is why the rule below is stated as a requirement rather than as advice.
+
+   **Any new test class must match this filter, or it is not in the baseline.** Both work streams
+   add classes under new package names; name them so an existing pattern catches them, or extend
+   the pattern in the same commit.
 
    **The last pattern was added because it was missing.** Without `*RevenueStaging*` the filter
    matches none of FIN-053's 25 tests, so the documented "155 passing" was a real number for a
@@ -3040,6 +3065,10 @@ unchanged. Q4 and Q5 remain unresolved; TiDB remains unverified.**
 ---
 
 ## FIN-059 — Operator entry point (COMPLETE)
+
+**For the operator-facing procedure — pre-run checklist, roles, troubleshooting, Q4/Q5
+prerequisites, security — see [`OPERATOR_RUNBOOK.md`](OPERATOR_RUNBOOK.md).** What follows here
+is the engineering summary.
 
 **How an operator invokes a manual sync.** Start (or restart) the worker process with two extra
 properties, as `--key=value` arguments, environment variables, or system properties — whichever the

@@ -133,6 +133,19 @@ public class FinSyncBatch {
     @Column(name = "triggered_by", nullable = false, length = 50)
     private SyncTrigger triggeredBy = SyncTrigger.SCHEDULER;
 
+    /**
+     * The person who caused this batch (V122).
+     *
+     * <p>Null for {@link SyncTrigger#SCHEDULER}, and that is the honest value
+     * rather than a missing one: nobody entered a scheduled run. It is set for
+     * {@link SyncTrigger#TEMPLE_INPUT} and {@link SyncTrigger#EXCEL_UPLOAD},
+     * and it is the single column that carries "who entered this figure" into
+     * the provenance chain — fact to batch to actor — without a second audit
+     * table beside the one this batch already is.
+     */
+    @Column(name = "actor_user_id")
+    private Long actorUserId;
+
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 

@@ -19,6 +19,8 @@ export const ROUTE_PATHS = {
   DC_EXPORT: '/dc/export',
   DC_WORKFLOW_DASHBOARD: '/dc/workflow',
   DC_ACTIVITY: '/dc/activity',
+  /** Financial Dashboard. Standalone, with its own temple selector — not a tab on one temple. */
+  DC_FINANCE_DASHBOARD: '/dc/finance',
 
   // Temple Authority
   TA_DASHBOARD: '/ta/dashboard',
@@ -40,6 +42,12 @@ export const ROUTE_PATHS = {
   TA_DOCUMENTS: '/ta/documents',
   TA_PROFILE_STATUS: '/ta/profile-status',
   TA_ACTIVITY: '/ta/activity',
+  /** Temple Management finance input: expenditure, funds, precious items, Nirantara, nil returns. */
+  TA_FINANCE_INPUT: '/ta/finance',
+  /** Download the template, upload a filled workbook, read the error report, commit. */
+  TA_FINANCE_UPLOAD: '/ta/finance/upload',
+  /** Which days are still outstanding, and the alerts they have opened. */
+  TA_FINANCE_STATUS: '/ta/finance/status',
 
   // Admin
   ADMIN_DASHBOARD: '/admin/dashboard',

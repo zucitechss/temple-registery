@@ -60,6 +60,21 @@ public class FinServiceDim extends BaseEntity {
     @Column(name = "rate_card_amount", precision = 18, scale = 2)
     private BigDecimal rateCardAmount;
 
+    /**
+     * Marked special by this temple (FR8, V123).
+     *
+     * <p>Not the same thing as the {@code SPECIAL_SEVA} revenue category, and
+     * both are needed. The category classifies <em>money</em>, decided by a
+     * mapping rule against source values. This flag is per-temple
+     * <em>configuration</em> over the catalogue, decided by temple staff
+     * ticking a box, and it is what drives FR8's chart. Collapsing the two
+     * would mean a temple could not mark a routine-category seva as locally
+     * significant, which is the whole point of the checkbox.
+     */
+    @Builder.Default
+    @Column(name = "is_special", nullable = false)
+    private boolean special = false;
+
     @Builder.Default
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
