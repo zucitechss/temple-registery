@@ -1,5 +1,5 @@
 -- ============================================================================
--- V113: Revenue Staging (FIN-050)
+-- V121: Revenue Staging (FIN-050)
 --
 -- The landing table between a connector and the canonical model. Everything a
 -- connector extracts for the REVENUE capability lands here first, exactly as it
@@ -39,8 +39,8 @@
 --     column for a category would invite somebody to guess one.
 --   * No temple-specific anything. The first onboarded temple is data here.
 --
--- No FOREIGN KEY constraints, per FIN-D-003 and consistent with V10, V110 and
--- V112: relationships are enforced by the application and supported by indexes.
+-- No FOREIGN KEY constraints, per FIN-D-003 and consistent with V10, V118 and
+-- V120: relationships are enforced by the application and supported by indexes.
 -- ============================================================================
 
 

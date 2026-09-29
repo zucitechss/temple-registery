@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 /**
- * What a temple owes each day, and by when (V129, FR17).
+ * What a temple owes each day, and by when (V137, FR17).
  *
  * <p>Without this, missed is undefined: nothing says that one temple owes daily
  * expenditure and another owes nothing. {@link FinTempleCapability} says what a

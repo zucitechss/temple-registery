@@ -77,7 +77,7 @@ public class FinTempleCapability extends BaseEntity {
     private LocalDateTime lastReviewedAt;
 
     /**
-     * Optimistic lock for administrative edits (FIN-140-B, V121).
+     * Optimistic lock for administrative edits (FIN-140-B, V129).
      *
      * <p>This row decides whether a metric renders as a figure or as a reason. Two administrators
      * can load the same declaration and save different availabilities; without this the second

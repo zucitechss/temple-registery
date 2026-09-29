@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-/** What each temple owes daily, and by when (V129, FR17). */
+/** What each temple owes daily, and by when (V137, FR17). */
 @Repository
 public interface FinDataExpectationRepository extends JpaRepository<FinDataExpectation, Long> {
 

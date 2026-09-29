@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Precious items received (V126, FR7).
+ * Precious items received (V134, FR7).
  *
  * <p>{@link #findOverlay} is the join that assembles one FR7 row out of two
  * channels: a connector row carrying count and weight, and a manual row

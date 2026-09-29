@@ -1,5 +1,5 @@
 -- ============================================================================
--- V123: A seva can be marked special, per temple (FR8, Phase 0)
+-- V131: A seva can be marked special, per temple (FR8, Phase 0)
 --
 -- FR8 asks for "a list of all sevas on the UI and a checkbox to indicate whether
 -- a seva is special for that temple". `fin_service_dim` is already that list:

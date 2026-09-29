@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * A perpetual seva booking (V127, FR11).
+ * A perpetual seva booking (V135, FR11).
  *
  * <p>ADR-009 designs four tables for the Nirantara lifecycle so that the
  * platform can answer whether a booked seva is actually taking place. FR11 does

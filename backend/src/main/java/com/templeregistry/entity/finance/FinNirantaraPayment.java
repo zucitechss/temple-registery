@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Money received against a perpetual seva booking (V127, FR11).
+ * Money received against a perpetual seva booking (V135, FR11).
  *
  * <p>Separate from {@link FinNirantaraSubscription} because a booking is made
  * once and paid many times. One table with an amount column would force a

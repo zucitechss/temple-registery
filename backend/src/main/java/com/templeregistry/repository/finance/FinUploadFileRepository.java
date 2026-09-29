@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Uploaded workbooks (V130, FR19).
+ * Uploaded workbooks (V138, FR19).
  *
  * <p>{@link #findByTempleIdAndCapabilityAndContentSha256} is the duplicate
  * guard, and the only one of the three that can produce a message a person can

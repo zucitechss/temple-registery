@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Staged precious-item rows, before they are judged (V128).
+ * Staged precious-item rows, before they are judged (V136).
  *
  * <p>Same shape and rules as {@link FinStgRevenue}; see {@link FinStgExpense}
  * for why manual submissions are staged rather than written directly.

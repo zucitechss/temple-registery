@@ -8,7 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 /**
- * Staged Expense rows (V128).
+ * Staged Expense rows (V136).
  *
  * <p>Nothing outside the pipeline reads this table. Writes come from the
  * staging step of the Expense ingestion stages; reads are the validator, the

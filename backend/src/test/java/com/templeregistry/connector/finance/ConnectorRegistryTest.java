@@ -156,13 +156,13 @@ class ConnectorRegistryTest {
     // ---------------------------------------------------------------- the first onboarded temple
 
     private static final Path KOLLUR_SEED = Path.of(
-            "src", "main", "resources", "db", "migration", "V111__kollur_finance_configuration.sql");
+            "src", "main", "resources", "db", "migration", "V119__kollur_finance_configuration.sql");
 
     /** The connector name Kollur's configuration actually carries, read from the seed itself. */
     private static String configuredKollurConnector() throws IOException {
         Matcher m = Pattern.compile("'([A-Za-z][A-Za-z0-9]*Connector)'")
                 .matcher(Files.readString(KOLLUR_SEED, StandardCharsets.UTF_8));
-        assertThat(m.find()).as("V111 must configure a connector_bean for this test to mean anything").isTrue();
+        assertThat(m.find()).as("V119 must configure a connector_bean for this test to mean anything").isTrue();
         return m.group(1);
     }
 

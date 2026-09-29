@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-/** Drawdowns against DC-approved funds (V125, FR5 and FR6). */
+/** Drawdowns against DC-approved funds (V133, FR5 and FR6). */
 @Repository
 public interface FinFundUtilisationRepository extends JpaRepository<FinFundUtilisation, Long> {
 

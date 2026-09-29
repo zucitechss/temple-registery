@@ -4,7 +4,7 @@ package com.templeregistry.entity.finance.enums;
  * Database or interface technology of a temple source system.
  *
  * <p>{@link #MANUAL} is the honest answer for a channel whose "technology" is a
- * person and a web form (V122). Recording it as {@code FILE} or {@code API}
+ * person and a web form (V130). Recording it as {@code FILE} or {@code API}
  * would suggest something for a connector to talk to.
  */
 public enum SourceTechnology {

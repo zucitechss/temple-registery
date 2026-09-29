@@ -61,7 +61,7 @@ public class FinServiceDim extends BaseEntity {
     private BigDecimal rateCardAmount;
 
     /**
-     * Marked special by this temple (FR8, V123).
+     * Marked special by this temple (FR8, V131).
      *
      * <p>Not the same thing as the {@code SPECIAL_SEVA} revenue category, and
      * both are needed. The category classifies <em>money</em>, decided by a

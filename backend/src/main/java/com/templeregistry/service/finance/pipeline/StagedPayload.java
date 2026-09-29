@@ -10,7 +10,7 @@ import java.util.Map;
  * Reads a staged {@code raw_json} payload into flat named fields.
  *
  * <p>Staging holds what a connector delivered, with the source's own field names and values as
- * strings (V113). Every stage downstream needs the same flattening, and needs it to behave
+ * strings (V121). Every stage downstream needs the same flattening, and needs it to behave
  * identically: mapping matches a rule against a field, normalization reads a declared field,
  * and the two disagreeing about what a payload contains would be a defect nobody could see
  * from either side.

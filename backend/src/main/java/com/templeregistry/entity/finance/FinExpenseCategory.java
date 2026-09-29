@@ -6,7 +6,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 /**
- * Canonical expenditure taxonomy (V124, FR4).
+ * Canonical expenditure taxonomy (V132, FR4).
  *
  * <p>Deliberately separate from {@link FinRevenueCategory}. Sharing one table
  * would let a query group by category across both facts and produce a number

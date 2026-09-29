@@ -12,7 +12,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * A precious item received by the temple (V126, FR7).
+ * A precious item received by the temple (V134, FR7).
  *
  * <p>The one subject whose fields come from two different channels for the same
  * temple on the same day. The specification states it directly: counts and

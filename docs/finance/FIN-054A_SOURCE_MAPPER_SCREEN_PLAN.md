@@ -45,7 +45,7 @@ nobody has made (§17).
 
 | Concern | Where | State |
 |---|---|---|
-| Rule storage | `fin_mapping_rule` (V110; `priority` added by V114) | exists |
+| Rule storage | `fin_mapping_rule` (V118; `priority` added by V122) | exists |
 | Rule entity | `FinMappingRule extends BaseEntity` | exists |
 | Rule repository | `FinMappingRuleRepository` — 3 finders | exists, no paging |
 | Matching engine | `MappingRuleResolver` — pure, immutable, no Spring | exists |
@@ -129,7 +129,7 @@ it.** It is the right vehicle for mapping-change audit and needs no schema chang
 | Claim | Where | Reality |
 |---|---|---|
 | Six mapping dimensions | `MappingType` enum | five are inert (§2.2). Limitation 25 records this for `SERVICE`/`PAYMENT_MODE`; the enum itself does not |
-| `METAL_TYPE` rules seeded | V111 | seeded and **cannot fire** — already recorded as limitation 24 |
+| `METAL_TYPE` rules seeded | V119 | seeded and **cannot fire** — already recorded as limitation 24 |
 | Unmapped values "surfaced as a warning" | `FinMappingRule` javadoc | true within the batch's error rows; **nothing surfaces it to a human** — no API, no screen |
 | Reconciliation statuses | `FINANCE_RECONCILIATION.md` §8 | six documented, three exist — already annotated in that file at FIN-060 |
 
@@ -198,7 +198,7 @@ a separate task with an approval workflow of its own.
 
 ## 5. Existing Database Analysis
 
-### `fin_mapping_rule` (V110 + V114)
+### `fin_mapping_rule` (V118 + V122)
 
 | Column | Type | Notes |
 |---|---|---|
@@ -208,13 +208,13 @@ a separate task with an approval workflow of its own.
 | `source_value` | VARCHAR(200) NOT NULL | namespaced (§2.3) |
 | `source_label` | VARCHAR(400) NULL | may be non-Latin script |
 | `canonical_value` | VARCHAR(100) NOT NULL | **no FK** to `fin_revenue_category` |
-| `priority` | INT NOT NULL DEFAULT 100 | added by V114 |
+| `priority` | INT NOT NULL DEFAULT 100 | added by V122 |
 | `is_active` | TINYINT(1) NOT NULL DEFAULT 1 | |
 | `notes` | TEXT NULL | |
 | `is_deleted`, `created_at`, `updated_at`, `created_by`, `updated_by` | | the last two DEFAULT 0 |
 
 - Unique: `uk_fmr_source_type_value (source_system_id, mapping_type, source_value)`
-- Index: `idx_fmr_lookup (source_system_id, mapping_type, is_active)`; V114 extends it for priority
+- Index: `idx_fmr_lookup (source_system_id, mapping_type, is_active)`; V122 extends it for priority
 - **No `version` column** → no optimistic locking
 - **No effective dates**
 
@@ -563,7 +563,7 @@ Everything here is **proposed, not verified against a stated requirement**:
 - Every capability claim traced to a file: `FinMappingRule`, `MappingRuleResolver`,
   `RevenueMappingStage`, `FinMappingRuleRepository`, `FinStgRevenueMappingRepository`,
   `FinRevenueCategory`, `BaseEntity`, `RoleConstants`, `AuditDataEvent`, `ApiResponse`,
-  V110 / V111 / V114, and the frontend `features/`, `routes/` and `components/` trees.
+  V118 / V119 / V122, and the frontend `features/`, `routes/` and `components/` trees.
 - FIN-053…FIN-061 behaviour untouched, because nothing was changed.
 - Consistent with ADR-001 (no runtime source access — this screen reads central tables only),
   ADR-004 (code versus configuration — §4) and ADR-007 (absence is not zero — unmapped is
@@ -584,7 +584,7 @@ the plan, the reason is recorded rather than the plan quietly amended.
 | §2.5 "audit via `AuditService`" | `AuditDataEvent` written directly | `AuditService` is `@Async` and swallows failures, so it cannot roll a change back (FIN-D-063) |
 | B3 "cross-batch unmapped query" | **newest batch only, batch named** | Cross-batch counts would double-count re-staged records. The plan's premise was wrong (FIN-D-065) |
 | §8.3 namespace: "reject a bad namespace" | **format rejected, unknown field warned** | No registry of a source's fields exists; rejecting would make a source unconfigurable before its first extraction (FIN-D-062) |
-| D3 optimistic locking | Implemented (V117), **plus an explicit stale-version check** | Hibernate's own check does not catch the race this feature has: two administrators minutes apart (FIN-D-064) |
+| D3 optimistic locking | Implemented (V125), **plus an explicit stale-version check** | Hibernate's own check does not catch the race this feature has: two administrators minutes apart (FIN-D-064) |
 | §9.E history tab | **Not built** | As the plan recommended. No history exists to show |
 | D4 re-run trigger, D6 source-of-truth editing | **Not built** | Deliberately out of scope; unchanged |
 
@@ -594,7 +594,7 @@ the plan, the reason is recorded rather than the plan quietly amended.
 |---|---|
 | D1 permission matrix | Adopted as proposed. `TEMPLE_AUTHORITY` and `VIEWER` excluded from read and write |
 | D2 history | `audit_data_events` only; no history table, no history tab |
-| D3 optimistic locking | Yes — V117 |
+| D3 optimistic locking | Yes — V125 |
 | D4 re-run trigger | **No.** Not implemented, and the screen says plainly that it cannot correct history |
 | D5 maker-checker | **No.** No documented requirement |
 | D6 source-of-truth editing | **No.** Separate task, needs its own approval flow |

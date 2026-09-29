@@ -1,5 +1,5 @@
 -- ============================================================================
--- V122: Manual entry and file upload become source systems (Phase 0)
+-- V130: Manual entry and file upload become source systems (Phase 0)
 --
 -- The Financial Dashboard specification adds two ways for data to enter the
 -- platform: a temple-staff form and an Excel upload. Neither is an exception to
@@ -37,7 +37,7 @@
 --    by both form and spreadsheet breaks it outright.
 --
 --    The key widens to include source_system_id. This is the same correction
---    V118 made to uk_frf_grain for the same reason, and it has the same
+--    V126 made to uk_frf_grain for the same reason, and it has the same
 --    consequence: a capability is declared per source, and a reader asking
 --    "can this temple answer X?" sums across its sources rather than reading one
 --    row. Existing rows are unaffected -- widening a unique key never rejects
@@ -46,7 +46,7 @@
 -- WHAT THIS MIGRATION DOES NOT DO
 --
 -- It adds no enum value to a CHECK constraint, because these columns are
--- VARCHAR by design (V110): the Java enum is the vocabulary, and the database
+-- VARCHAR by design (V118): the Java enum is the vocabulary, and the database
 -- stores what it is told. ConnectorType and SourceTechnology gain their new
 -- values in code, in the same commit.
 -- ============================================================================

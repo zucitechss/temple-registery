@@ -23,7 +23,7 @@ so the reasoning can be checked against what was built. §18 records what was de
 ## 0. Executive summary
 
 Onboarding a temple's finance source system is today a hand-written Flyway migration
-(`V111__kollur_finance_configuration.sql`, 407 lines). There is no API, no screen and no
+(`V119__kollur_finance_configuration.sql`, 407 lines). There is no API, no screen and no
 repeatable process. FIN-140 is the task that turns that into product.
 
 The investigation found **one architectural fact that reshapes the whole task**, and it is not
@@ -78,8 +78,8 @@ slice, because they determine what the create endpoint is allowed to do and retu
 
 ### Code
 
-`V110__finance_foundation.sql`, `V111__kollur_finance_configuration.sql`,
-`V115__kollur_revenue_date_declaration.sql`, `V117__finance_mapping_rule_version.sql` ·
+`V118__finance_foundation.sql`, `V119__kollur_finance_configuration.sql`,
+`V123__kollur_revenue_date_declaration.sql`, `V125__finance_mapping_rule_version.sql` ·
 `FinSourceSystem`, `FinTempleCapability`, `FinSourceOfTruthDecl`, `FinMappingRule`, `FinSyncBatch`
 and their repositories · `TempleFinanceConnector` and all ten supporting connector types ·
 `ConnectorRegistry`, `SyncWorkerConfig`, `FinanceProfiles`, `SyncWorkerBoundaryGuard`,
@@ -108,7 +108,7 @@ More exists than the `NOT_STARTED` label suggests. Onboarding is not greenfield;
 
 | Already built | Where | Reusable for FIN-140? |
 |---|---|---|
-| The four configuration tables | `V110` — `fin_source_system`, `fin_temple_capability`, `fin_source_of_truth_decl`, `fin_mapping_rule` | **Yes, entirely.** No new configuration table is needed. |
+| The four configuration tables | `V118` — `fin_source_system`, `fin_temple_capability`, `fin_source_of_truth_decl`, `fin_mapping_rule` | **Yes, entirely.** No new configuration table is needed. |
 | Entities + repositories for all four | `entity/finance/`, `repository/finance/` | Yes. |
 | Mapping-rule administration, full stack | FIN-054A-BE + FIN-054B — 9 endpoints, a screen at `/finance/source-mapper` | **Yes — step 9 of the onboarding pipeline is already shipped.** FIN-140 links to it rather than rebuilding it. |
 | `GET /finance/source-systems` (read-only list, jurisdiction-filtered) | `FinanceMappingController` | Yes — extend, do not replace. |
@@ -116,20 +116,20 @@ More exists than the `NOT_STARTED` label suggests. Onboarding is not greenfield;
 | Jurisdiction scoping for finance admin | `MappingAdminServiceImpl.outOfScope(...)` | Yes — copy the pattern verbatim (it already routes around the AUDITOR/`assertDistrictScope` defect). |
 | Audit in the caller's transaction | FIN-D-063, `AuditDataEventRepository` | Yes. |
 | A generic, entity-agnostic approval state machine | `WorkflowInstance` / `WorkflowStatus` / `WorkflowAction` / `WorkflowEntityType` / `WorkflowEngineImpl` | **Candidate — see D-140-1.** Its own header says adding a governable module needs "no new tables, no new service classes, no new status enums". |
-| `sync_enabled` kill switch, defaults `0` | `V110` line 57 — *"defaults OFF so registering a source never starts traffic"* | **Yes — this is already the activation mechanism.** |
+| `sync_enabled` kill switch, defaults `0` | `V118` line 57 — *"defaults OFF so registering a source never starts traffic"* | **Yes — this is already the activation mechanism.** |
 | `SyncType.DRY_RUN` and `SyncTrigger.ONBOARDING` | `entity/finance/enums/` | **Yes — declared, documented, and used by zero production code.** Designed-in hooks for exactly this feature. |
-| `fin_source_of_truth_decl.version / approved_by / approved_at / effective_from / effective_to` | `V110` | **Yes — a per-declaration approval and versioning mechanism already exists in the schema.** |
+| `fin_source_of_truth_decl.version / approved_by / approved_at / effective_from / effective_to` | `V118` | **Yes — a per-declaration approval and versioning mechanism already exists in the schema.** |
 | `SourceProbeResult`, `SchemaFingerprint`, `probe()`, `fingerprintSchema()` | `connector/finance/` | Contract only — **no implementation anywhere.** |
 
 **The single most important reuse finding:** `fin_sync_batch` already carries
-`sync_type ∈ {…, DRY_RUN}` and `triggered_by ∈ {SCHEDULER, MANUAL, ONBOARDING}`, and V110's own
+`sync_type ∈ {…, DRY_RUN}` and `triggered_by ∈ {SCHEDULER, MANUAL, ONBOARDING}`, and V118's own
 comment documents the dry run as part of onboarding. The dry-run step needs **no new table**.
 
 ---
 
 ## 3. How Kollur is onboarded today
 
-Entirely through `V111__kollur_finance_configuration.sql` plus `V115` — 461 lines of
+Entirely through `V119__kollur_finance_configuration.sql` plus `V123` — 461 lines of
 conditional SQL, executed by Flyway, authored by hand.
 
 | # | What | Rows | Mechanism |
@@ -138,11 +138,11 @@ conditional SQL, executed by Flyway, authored by hand.
 | FIN-022 | Capabilities | 19 (all of them) | same guard |
 | FIN-023 | Source of truth — `REVENUE_AMOUNT` | 1, with measured rejected alternatives | same guard |
 | FIN-024 | Mapping rules | 9 | same guard |
-| FIN-055/V115 | Source of truth — business date | 1 | same guard |
+| FIN-055/V123 | Source of truth — business date | 1 | same guard |
 
 ### The finding that makes FIN-140 mandatory rather than merely desirable
 
-`V111` lines 28–30, verbatim:
+`V119` lines 28–30, verbatim:
 
 > *"Consequence, recorded in HANDOFF.md: in a database where temple 300001 is created AFTER this
 > migration runs, the seed is a no-op and Kollur configuration must be applied through the
@@ -180,7 +180,7 @@ object. See §5 for the consequence.
 **D · Secret / credential configuration** — never in the database, never in the API.
 The credential itself, resolved by `SourceCredentialProvider` from the worker's environment.
 `credential_ref` is an **alias**, not a secret — it is the lookup key, and it lives in category B.
-*Why:* `V110` lines 50–52 and FIN-D-009. `RegistryRuntimeContextTest` asserts the registry
+*Why:* `V118` lines 50–52 and FIN-D-009. `RegistryRuntimeContextTest` asserts the registry
 runtime has **no** `SourceCredentialProvider` bean at all.
 
 **E · Manual operational approval** — a human judgement that no validator can make.
@@ -203,7 +203,7 @@ understatement and a duplicate-archive trap that no schema check would have caug
 | No probe, no dry run | `probe()` implemented only by four test stubs; `DRY_RUN` used by no production code |
 | No onboarding lifecycle | `fin_source_system` has no status column; only the `sync_enabled` boolean |
 | No onboarding UI | `frontend/src/features/finance/` is the mapping screen only |
-| No optimistic locking on three of four config tables | `@Version` exists on `FinMappingRule` only (V117) |
+| No optimistic locking on three of four config tables | `@Version` exists on `FinMappingRule` only (V125) |
 | No way to check a connector exists | `ConnectorRegistry` is worker-only; the registry runtime cannot see it |
 | **No generic `JdbcTableConnector`** | Promised by ADR-004 and `TEMPLE_FINANCE_ONBOARDING.md` §8; implemented nowhere |
 
@@ -247,7 +247,7 @@ scope), 409 (duplicate), 422 (semantic), 400 (bean validation). Automated. No ap
 **Step 6 — Declare capabilities.** Input: the full capability matrix for the source, as one
 array. Output: the persisted matrix. Validation: every `capability` in the canonical 19; an
 availability of `NOT_AVAILABLE` or `PARTIALLY_AVAILABLE` **must** carry a non-blank
-`availabilityReason`, because `V110` documents it as *"USER-FACING. Shown verbatim"*;
+`availabilityReason`, because `V118` documents it as *"USER-FACING. Shown verbatim"*;
 `AVAILABLE` should carry `coverageFrom` (warning, not block). Writes as a whole-matrix upsert,
 never a partial patch — a capability matrix read half-updated would misreport a temple.
 **Idempotency:** replaying the same matrix is a no-op.
@@ -311,10 +311,10 @@ building the worker's first production trigger.
 | A1 | Temple exists and is in the caller's jurisdiction | Block | `JurisdictionGuard` + `outOfScope` pattern | A source pointing at a temple the caller cannot see is a scope leak |
 | A2 | Required source-system fields present and well-formed | Block | Bean validation | `connector_bean` is `NOT NULL`; an empty one guarantees a resolution failure later |
 | A3 | At least one capability declared | Block | `FinTempleCapabilityRepository` | Without one, every dashboard metric is `NOT_AVAILABLE` with no reason — the exact failure ADR-007 exists to prevent |
-| A4 | Every `NOT_AVAILABLE` / `PARTIALLY_AVAILABLE` capability has a reason | Block | — | `V110`: the reason is *"USER-FACING. Shown verbatim"*. A blank one renders an empty explanation to a District Collector |
+| A4 | Every `NOT_AVAILABLE` / `PARTIALLY_AVAILABLE` capability has a reason | Block | — | `V118`: the reason is *"USER-FACING. Shown verbatim"*. A blank one renders an empty explanation to a District Collector |
 | A5 | `AVAILABLE` capability has `coverage_from` | **Warn** | — | The dashboard can state bounds without it, but will overstate coverage |
 | A6 | If `REVENUE` is available, a current source-of-truth for `REVENUE_AMOUNT` exists (`effective_to IS NULL`) | Block | `FinSourceOfTruthDeclRepository` | `RevenueNormalizer` refuses without it — every row would reject at normalization |
-| A7 | A business-date declaration exists | Block | same | Exactly the gap `V115` was written to close: *"the amount could be read and never placed in time"* |
+| A7 | A business-date declaration exists | Block | same | Exactly the gap `V123` was written to close: *"the amount could be read and never placed in time"* |
 | A8 | ≥1 active `REVENUE_CATEGORY` mapping rule | Block | `FinMappingRuleRepository` | Otherwise every value routes to `UNMAPPED` and no revenue is classified |
 | A9 | Every rule's `canonical_value` exists in `fin_revenue_category` | Block | `FinRevenueCategoryRepository` | This is the mapping engine's `INVALID_CONFIGURATION` outcome, detected **statically instead of at run time** |
 | A10 | No two active rules share namespace+value at equal priority | Block | `RevenueCategoryMapper` precedence logic | This is the engine's `AMBIGUOUS` outcome, likewise detected before any data flows |
@@ -378,7 +378,7 @@ scheme exists).
 | Registry gains source DB access? | **Never.** All Class A checks read `fin_*` registry tables only. | ADR-001; `RegistryRuntimeContextTest` |
 | Where does a probe execute? | Worker only, when built. | §6.1 |
 | How is it requested? | A `fin_sync_batch` row — the shared database, the only channel. | §6.2 |
-| Credential in an API? | Never in, never out. | `V110`; FIN-D-009 |
+| Credential in an API? | Never in, never out. | `V118`; FIN-D-009 |
 | `credential_ref` (the alias)? | **Writable, never returned.** Return `credentialRefSet: boolean`. | It is a lookup key, not a secret — but returning it names the environment variable holding the secret, which `API_CONTRACT` §7.5 forbids and which is a genuine reconnaissance leak |
 | New code placement | Onboarding service in `service/impl/finance/`, controller in `controller/finance/`, **nothing** in `connector.**` or `service.finance.sync.**` | Those packages are banned from the registry runtime by a package-wide test assertion |
 | Authorization site | On the service impl *and* the controller, per house convention | Source Mapper duplicates every `@PreAuthorize` |
@@ -399,8 +399,8 @@ was in force at the time.
 
 | Object | Multi-source ready? | Evidence |
 |---|---|---|
-| `fin_revenue_fact` | **Yes** | `uk_frf_grain` includes `source_system_id` (V118 / FIN-052A) |
-| `fin_agg_revenue_period` | **Yes** | `uk_farp_grain` includes it (V119) |
+| `fin_revenue_fact` | **Yes** | `uk_frf_grain` includes `source_system_id` (V126 / FIN-052A) |
+| `fin_agg_revenue_period` | **Yes** | `uk_farp_grain` includes it (V127) |
 | `fin_source_system` | Yes | `uk_fss_temple_system (temple_id, system_code)` permits many |
 | `fin_temple_capability` | **No** | `uk_ftc_temple_capability (temple_id, capability)` — a second source declaring `REVENUE` collides |
 | `fin_service_dim` | **No** | `uk_fsd_temple_service (temple_id, service_code)` |
@@ -452,7 +452,7 @@ moment anyone will have the context to answer D9 properly.
 
 | Change | Why | Risk |
 |---|---|---|
-| `@Version` column on `fin_source_system`, `fin_temple_capability`, `fin_source_of_truth_decl` | Only `fin_mapping_rule` has one (V117). Concurrent edits to a capability matrix would otherwise silently last-write-win. | Additive `INT NOT NULL DEFAULT 0`; cannot fail on existing rows |
+| `@Version` column on `fin_source_system`, `fin_temple_capability`, `fin_source_of_truth_decl` | Only `fin_mapping_rule` has one (V125). Concurrent edits to a capability matrix would otherwise silently last-write-win. | Additive `INT NOT NULL DEFAULT 0`; cannot fail on existing rows |
 | *(D-140-1 dependent)* one new `WorkflowEntityType` value | If the lifecycle reuses the workflow engine | Enum value + seeded `workflow_instance` rows; touches the governance module |
 
 Everything else is reads and writes against existing tables.
@@ -667,7 +667,7 @@ before a source goes anywhere near a temple database.
 | **D-140-2** | Who registers and activates a source system? | **`ADMIN_ONLY` for register/activate** (matches `SystemConfigServiceImpl`; deciding which external database feeds published figures is platform-level), **`CAN_ACT_DC` for capabilities and source-of-truth** (a statement about a temple in the DC's district) | 140-A |
 | **D-140-3** | Second source per temple: refuse, or widen the constraints? | **Refuse, with a clear message.** D9 stays open; Option A is reversible, Option B bakes an unanswered semantic into published data | 140-A |
 | **D-140-4** | `API_CONTRACT` §7.5 forbids returning `connectorBean`, `credentialRef`, `sourceDatabaseName` — onboarding must write them | **`credentialRef` write-only** (return `credentialRefSet: boolean`); **`connectorBean` and `sourceDatabaseName` readable by the write role only**; amend §7.5 to scope the exclusion to *reporting* endpoints | 140-A |
-| **D-140-5** | Should FIN-140 re-apply Kollur's configuration through the new path? | **As a test, yes; as a migration, no.** V111 stays. But test 4 should prove the new path *could* produce Kollur's configuration, since V111 line 30 already names FIN-140 as the fallback | 140-E |
+| **D-140-5** | Should FIN-140 re-apply Kollur's configuration through the new path? | **As a test, yes; as a migration, no.** V119 stays. But test 4 should prove the new path *could* produce Kollur's configuration, since V119 line 30 already names FIN-140 as the fallback | 140-E |
 | **D-140-6** | Is FIN-032's Class B probe in scope now? | **No.** Defer to FIN-040/041. Building transport for a constant answer is infrastructure without a product | 140-F |
 
 Next free identifiers if these are adopted: decisions **FIN-D-073** onward; limitations **74** onward.
@@ -713,7 +713,7 @@ Two decisions the implementation added, neither of which the plan had anticipate
 state as `BLOCKED`) and **FIN-D-078** (possible mapping ambiguity warns and never blocks, because
 blocking would refuse the first onboarded source's own deliberately-reasoned configuration).
 
-Delivered: `V120`, `OnboardingReadinessValidator`, `SourceSystemAdminService(Impl)`,
+Delivered: `V128`, `OnboardingReadinessValidator`, `SourceSystemAdminService(Impl)`,
 `FinanceOnboardingController`, four DTOs, `frontend/src/features/finance-onboarding/`. Verified at
 63 backend tests and 30 frontend tests of its own, a 634-test finance regression, and the
 23-test worker-boundary suite still green. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)
@@ -794,7 +794,7 @@ connector. The operator-facing route itself is no longer on this list.
 **Modified:** none. No code, no migration, no tracking document, no ADR. Nothing committed.
 
 **Would be created by slice 140-A, for reference:**
-`V120__finance_config_optimistic_locking.sql` ·
+`V128__finance_config_optimistic_locking.sql` ·
 `service/finance/onboarding/{SourceSystemAdminService,OnboardingValidator,ReadinessIssue}.java` ·
 `service/impl/finance/SourceSystemAdminServiceImpl.java` ·
 `controller/finance/FinanceOnboardingController.java` · request/response DTOs under

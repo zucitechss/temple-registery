@@ -12,7 +12,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * A standing missed-entry condition (V129, FR17, FR18, FR20).
+ * A standing missed-entry condition (V137, FR17, FR18, FR20).
  *
  * <p><b>Why this is not an {@code InAppNotification}.</b> The platform already
  * has notifications, rules, an outbox, delivery preferences and an SSE channel,

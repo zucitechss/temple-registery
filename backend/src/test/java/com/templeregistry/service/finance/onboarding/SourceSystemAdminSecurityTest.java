@@ -257,7 +257,7 @@ class SourceSystemAdminSecurityTest extends FinanceOnboardingTestBase {
     void should_leaveExistingConfigurationUntouched_when_aNewSourceIsRegistered() {
         authenticateAs(RoleConstants.SUPER_ADMIN, 1L, null, null);
 
-        // Stands in for the first onboarded source in an environment where V111 applied: this
+        // Stands in for the first onboarded source in an environment where V119 applied: this
         // slice must be additive, and the regression worth protecting is that onboarding temple
         // number two changes nothing about temple number one.
         var before = sourceSystems.findByDeletedFalse().stream()

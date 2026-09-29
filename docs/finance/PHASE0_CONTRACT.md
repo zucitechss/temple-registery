@@ -29,24 +29,31 @@ explicit and early is the whole point.
 
 ---
 
-## 1. Migrations — V122 to V131
+## 1. Migrations — V130 to V139
 
-Stream A owns the sequence. **Reserved ranges: A takes `V122`–`V159`, B takes `V160`–`V179`.**
+Stream A owns the sequence. **Reserved ranges: A takes `V140`–`V169`, B takes `V170`–`V189`.**
 Flyway does not care about gaps, and two people never pick the same number. If B uses a number,
 say so in the pull request title.
 
+> **The whole finance block moved up by 8 when `main` was merged** (`V110`–`V131` → `V118`–`V139`).
+> `main` had already shipped its own `V110`, `V111`, `V112`, `V114`, `V116` and `V117`, and Flyway
+> refuses to start with a duplicate version. Main is deployed, so ours moved; the block had to stay
+> contiguous and above `V117` because the finance migrations alter each other in order. Any database
+> that already ran the old numbers must be dropped and re-migrated — its history rows name files that
+> no longer exist.
+
 | Migration | What it does |
 |---|---|
-| `V122__finance_ingestion_source_generalisation` | `connector_bean` nullable; `fin_sync_batch.actor_user_id`; `uk_ftc_temple_capability` widened to include `source_system_id` |
-| `V123__finance_service_dim_special` | `fin_service_dim.is_special` (FR8) |
-| `V124__finance_canonical_expenditure` | `fin_expense_category` (13 seeded rows) + `fin_expense_fact`. **Carries the record-grain contract in its header — read it before writing any load.** |
-| `V125__finance_dc_approved_funds` | `fin_dc_fund` + `fin_fund_utilisation` (FR5, FR6) |
-| `V126__finance_precious_items` | `fin_precious_item_fact` (FR7), with per-field provenance across two channels |
-| `V127__finance_nirantara_seva` | `fin_nirantara_subscription` + `fin_nirantara_payment` (FR11) |
-| `V128__finance_subject_staging` | `fin_stg_expense`, `fin_stg_fund`, `fin_stg_precious_item`, `fin_stg_nirantara` |
-| `V129__finance_daily_freshness_alerts` | `fin_data_expectation`, `fin_daily_data_status`, `fin_data_alert` (FR17–FR20) |
-| `V130__finance_upload_file` | `fin_upload_file` (FR19) |
-| `V131__finance_service_and_expense_aggregates` | `fin_agg_revenue_service`, `fin_agg_expense_period` |
+| `V130__finance_ingestion_source_generalisation` | `connector_bean` nullable; `fin_sync_batch.actor_user_id`; `uk_ftc_temple_capability` widened to include `source_system_id` |
+| `V131__finance_service_dim_special` | `fin_service_dim.is_special` (FR8) |
+| `V132__finance_canonical_expenditure` | `fin_expense_category` (13 seeded rows) + `fin_expense_fact`. **Carries the record-grain contract in its header — read it before writing any load.** |
+| `V133__finance_dc_approved_funds` | `fin_dc_fund` + `fin_fund_utilisation` (FR5, FR6) |
+| `V134__finance_precious_items` | `fin_precious_item_fact` (FR7), with per-field provenance across two channels |
+| `V135__finance_nirantara_seva` | `fin_nirantara_subscription` + `fin_nirantara_payment` (FR11) |
+| `V136__finance_subject_staging` | `fin_stg_expense`, `fin_stg_fund`, `fin_stg_precious_item`, `fin_stg_nirantara` |
+| `V137__finance_daily_freshness_alerts` | `fin_data_expectation`, `fin_daily_data_status`, `fin_data_alert` (FR17–FR20) |
+| `V138__finance_upload_file` | `fin_upload_file` (FR19) |
+| `V139__finance_service_and_expense_aggregates` | `fin_agg_revenue_service`, `fin_agg_expense_period` |
 
 Nobody edits a merged migration. A correction is a new migration. Run `flyway:clean` and a full
 migrate locally after every rebase — it is the cheapest way to catch a bad merge.
@@ -143,7 +150,7 @@ caught this: the migration made the column nullable while the entity still decla
 `nullable = false`, and H2 generated a NOT NULL column from the entity.
 
 `FinServiceDimRepository` is new, and its absence was the problem it fixes: `fin_service_dim` has
-been a table since V112 with no repository, no seed and no writer, which is why `service_id` is
+been a table since V120 with no repository, no seed and no writer, which is why `service_id` is
 always null and FR8/FR10 are unimplementable (FIN-D-069). Creating the interface does not fix that
 — service resolution is stream A's first task — but it means nobody invents a second one.
 

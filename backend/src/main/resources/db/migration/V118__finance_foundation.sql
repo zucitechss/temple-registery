@@ -1,5 +1,5 @@
 -- ============================================================================
--- V110: Finance Platform Foundation (Phase 1)
+-- V118: Finance Platform Foundation (Phase 1)
 --
 -- Creates the CONFIGURATION and OPERATIONAL spine of the multi-temple Finance
 -- Integration & Reporting Platform.  No fact, dimension, staging or aggregate

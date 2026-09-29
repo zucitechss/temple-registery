@@ -1,5 +1,5 @@
 -- ============================================================================
--- V119: Period-level revenue aggregates (FIN-070)
+-- V127: Period-level revenue aggregates (FIN-070)
 --
 -- Decisions: ADR-011 (precomputed aggregates, published only after
 -- reconciliation passes) and FIN-070B (the grain, the category key, the
@@ -25,7 +25,7 @@
 -- more than it looks: MySQL and TiDB treat NULLs in a UNIQUE index as distinct,
 -- so a nullable category_id carrying a "null = all" total row would not be
 -- constrained at all, and every aggregation run would INSERT another total
--- instead of replacing one. V112 met that same defect in the fact grain and
+-- instead of replacing one. V120 met that same defect in the fact grain and
 -- had to add three generated stand-in columns (FIN-D-018). Totals here are a
 -- SUM over category rows at read time; there are no total rows to drift.
 --
@@ -46,7 +46,7 @@
 -- no reconciliation result exists at month granularity, so a month's verdict is
 -- always its parent year's (recorded in reconciliation_inherited).
 --
--- NO FOREIGN KEYS, per FIN-D-003 and consistent with V10, V110 and V112.
+-- NO FOREIGN KEYS, per FIN-D-003 and consistent with V10, V118 and V120.
 -- ============================================================================
 
 
@@ -85,7 +85,7 @@ CREATE TABLE fin_agg_revenue_period (
     -- inputs is a silent overflow waiting for a large temple.
 
     -- Derived by the database so that no writer can disagree with it, exactly as
-    -- in V112. NULL propagates deliberately: cancelled_amount is NULL whenever
+    -- in V120. NULL propagates deliberately: cancelled_amount is NULL whenever
     -- any contributing fact did not record cancellations, so net is genuinely
     -- unknown for the period and reporting gross as net would assert that
     -- nothing was cancelled.
@@ -151,7 +151,7 @@ CREATE INDEX idx_farp_report ON fin_agg_revenue_period
 --     FIN-070B expected net to depend on a capability lookup; deriving
 --     cancellation completeness from the contributing facts instead makes plain
 --     NULL propagation exactly right, so the database can own it as it does in
---     V112 and no writer can disagree with it.
+--     V120 and no writer can disagree with it.
 --
 --   * No `agg_run_id` / `fin_agg_run` table yet. A run record only has content
 --     once something orchestrates runs, which is FIN-072. Creating an empty

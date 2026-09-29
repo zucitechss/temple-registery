@@ -42,7 +42,7 @@ import java.time.LocalDateTime;
  * person who was never involved.
  */
 @Entity
-// uk_farp_grain is declared in V119 and not here: Flyway owns the schema (ADR-002), and this
+// uk_farp_grain is declared in V127 and not here: Flyway owns the schema (ADR-002), and this
 // annotation describes only the access paths. net_amount is likewise the database's to compute.
 @Table(
     name = "fin_agg_revenue_period",

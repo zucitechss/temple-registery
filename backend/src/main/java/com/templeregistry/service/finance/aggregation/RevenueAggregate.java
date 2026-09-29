@@ -37,7 +37,7 @@ import java.time.LocalDate;
  * </ul>
  *
  * <p>There is no {@code netAmount} field. The database computes it as {@code gross - cancelled}, so
- * no writer can disagree with it — the same reasoning V112 applied to the fact table.
+ * no writer can disagree with it — the same reasoning V120 applied to the fact table.
  *
  * @param factCount                how many canonical facts rolled up here. A roll-up count, never a
  *                                 receipt count: a fact is already a daily grain

@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Canonical expenditure (V124).
+ * Canonical expenditure (V132).
  *
  * <h2>Why no native upsert, unlike the revenue fact</h2>
  *
@@ -33,7 +33,7 @@ import java.util.Optional;
  * <h2>Superseding a day</h2>
  *
  * <p>{@link #deleteBySourceAndDateRange} exists for the importer protocol
- * described in the V124 header: a second workbook covering an already-loaded
+ * described in the V132 header: a second workbook covering an already-loaded
  * day carries different row numbers, so the grain alone cannot prevent the
  * double count. The importer deletes what that source previously wrote for the
  * dates the file covers, then inserts. It is scoped by source system, so one

@@ -124,7 +124,7 @@ duplicate emails to real recipients**.
 `FinanceIntegrationBoundaryTest` (6), `EnvironmentSourceCredentialProviderTest` (9),
 `SyncWorkerRuntimeContextTest` (5), `RegistryRuntimeContextTest` (5).
 
-**Migrations.** `V110__finance_foundation.sql` — verified to apply cleanly to MySQL 8.0
+**Migrations.** `V118__finance_foundation.sql` — verified to apply cleanly to MySQL 8.0
 via Testcontainers (Flyway reports "now at version v110").
 
 **Files changed.** See [HANDOFF.md](HANDOFF.md).
@@ -137,7 +137,7 @@ via Testcontainers (Flyway reports "now at version v110").
 ## Phase 2 — Source Configuration · COMPLETE · 100%
 
 **Completed.** The credential seam (FIN-020) and the full Kollur configuration
-(FIN-021 … FIN-024), seeded by `V111__kollur_finance_configuration.sql`.
+(FIN-021 … FIN-024), seeded by `V119__kollur_finance_configuration.sql`.
 
 `SourceCredentialProvider` resolves a `credential_ref` alias to real credentials; the
 interim implementation reads `trm.finance.source.<ref>.secret` from the worker process
@@ -163,7 +163,7 @@ Three things about this seed are worth knowing before touching it:
    genuinely available at Kollur (donated sarees with a donor-stated value), and is seeded
    with the warning that it must not be summed with auction proceeds for the same articles.
 3. **The seed is conditional on temple 300001 existing** (FIN-D-014). No migration creates
-   that temple, so in a fresh database V111 correctly seeds nothing rather than leaving
+   that temple, so in a fresh database V119 correctly seeds nothing rather than leaving
    orphan configuration.
 
 **Remaining.** None.
@@ -246,7 +246,7 @@ missing-connector throw with `return null` failed 4 registry tests, including th
 
 ## Phase 5 — Revenue Pipeline · COMPLETE · 100%
 
-**Completed.** FIN-051 and FIN-052 — `V112__finance_canonical_revenue.sql`, three tables,
+**Completed.** FIN-051 and FIN-052 — `V120__finance_canonical_revenue.sql`, three tables,
 three entities, two enums. This is the reporting boundary: from here upwards, every revenue
 figure the platform publishes comes from these tables and from nothing else, which is what
 ADR-001 means in practice rather than in principle.
@@ -280,7 +280,7 @@ the central platform at all.
    database (FIN-D-020) and is NULL in the third case, because reporting gross as net would
    assert that nothing was cancelled.
 
-**FIN-050 — the landing table.** `V113__finance_revenue_staging.sql` creates
+**FIN-050 — the landing table.** `V121__finance_revenue_staging.sql` creates
 `fin_stg_revenue`, where everything a connector extracts arrives before it is trusted.
 
 Its grain is **one row per record a connector delivered within one sync batch** — one
@@ -345,7 +345,7 @@ had been recorded (one had been measured; the harness was reporting a stale repo
 The fix also removed a quadratic re-scan: the class runs in **74.8 s** where it previously took
 **221.4 s**.
 
-**FIN-054 — mapping, the stage that says what a value means.** `V114` adds
+**FIN-054 — mapping, the stage that says what a value means.** `V122` adds
 `fin_mapping_rule.priority` and creates `fin_stg_revenue_mapping`; `MappingRuleResolver`
 decides, `RevenueMappingStage` runs it over a batch's `VALID` rows.
 
@@ -424,7 +424,7 @@ onto the canonical daily grain. Nothing is written to `fin_revenue_fact` — tha
 look at a money value, and ADR-008 is why it does not choose which one: for the first onboarded
 source, three columns plausibly represent revenue and disagree by 41%, and the more granular
 one — the one that looks like an improvement — is wrong. `fin_source_of_truth_decl` names the
-field; the code knows only metric names. `V115` adds the matching declaration for the business
+field; the code knows only metric names. `V123` adds the matching declaration for the business
 date, which nothing had declared: the amount could be read and never placed in time.
 
 **The open question FIN-053 raised is now answered** (FIN-D-033). A declaration's `source_field`
@@ -571,7 +571,7 @@ unblocked.
 
 **FIN-060 — the platform starts checking itself, and says what it cannot check.**
 `RevenueReconciliationStage` runs four checks over a finished batch and records every answer in
-`fin_reconciliation_result` — a table that had existed since V110 with nothing ever writing to it.
+`fin_reconciliation_result` — a table that had existed since V118 with nothing ever writing to it.
 
 **Two of the four checks are worth much less than the other two, and the table now says which is
 which.** `STAGE_COMPLETENESS` and `REJECTION_ACCOUNTING` compare this platform's counts against
@@ -640,7 +640,7 @@ that FIN-D-050 depends on was enforced by the database and asserted by nothing.
 status, so counting only `LOADED` and `REJECTED` would have reported every unparseable amount as
 an unexplained loss. And `uk_frf_grain` did not include `source_system_id`, so two sources
 writing the same day and category overwrote each other — deliberate under ADR-003, undocumented
-until FIN-060 surfaced it. **Closed by FIN-052A** (V118, FIN-D-067), which was cheaper than the
+until FIN-060 surfaced it. **Closed by FIN-052A** (V126, FIN-D-067), which was cheaper than the
 plan expected: widening a UNIQUE key cannot be violated by existing rows.
 
 **Remaining.** The check that matters most cannot run until a connector answers `sourceTotals()`, and **TiDB has never run any of these migrations** (limitation 9).
@@ -721,7 +721,7 @@ multi-source isolation, tracing one record across batches, the four documented s
 their default, a rejected row keeping both reason and payload, business date separate from
 extraction time, an undeclared date staying NULL, an impossible source value surviving
 verbatim, no typed money column, two purity scans, the index set, and a regression check that
-V112's canonical grain still holds after V113.
+V120's canonical grain still holds after V121.
 
 `RevenueStagingValidatorTest` — 25 tests, `@DataJpaTest` against the same real database with
 the real migrations, test methods non-transactional so that what is asserted is what committed:
@@ -751,10 +751,10 @@ their exact outcomes — including which were previously reported without having
 
 ## FIN-052A — Canonical grain correction · COMPLETE
 
-**Migration `V118__finance_fact_grain_source_system.sql`.** `uk_frf_grain` went from seven columns
+**Migration `V126__finance_fact_grain_source_system.sql`.** `uk_frf_grain` went from seven columns
 to eight; `source_system_id` sits second, after `temple_id`.
 
-Before V118, two source systems reporting the same temple, business date, service, category,
+Before V126, two source systems reporting the same temple, business date, service, category,
 payment mode, counter and operator shared one grain, and the loader's `ON DUPLICATE KEY UPDATE`
 **replaced** the first source's figures with the second's — taking `source_system_id` and
 `sync_batch_id` across with them. Nothing failed, nothing warned, and nothing recorded that the
@@ -791,13 +791,13 @@ old grain: amending an ADR is a governance act, so it was explained rather than 
 ## Phase 7 — Aggregations · IN_PROGRESS
 
 **FIN-070 — Aggregation foundation · COMPLETE, verified on MySQL 8.0.** `fin_agg_revenue_period`
-(V119) at the grain FIN-070B decided, a pure `RevenueAggregator` that needs no database, and a
+(V127) at the grain FIN-070B decided, a pure `RevenueAggregator` that needs no database, and a
 `RevenueAggregationWriter` that refuses to write without a publishable `ReconciliationGate.Decision`
 — the gate's first consumer, which closes the *shape* of limitation 52 although nothing schedules a
 run yet.
 
 **82 tests, 0 failures, 0 errors, 0 skipped**: 66 pure, and 16 in `RevenueAggregatePersistenceTest`
-against real MySQL 8.0 containers with the real migrations. V119 applies cleanly. All five required
+against real MySQL 8.0 containers with the real migrations. V127 applies cleanly. All five required
 mutations were applied and killed, including the two needing a database — an accumulating upsert,
 and a `uk_farp_grain` missing `source_system_id`.
 
@@ -885,7 +885,7 @@ or correct a rule.
 - **Audit in the caller's transaction** (FIN-D-063). `AuditService` was not reused — it is
   `@Async` and swallows its failures, which is right for a declaration and wrong for a change to
   how revenue is classified. A failed audit write rolls the rule change back.
-- **Optimistic locking** (FIN-D-064, V117), with the stale-read check made explicitly rather than
+- **Optimistic locking** (FIN-D-064, V125), with the stale-read check made explicitly rather than
   left to Hibernate, because the real race is two administrators minutes apart, not two commits.
 - **One definition of a valid source value** (FIN-D-062). `SourceValueKey` is shared by the API
   that validates a rule and the engine that later matches it, so the API cannot accept a rule the
@@ -996,9 +996,9 @@ centrally: the project currently has no working full-context test on the `test` 
 Plan in [FIN-140_ONBOARDING_PLAN.md](FIN-140_ONBOARDING_PLAN.md). FIN-032 was analysed inside it
 rather than as a separate task.
 
-Onboarding a temple was, until this, `V111__kollur_finance_configuration.sql` — 407 lines of
+Onboarding a temple was, until this, `V119__kollur_finance_configuration.sql` — 407 lines of
 conditional SQL, written by hand. There was no API, no screen and no repeatable process, and
-`V111`'s own header already recorded the consequence: *"in a database where temple 300001 is created
+`V119`'s own header already recorded the consequence: *"in a database where temple 300001 is created
 AFTER this migration runs, the seed is a no-op and Kollur configuration must be applied through the
 onboarding path (FIN-140) instead."* The first onboarded temple already depended on a path that did
 not exist.
@@ -1086,12 +1086,12 @@ only way to create one was a hand-written migration.
 
 ### No new table, no new vocabulary
 
-`fin_temple_capability` has existed since `V110` with every column this needs — availability, a
+`fin_temple_capability` has existed since `V118` with every column this needs — availability, a
 user-facing reason, a coverage window, documented gaps, a review timestamp, soft delete and audit
 columns. `FinanceCapability` (19) and `DataAvailability` (4) are the canonical vocabularies and were
 not duplicated: the API serves them from the enums so no client keeps a copy that drifts.
 
-The one schema change is `V121`, adding an optimistic-lock column — which `V120`'s own comment had
+The one schema change is `V129`, adding an optimistic-lock column — which `V128`'s own comment had
 already scheduled for *"the slice that writes"* this table.
 
 ### Endpoints
@@ -1123,7 +1123,7 @@ case applies: retired and holding its slot, or held by another source system whi
 `NO_CAPABILITY_DECLARED` clears as soon as anything is declared. A new **warning**,
 `CAPABILITY_NOT_DECLARED`, lists capabilities nobody has declared at all — because an undeclared
 capability and one declared `NOT_AVAILABLE` look identical to a reader while being different
-statements, and `V111` declared all nineteen for the first onboarded source precisely so *"'not
+statements, and `V119` declared all nineteen for the first onboarded source precisely so *"'not
 declared' never has to be guessed at"*. A warning rather than a blocker: a half-configured source is
 a legitimate overnight state.
 
@@ -1162,12 +1162,12 @@ declarations came from exactly that.
 
 ### No new table, no new column, no migration
 
-`fin_source_of_truth_decl` has existed since `V110` with everything this needs — a domain
+`fin_source_of_truth_decl` has existed since `V118` with everything this needs — a domain
 `version`, an effective window, sign-off columns, the rejected alternatives and their measured
 evidence. The metric vocabulary comes from `RevenueField`, which is what normalization actually
 reads, and is served through the existing catalogue endpoint so no client keeps a copy.
 
-**No `@Version` was added, unlike V120 and V121.** The reason is FIN-D-083: those tables are
+**No `@Version` was added, unlike V128 and V129.** The reason is FIN-D-083: those tables are
 edited in place and an optimistic lock guards what happens to them. This one is append-only, and
 the race it actually has — two administrators each computing "version 2" — is caught by
 `uk_fsotd_source_metric_version`, which a `@Version` column would not have caught while appearing
@@ -1259,7 +1259,7 @@ line, on the screen and here, rather than left for somebody to discover.
 
 ### No migration, no new state
 
-`sync_enabled` has existed since `V110` (*"Kill switch; defaults OFF so registering a source never
+`sync_enabled` has existed since `V118` (*"Kill switch; defaults OFF so registering a source never
 starts traffic"*), and the onboarding plan's state model already assigned the concept to it. The
 plan's alternative — a finance-local `onboarding_status` column — was rejected at planning time as
 *"precisely the third status vocabulary `WorkflowStatus` was created to eliminate"* (FIN-D-087).

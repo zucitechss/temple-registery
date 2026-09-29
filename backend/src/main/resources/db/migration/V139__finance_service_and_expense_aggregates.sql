@@ -1,8 +1,8 @@
 -- ============================================================================
--- V131: Service-grained revenue aggregate and period-grained expense aggregate
+-- V139: Service-grained revenue aggregate and period-grained expense aggregate
 --       (FR4, FR8, FR10)
 --
--- Both mirror fin_agg_revenue_period (V119) deliberately: same period vocabulary,
+-- Both mirror fin_agg_revenue_period (V127) deliberately: same period vocabulary,
 -- same source-system scope, same nullable measures with companion counts, same
 -- reconciliation columns, same calc_version. A reader who understands one
 -- understands all three, and RevenueAggregationWriter's shape carries over.
@@ -39,7 +39,7 @@
 --
 -- Honest note on necessity: expense volumes are orders of magnitude below
 -- revenue, and reading fin_expense_fact directly would serve FR4 for a long
--- time. This table exists for the reason V119 gives -- not speed, but the
+-- time. This table exists for the reason V127 gives -- not speed, but the
 -- ability to WITHHOLD. A query-time SUM always reflects the newest facts,
 -- including facts the publication gate says must not be published. A stored
 -- answer can lag the facts on purpose, and a temple whose expenditure failed
@@ -53,7 +53,7 @@
 -- Both tables carry reconciliation_status, and for a manual or Excel source it
 -- will be NOT_AVAILABLE permanently: reconciliation compares a source's own
 -- total against the canonical total, and a self-reported figure has no
--- independent source to compare against. V119 already established that
+-- independent source to compare against. V127 already established that
 -- NOT_AVAILABLE publishes with a flag, so nothing is blocked -- but the reports
 -- must render that flag rather than showing a self-reported figure with the same
 -- badge as a source-verified one.
@@ -63,7 +63,7 @@ CREATE TABLE fin_agg_revenue_service (
     id                          BIGINT        NOT NULL AUTO_INCREMENT,
     temple_id                   BIGINT        NOT NULL  COMMENT 'Registry temple id. Isolation key, never hardcoded anywhere',
     source_system_id            BIGINT        NOT NULL  COMMENT 'In the grain: aggregates are NEVER summed across sources by the aggregator',
-    period_type                 VARCHAR(20)   NOT NULL  COMMENT 'FINANCIAL_YEAR | MONTH. The PeriodType spelling used by V119 and fin_reconciliation_result',
+    period_type                 VARCHAR(20)   NOT NULL  COMMENT 'FINANCIAL_YEAR | MONTH. The PeriodType spelling used by V127 and fin_reconciliation_result',
     period_key                  VARCHAR(20)   NOT NULL  COMMENT '2025-26 for a financial year, 2025-04 for a calendar month',
     service_id                  BIGINT        NOT NULL  COMMENT 'fin_service_dim.id. NOT NULL, and never a null-means-all row: facts without a service are excluded, not bucketed',
     category_id                 BIGINT        NOT NULL  COMMENT 'The service category, carried so FR8 can rank within a kind without a join',
@@ -100,7 +100,7 @@ CREATE INDEX idx_fars_service ON fin_agg_revenue_service (service_id, period_typ
 CREATE TABLE fin_agg_expense_period (
     id                          BIGINT        NOT NULL AUTO_INCREMENT,
     temple_id                   BIGINT        NOT NULL,
-    source_system_id            BIGINT        NOT NULL  COMMENT 'In the grain, for the same reason as V119',
+    source_system_id            BIGINT        NOT NULL  COMMENT 'In the grain, for the same reason as V127',
     period_type                 VARCHAR(20)   NOT NULL  COMMENT 'FINANCIAL_YEAR | MONTH',
     period_key                  VARCHAR(20)   NOT NULL,
     category_id                 BIGINT        NOT NULL  COMMENT 'fin_expense_category.id. Never a null-means-all total row',

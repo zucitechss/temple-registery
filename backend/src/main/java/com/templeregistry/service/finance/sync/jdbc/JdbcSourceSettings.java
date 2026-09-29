@@ -42,7 +42,7 @@ import java.util.Optional;
  * @param columns             the columns to read, in order. Each becomes a {@code RawRow} key
  *                            under its own name, because normalization looks up the staged
  *                            payload by the {@code source_field} a source-of-truth declaration
- *                            names (V115)
+ *                            names (V123)
  * @param recordRefColumn     the column identifying a record in the source, used as
  *                            {@code RawRow.sourceRecordRef} so a rejected row can be found again
  * @param changedAtColumn     optional; the column extraction narrows on for an incremental run

@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * DC-approved funds (V125, FR5).
+ * DC-approved funds (V133, FR5).
  *
  * <p>{@link #findByTempleIdAndWorkStatus} is the whole of FR6: ongoing works is
  * this report filtered to {@link WorkStatus#IN_PROGRESS}, which is why no

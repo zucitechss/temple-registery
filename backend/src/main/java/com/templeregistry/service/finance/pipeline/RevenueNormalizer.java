@@ -320,7 +320,7 @@ public final class RevenueNormalizer {
      * <p>Two of the constraint's eight columns are absent here and correctly so: normalization
      * runs over one batch, and a batch has exactly one temple and exactly one source system, so
      * both are constant across every key this class builds. {@code source_system_id} joining the
-     * constraint in V118 (FIN-052A) therefore needed no change here — but a future change that
+     * constraint in V126 (FIN-052A) therefore needed no change here — but a future change that
      * let one normalization run span batches would break that assumption and would have to add
      * both.
      */

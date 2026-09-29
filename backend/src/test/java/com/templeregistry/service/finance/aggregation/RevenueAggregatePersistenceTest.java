@@ -107,7 +107,7 @@ class RevenueAggregatePersistenceTest {
     // ---------------------------------------------------------------- the schema
 
     @Nested
-    @DisplayName("V119 schema")
+    @DisplayName("V127 schema")
     class Schema {
 
         @Test

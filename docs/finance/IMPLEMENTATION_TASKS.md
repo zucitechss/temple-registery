@@ -30,7 +30,7 @@ implemented as `source_timezone`. No contract conflicts remain.
 | ID | Description | Status | Depends on | Files | Tests |
 |---|---|---|---|---|---|
 | FIN-010 | Finance enum model (11 enums) | COMPLETE | FIN-000 | `entity/finance/enums/*.java` | via FIN-015 |
-| FIN-011 | V110 migration — 7 foundation tables | COMPLETE | FIN-010 | `db/migration/V110__finance_foundation.sql` | Flyway apply verified on MySQL 8.0 |
+| FIN-011 | V118 migration — 7 foundation tables | COMPLETE | FIN-010 | `db/migration/V118__finance_foundation.sql` | Flyway apply verified on MySQL 8.0 |
 | FIN-012 | Config entities (source system, capability, source-of-truth, mapping rule) | COMPLETE | FIN-011 | `entity/finance/Fin{SourceSystem,TempleCapability,SourceOfTruthDecl,MappingRule}.java` | FIN-015 |
 | FIN-013 | Operational entities (sync batch, sync error, reconciliation result) | COMPLETE | FIN-011 | `entity/finance/Fin{SyncBatch,SyncError,ReconciliationResult}.java` | FIN-015 |
 | FIN-014 | Repositories for all seven | COMPLETE | FIN-012, FIN-013 | `repository/finance/*.java` | FIN-015 |
@@ -69,7 +69,7 @@ locking, so a second process would have **delivered duplicate emails to real rec
 | FIN-023 | Declare Kollur source of truth for `REVENUE_AMOUNT` | **COMPLETE** | FIN-021 | 1 row, with all three measured rejected alternatives |
 | FIN-024 | Seed Kollur mapping rules (category, metal type) | **COMPLETE** | FIN-021 | 9 rows |
 
-**Migration.** `V111__kollur_finance_configuration.sql` — configuration data only. Creates no
+**Migration.** `V119__kollur_finance_configuration.sql` — configuration data only. Creates no
 table, alters no schema, enables no synchronization, stores no credential.
 
 **Capability count corrected during implementation.** The task brief listed 18 capabilities;
@@ -215,7 +215,7 @@ including the Kollur one.
 | FIN-050 | `fin_stg_revenue` staging table and entity | **COMPLETE** | FIN-011 (dependency on FIN-043 was not real: the table needs no extract) |
 | FIN-051 | Dimensions: `fin_revenue_category`, `fin_service_dim` | **COMPLETE** | FIN-011 |
 | FIN-052 | `fin_revenue_fact` (daily grain) | **COMPLETE** | FIN-051 |
-| FIN-052A | `uk_frf_grain` gains `source_system_id` (V118) | **COMPLETE** | FIN-052, FIN-070B |
+| FIN-052A | `uk_frf_grain` gains `source_system_id` (V126) | **COMPLETE** | FIN-052, FIN-070B |
 | FIN-053 | Validation stage, rejections to `fin_sync_error` | **COMPLETE** | FIN-050 |
 | FIN-054 | Mapping stage, unmapped values routed to `UNMAPPED` | **COMPLETE** | FIN-024, FIN-053 |
 | FIN-055 | Normalization to daily grain | **COMPLETE** | FIN-054 |
@@ -223,7 +223,7 @@ including the Kollur one.
 
 
 
-**FIN-050 delivered** — `V113__finance_revenue_staging.sql`: one table, one entity, one enum.
+**FIN-050 delivered** — `V121__finance_revenue_staging.sql`: one table, one entity, one enum.
 No connector, no transport, no reader, no service, no repository.
 
 **The dependency on FIN-043 in the table above was not real.** It was written when staging was
@@ -277,7 +277,7 @@ ignored `CHECK` before v7.2, so it would be enforcement that silently is not).
 | Rejected records investigable? | YES | row retained with reason and payload; `should_retainRejection_when_rowFailsValidation` |
 | Anything outside FIN-050 scope? | NO | no status transition is implemented; every row lands `RECEIVED` |
 | Pipeline testable with synthetic rows, no temple database? | YES | the 20 tests do exactly that |
-**FIN-051 / FIN-052 delivered** — `V112__finance_canonical_revenue.sql`: two dimensions, one
+**FIN-051 / FIN-052 delivered** — `V120__finance_canonical_revenue.sql`: two dimensions, one
 fact, twelve seeded category rows, three entities, two enums. No connector, no staging, no
 transport, no service, no repository.
 
@@ -416,7 +416,7 @@ Two facts resolve it:
 
 | # | Item |
 |---|---|
-| 1 | `V114` — add `fin_mapping_rule.priority`; create `fin_stg_revenue_mapping` |
+| 1 | `V122` — add `fin_mapping_rule.priority`; create `fin_stg_revenue_mapping` |
 | 2 | `MappingOutcome` enum — `MAPPED`, `UNMAPPED`, `AMBIGUOUS`, `NOT_APPLICABLE`, `INVALID_CONFIGURATION` |
 | 3 | `FinStgRevenueMapping` entity + repository |
 | 4 | `RevenueCategoryMapper` — the deterministic resolver, pure and unit-testable |
@@ -455,14 +455,14 @@ an update of the mapping row, not a rewrite of what the source said.
 ### FIN-055 — Normalization to daily grain
 
 **Delivered.** `FinancialYear`, `RevenueField`, `StagedPayload`, `RevenueNormalizer` and
-`RevenueNormalizationStage`, plus `V115` declaring the business-date field for the first source.
+`RevenueNormalizationStage`, plus `V123` declaring the business-date field for the first source.
 The two things every earlier stage deferred: amounts and dates.
 
 **It reads a payload only where a declaration says to.** This is the first stage entitled to
 look at a money value, and ADR-008 is why it does not pick the field itself: for the first
 onboarded source three columns plausibly represent revenue and disagree by 41%, and the one
 that looks like an improvement is wrong. The code knows metric names; `fin_source_of_truth_decl`
-names the fields. `V115` adds the declaration for the business date, which nothing had declared
+names the fields. `V123` adds the declaration for the business date, which nothing had declared
 — the amount could be read and never placed in time.
 
 **The open question from FIN-053 is settled** (FIN-D-033): a declaration's `source_field` names
@@ -514,7 +514,7 @@ support it (FIN-D-044).
 
 ### FIN-052A — The canonical grain distinguishes source systems
 
-**Migration:** `V118__finance_fact_grain_source_system.sql`. **Decision:** FIN-D-067, acting on
+**Migration:** `V126__finance_fact_grain_source_system.sql`. **Decision:** FIN-D-067, acting on
 FIN-070B D1. **Closes:** limitation 47.
 
 `uk_frf_grain` was seven columns and omitted `source_system_id`, although the column has always
@@ -745,7 +745,7 @@ Verified by reading source and migrations, not documentation.
 
 | Thing | Where | State |
 |---|---|---|
-| `fin_reconciliation_result` | `V110` | table exists, entity + repository exist, **nothing writes it** |
+| `fin_reconciliation_result` | `V118` | table exists, entity + repository exist, **nothing writes it** |
 | `ReconciliationStatus` | enum | `PASSED`, `FAILED`, `NOT_AVAILABLE` |
 | `SyncStatus.RECONCILE_FAILED` | enum | exists, unused |
 | `SyncStage.RECONCILE` | enum | exists, unused |
@@ -817,7 +817,7 @@ deletion or restatement of any kind, and no connector implementation.
 
 ### Delivered
 
-`RevenueReconciliationStage` + `ReconciliationCheckType` + `V116`, wired as the orchestrator's
+`RevenueReconciliationStage` + `ReconciliationCheckType` + `V124`, wired as the orchestrator's
 last stage and registered as one explicit `@Bean` (FIN-D-008). No new table and no new lifecycle
 enum: `fin_reconciliation_result`, `ReconciliationStatus`, `SyncStatus.RECONCILE_FAILED` and
 `SyncStage.RECONCILE` all existed and were all unused.
@@ -930,7 +930,7 @@ period looks like in the table.
 
 **COMPLETE, verified against MySQL 8.0.** Decision FIN-D-068.
 
-**Migration `V119__finance_revenue_period_aggregate.sql`** creates `fin_agg_revenue_period` at the
+**Migration `V127__finance_revenue_period_aggregate.sql`** creates `fin_agg_revenue_period` at the
 grain FIN-070B decided:
 
 ```
@@ -1022,7 +1022,7 @@ any finance API at all.
 **FIN-054A-BE delivers** nine endpoints under `/api/v1/finance` — see
 [API_CONTRACT.md §7](API_CONTRACT.md) — with authorization on the service implementation,
 server-side resolution of `sourceSystemId` to its temple and district, same-transaction audit,
-optimistic locking (V117), an allow-listed sort, and source-value format validation shared with the
+optimistic locking (V125), an allow-listed sort, and source-value format validation shared with the
 mapping engine.
 
 Decisions: FIN-D-062 (namespace validation), FIN-D-063 (audit in the caller's transaction),
@@ -1144,7 +1144,7 @@ There is no `FIN-017` in this numbering — Phase 1 ends at FIN-016. The next ta
 | ID | Description | Status | Why it is next |
 |---|---|---|---|
 | ~~FIN-030~~ | `TempleFinanceConnector` contract | **COMPLETE** | Delivered |
-| ~~FIN-021…024~~ | Kollur configuration seed | **COMPLETE** | Delivered as `V111` |
+| ~~FIN-021…024~~ | Kollur configuration seed | **COMPLETE** | Delivered as `V119` |
 | ~~FIN-031~~ | Connector registry resolving `connector_bean` to a bean | **COMPLETE** | Delivered; Kollur's configured connector now fails resolution explicitly |
 | **FIN-051 / FIN-052** | Canonical dimensions and `fin_revenue_fact` at daily grain | **RECOMMENDED NEXT** | The only substantial work needing neither Q4 nor a connector: FIN-051 depends on FIN-011 alone, and the fact table's grain and unique constraint are what make loading idempotent. Every later stage — validation, mapping, aggregation, reconciliation — writes into these tables, so their shape should be settled before a connector starts producing rows |
 | FIN-032 | Probe and capability wiring into onboarding | AVAILABLE | Smaller, but it validates configuration against connectors that do not exist yet, so it can only be exercised against fakes until FIN-040 |
@@ -1193,7 +1193,7 @@ frontend feature module. No connector package touched, no worker touched, no ADR
 
 | Piece | What |
 |---|---|
-| `V120__finance_source_system_version.sql` | One additive column — `version INT NOT NULL DEFAULT 0` on `fin_source_system`. Same reasoning as V117 applied to mapping rules: two administrators can load the same row and save different connector beans, and without a lock the second silently wins |
+| `V128__finance_source_system_version.sql` | One additive column — `version INT NOT NULL DEFAULT 0` on `fin_source_system`. Same reasoning as V125 applied to mapping rules: two administrators can load the same row and save different connector beans, and without a lock the second silently wins |
 | `OnboardingReadinessValidator` | Pure, static, no Spring. 13 checks over a value record |
 | `SourceSystemAdminService(Impl)` | Register, read, update, readiness. `ADMIN_ONLY` throughout (FIN-D-076) |
 | `FinanceOnboardingController` | Four endpoints under `/api/v1/finance`. No activation endpoint, no probe endpoint, no delete |

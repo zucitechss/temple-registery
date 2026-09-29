@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Service-grained revenue aggregates (V131, FR8 and FR10).
+ * Service-grained revenue aggregates (V139, FR8 and FR10).
  *
  * <p>Empty until service resolution populates {@code fin_revenue_fact.service_id}
  * (FIN-D-069). The interface exists now because it is part of the schema

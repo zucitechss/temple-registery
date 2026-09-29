@@ -175,7 +175,7 @@ public final class OnboardingReadinessValidator {
      *
      * <p>An undeclared capability and one declared {@code NOT_AVAILABLE} look identical to every
      * reader downstream, and they are not the same statement: the second says the source does not
-     * record this, the first says nobody has looked. `V111` declared all nineteen for the first
+     * record this, the first says nobody has looked. `V119` declared all nineteen for the first
      * onboarded source precisely so that *"'not declared' never has to be guessed at"*, and this is
      * that intent enforced rather than left as a convention one migration happened to follow.
      *

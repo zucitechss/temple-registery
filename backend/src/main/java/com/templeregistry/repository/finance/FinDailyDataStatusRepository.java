@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * One row per temple, capability and business date (V129, FR17, FR19, FR20).
+ * One row per temple, capability and business date (V137, FR17, FR19, FR20).
  *
  * <p>{@link #findGap} is what both the alert severity and the FR20 clearing
  * decision are computed from: the still-missing days, in order. Severity is

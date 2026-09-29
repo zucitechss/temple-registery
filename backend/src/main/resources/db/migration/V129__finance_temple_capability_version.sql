@@ -1,9 +1,9 @@
 -- FIN-140-B — Optimistic locking for administratively edited capability declarations.
 --
--- V120 added the same column to fin_source_system and recorded why this table was left out:
+-- V128 added the same column to fin_source_system and recorded why this table was left out:
 -- "fin_temple_capability and fin_source_of_truth_decl deliberately do NOT get a version column
 -- here. Slice 140-A does not write either table, and a lock column on a table nothing edits is
--- the dead weight V117's own note describes. They get one when the slice that writes them does."
+-- the dead weight V125's own note describes. They get one when the slice that writes them does."
 --
 -- This is that slice. A capability declaration is now human-edited, and it is the row that decides
 -- whether a metric renders as a figure or as a reason. Two administrators can load the same

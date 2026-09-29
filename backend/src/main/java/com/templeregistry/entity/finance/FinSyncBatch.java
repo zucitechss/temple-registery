@@ -134,7 +134,7 @@ public class FinSyncBatch {
     private SyncTrigger triggeredBy = SyncTrigger.SCHEDULER;
 
     /**
-     * The person who caused this batch (V122).
+     * The person who caused this batch (V130).
      *
      * <p>Null for {@link SyncTrigger#SCHEDULER}, and that is the honest value
      * rather than a missing one: nobody entered a scheduled run. It is set for

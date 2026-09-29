@@ -8,7 +8,7 @@ package com.templeregistry.entity.finance.enums;
  * than a technical one, so {@link #PUSH_AGENT} is often the only deployable
  * option and must not be treated as a fallback.
  *
- * <h2>Two of these have no connector (V122)</h2>
+ * <h2>Two of these have no connector (V130)</h2>
  *
  * <p>{@link #MANUAL_ENTRY} and {@link #FILE_UPLOAD} exist because the Financial
  * Dashboard specification adds two ways for data to enter the platform that are

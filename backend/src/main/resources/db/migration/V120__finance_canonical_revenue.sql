@@ -1,5 +1,5 @@
 -- ============================================================================
--- V112: Canonical Revenue Model (FIN-051, FIN-052)
+-- V120: Canonical Revenue Model (FIN-051, FIN-052)
 --
 -- The reporting boundary of the finance platform. Everything above this line
 -- reads from these tables; nothing above this line ever queries a temple
@@ -27,7 +27,7 @@
 --   * No temple id, temple name or category belonging to any one temple. The
 --     first onboarded temple is one row of data in a table shaped for many.
 --
--- No FOREIGN KEY constraints, per FIN-D-003 and consistent with V10 and V110:
+-- No FOREIGN KEY constraints, per FIN-D-003 and consistent with V10 and V118:
 -- relationships are enforced by the application and supported by indexes.
 -- ============================================================================
 

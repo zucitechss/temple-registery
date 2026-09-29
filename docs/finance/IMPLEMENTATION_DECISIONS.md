@@ -34,7 +34,7 @@ was checked, not assumed; it is what makes the sync worker able to write configu
 
 ## FIN-D-002 — No credential, host or connection field on `fin_source_system`
 
-**Date:** 2026-09-16 · **Affects:** `FinSourceSystem`, V110, FIN-020
+**Date:** 2026-09-16 · **Affects:** `FinSourceSystem`, V118, FIN-020
 
 **Decision.** The table carries `credential_ref` — an alias — and nothing else connection
 related. No host, port, JDBC URL or password column exists. `source_database_name` is
@@ -56,9 +56,9 @@ inspects the entity by reflection and fails if a field containing `password`, `h
 
 ---
 
-## FIN-D-003 — No foreign-key constraints in V110
+## FIN-D-003 — No foreign-key constraints in V118
 
-**Date:** 2026-09-16 · **Affects:** V110
+**Date:** 2026-09-16 · **Affects:** V118
 
 **Decision.** Relationships are enforced by the application and supported by indexes. No
 `FOREIGN KEY` clauses.
@@ -77,7 +77,7 @@ that source systems are created through a single onboarding path, not ad hoc.
 
 ## FIN-D-004 — `sync_enabled` defaults to `false`
 
-**Date:** 2026-09-16 · **Affects:** `FinSourceSystem`, V110
+**Date:** 2026-09-16 · **Affects:** `FinSourceSystem`, V118
 
 **Decision.** Column default `0`; entity `@Builder.Default false`.
 
@@ -109,7 +109,7 @@ consciously.
 
 ## FIN-D-006 — Reconciliation tolerance defaults to zero
 
-**Date:** 2026-09-16 · **Affects:** `FinReconciliationResult`, V110
+**Date:** 2026-09-16 · **Affects:** `FinReconciliationResult`, V118
 
 **Decision.** `tolerance_pct` defaults to `0.0000`.
 
@@ -356,9 +356,9 @@ and impossible at Kollur volume.
 
 ## FIN-D-014 — The Kollur seed is conditional on the temple existing
 
-**Date:** 2026-09-16 · **Affects:** `V111__kollur_finance_configuration.sql`
+**Date:** 2026-09-16 · **Affects:** `V119__kollur_finance_configuration.sql`
 
-**Decision.** Every statement in V111 is guarded by
+**Decision.** Every statement in V119 is guarded by
 `WHERE EXISTS (SELECT 1 FROM temples WHERE id = 300001 AND is_deleted = 0)`. In a database
 without that temple, the migration succeeds and seeds nothing.
 
@@ -378,9 +378,9 @@ must not accumulate.
 temple records and must not invent one.
 
 **Operational consequence, which must not be forgotten.** A Flyway versioned migration runs
-once. In an environment where temple 300001 is created *after* V111 has run, the seed will
+once. In an environment where temple 300001 is created *after* V119 has run, the seed will
 never apply, and Kollur configuration must be applied through the onboarding path (FIN-140)
-or by re-running the statements manually. V111 is idempotent, so re-running it is safe.
+or by re-running the statements manually. V119 is idempotent, so re-running it is safe.
 
 **Tested.** `KollurFinanceConfigurationMigrationTest` asserts zero rows after migration and
 before the temple is created, then applies the seed and asserts every row.
@@ -776,7 +776,7 @@ possible without parsing in application code. Byte-level fidelity would buy noth
 investigator needs.
 
 **Consequence.** Any future check of a staged payload must compare parsed content, not text.
-The claim in the FIN-050 handoff section is corrected in place; `V113` itself is **not** edited,
+The claim in the FIN-050 handoff section is corrected in place; `V121` itself is **not** edited,
 because changing an applied migration's text changes its Flyway checksum and would fail
 validation on any database that has already run it.
 
@@ -925,7 +925,7 @@ figure.
 **Rejected.** Ordering by specificity of the namespace, inferred from how many rules share it.
 It guesses at intent from a statistic, and changes behaviour when an unrelated rule is added.
 
-**Consequence.** `V114` promotes `SEVA_CODE:%` rules to 200. Expressed as a predicate on the
+**Consequence.** `V122` promotes `SEVA_CODE:%` rules to 200. Expressed as a predicate on the
 namespace rather than on a temple id, so it is a statement about specificity rather than about
 one source, and a source not using that namespace is unaffected.
 
@@ -1366,7 +1366,7 @@ must be given its window explicitly.
 
 ## FIN-D-050 — Reconciliation records what it compared, because the checks are not equal evidence
 
-**Date:** 2026-09-17 · **Affects:** `fin_reconciliation_result.check_type`, `ReconciliationCheckType`, `V116`
+**Date:** 2026-09-17 · **Affects:** `fin_reconciliation_result.check_type`, `ReconciliationCheckType`, `V124`
 
 **Decision.** Every reconciliation row carries a `check_type`. Two values name checks that compare
 this platform's numbers against each other (`STAGE_COMPLETENESS`, `REJECTION_ACCOUNTING`); two name
@@ -1459,7 +1459,7 @@ reconciliation and deletion detection are both unavailable for it, whatever the 
 **Decision.** Reconciliation runs as the last stage of a pipeline run. A check that found a real
 disagreement ends the batch `RECONCILE_FAILED`; otherwise `SUCCESS`. A stage that *threw* still
 ends the batch `FAILED`. No new status was added — `SyncStatus.RECONCILE_FAILED` and
-`SyncStage.RECONCILE` have existed unused since V110.
+`SyncStage.RECONCILE` have existed unused since V118.
 
 **Why not `FAILED`.** The rows are loaded and inspectable. What is in doubt is whether they are the
 source's, not whether they were processed. `FAILED` puts a batch on the retry path, where
@@ -1712,13 +1712,13 @@ not the rule insert — and asserts no rule survives.
 
 ## FIN-D-064 — `fin_mapping_rule` gets a version column, and the stale-read check is explicit
 
-**Date:** 2026-09-18 · **Affects:** V117, `FinMappingRule`, `MappingAdminServiceImpl`
+**Date:** 2026-09-18 · **Affects:** V125, `FinMappingRule`, `MappingAdminServiceImpl`
 
 Until this task nothing outside a migration wrote `fin_mapping_rule`, so concurrency was not a
 question. An administrative API makes it one, on a row that decides which category a temple's income
 is counted under.
 
-**Decision.** V117 adds `version INT NOT NULL DEFAULT 0` and the entity carries `@Version`. Every
+**Decision.** V125 adds `version INT NOT NULL DEFAULT 0` and the entity carries `@Version`. Every
 write endpoint requires the version the caller loaded.
 
 **Additive and backward compatible.** Existing rows take 0, which is what Hibernate expects for a row
@@ -1784,9 +1784,9 @@ there is no authorization model for a pipeline trigger. Asserted by
 
 ## FIN-D-067 — `source_system_id` joins the canonical grain, and the migration was never the hard part
 
-**Date:** 2026-09-18 · **Affects:** `fin_revenue_fact.uk_frf_grain`, V118, ADR-003, FIN-070B D1
+**Date:** 2026-09-18 · **Affects:** `fin_revenue_fact.uk_frf_grain`, V126, ADR-003, FIN-070B D1
 
-`uk_frf_grain` was declared over seven columns in V112 and omitted `source_system_id`, although the
+`uk_frf_grain` was declared over seven columns in V120 and omitted `source_system_id`, although the
 column has always been `NOT NULL` and populated on every row. Two source systems reporting the same
 temple, business date, service, category, payment mode, counter and operator therefore collided, and
 the loader's `ON DUPLICATE KEY UPDATE` *replaced* the first source's figures with the second's —
@@ -1794,7 +1794,7 @@ carrying `source_system_id` and `sync_batch_id` across with them. The first sour
 added to; it was gone, with nothing recording that it had existed (limitation 47, found while writing
 the FIN-060 scope test).
 
-**Decision.** V118 widens the constraint to eight columns, with `source_system_id` second so the
+**Decision.** V126 widens the constraint to eight columns, with `source_system_id` second so the
 index also serves the `(temple_id, source_system_id)` prefix every source-scoped reconciliation query
 already filters on. The three generated stand-ins are untouched and still carry the nullable members,
 because MySQL and TiDB treat NULLs in a unique index as distinct (FIN-D-018).
@@ -1806,7 +1806,7 @@ distinct over eight, so the ALTER cannot fail on data, and with `source_system_i
 and populated there is nothing to backfill at any table size. What actually expires is narrower —
 once a second source has overwritten a first, the destroyed figures are unrecoverable, because the
 upsert replaced them in place and no history of prior values exists. The real deadline was therefore
-the **second source system**, not the first fact. FIN-070B recorded that correction; V118 acts on it
+the **second source system**, not the first fact. FIN-070B recorded that correction; V126 acts on it
 early anyway, because it costs one index swap and removes a class of silent loss permanently.
 
 **ADR-003 is amended in substance and not overturned.** "A temple's figure for a day is one figure"
@@ -1822,7 +1822,7 @@ the two still agree. A future change letting one normalization run span batches 
 
 **`source_system_id = VALUES(source_system_id)` was removed from the upsert's update list.** Once the
 column is part of the key, a matched row necessarily already holds the value being written, so the
-assignment is a no-op. Before V118 it was the mechanism by which one source took ownership of
+assignment is a no-op. Before V126 it was the mechanism by which one source took ownership of
 another's figures.
 
 **What this does not do.** It recovers nothing already overwritten. It does not make the platform
@@ -1841,7 +1841,7 @@ by this very defect, on a day the old seven-column grain could not have kept apa
 
 ## FIN-D-068 — The aggregate table, and four deliberate departures from the plan that designed it
 
-**Date:** 2026-09-22 · **Affects:** `fin_agg_revenue_period`, V119, FIN-070B §11.1, ADR-011
+**Date:** 2026-09-22 · **Affects:** `fin_agg_revenue_period`, V127, FIN-070B §11.1, ADR-011
 
 FIN-070 builds ADR-011's precomputed aggregate. FIN-070B specified its columns; four of them changed
 once the code was written, and each change is a narrowing, not an addition.
@@ -1863,7 +1863,7 @@ gets them.
 FIN-070B expected net to depend on a capability lookup ("store it only when `CANCELLATION` is
 `AVAILABLE`"). It does not need one: if the aggregator nulls `cancelled_amount` whenever *any*
 contributing fact did not record cancellations, then plain SQL NULL propagation gives exactly the
-right answer, and the database can own the arithmetic as it does in V112. This removes a dependency
+right answer, and the database can own the arithmetic as it does in V120. This removes a dependency
 rather than adding one, and it is why the aggregator needs no repository at all.
 
 **No `fin_agg_run` table yet.** A run record has no content until something orchestrates runs, which
@@ -1902,7 +1902,7 @@ Verified by 82 tests: 66 that need no database, and 16 in `RevenueAggregatePersi
 migration, entity or aggregator is written for it yet. Building it now would create a table that
 cannot receive a row.
 
-**The finding.** `fin_revenue_fact.service_id` is nullable by design — V112 says *"NULL where revenue
+**The finding.** `fin_revenue_fact.service_id` is nullable by design — V120 says *"NULL where revenue
 is not a service (e.g. a donation box)"* — but in practice it is not merely sometimes null, it is
 **always** null. Three independent checks:
 
@@ -2186,7 +2186,7 @@ never disagree with its own contents — which a separately-stored status field 
 two rules only tie if a single record carries both of their staged fields — and no registry table
 records which fields a source emits together, so this cannot be established from configuration.
 
-Blocking would refuse the first onboarded source's own configuration. `V114` set `SEVA_CODE:430` to
+Blocking would refuse the first onboarded source's own configuration. `V122` set `SEVA_CODE:430` to
 priority 200 and deliberately left the four `SANNIDHI` and two `STREAM` rules at 100, recording that
 they *"do not overlap each other"*. A check that refuses a configuration whose author reasoned
 through the exact question and wrote the answer down is a false positive, and false blockers are how
@@ -2227,7 +2227,7 @@ what exists, and the catalogue is served by the API rather than held as a fronte
 
 **Why.** An undeclared capability and one declared `NOT_AVAILABLE` are indistinguishable to every
 reader downstream, and they are different statements: the second says the source does not record
-this, the first says nobody has looked. `V111` declared all nineteen for the first onboarded source
+this, the first says nobody has looked. `V119` declared all nineteen for the first onboarded source
 precisely so that *"'not declared' never has to be guessed at"* — until now that was a convention
 one migration happened to follow, with nothing to make the next onboarding follow it.
 
@@ -2281,7 +2281,7 @@ would still have to share the scope helpers rather than copy them.
 ## FIN-D-083 — `fin_source_of_truth_decl` gets no `@Version` column, and no migration
 
 **Decision:** FIN-140-C adds no schema change. The entity keeps its domain `version` and gains no
-JPA optimistic lock, unlike `fin_source_system` (V120) and `fin_temple_capability` (V121).
+JPA optimistic lock, unlike `fin_source_system` (V128) and `fin_temple_capability` (V129).
 
 **Why.** Those two tables are edited in place, so an optimistic lock guards the thing that
 actually happens to them. This table is append-only: a change is a new row, and the only in-place
@@ -2355,7 +2355,7 @@ declaration applies either way, and whether anybody has confirmed it is separate
 That distinction is not hypothetical. Both declarations for the first onboarded source carry null
 approval deliberately — their evidence is inference from a filter predicate, and the source has
 never been reachable to confirm it. Auto-approving whatever an administrator saves would erase
-that state and, with it, the reason V115 was written the way it was.
+that state and, with it, the reason V123 was written the way it was.
 
 **Consequence.** An unapproved declaration is in force and readiness says nothing about it. That
 is a real gap and it is deliberate for now: making it a warning would change the first onboarded

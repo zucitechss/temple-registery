@@ -10,7 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
-/** Period-grained expenditure aggregates (V131, FR1.3 and FR4). */
+/** Period-grained expenditure aggregates (V139, FR1.3 and FR4). */
 @Repository
 public interface FinAggExpensePeriodRepository extends JpaRepository<FinAggExpensePeriod, Long> {
 

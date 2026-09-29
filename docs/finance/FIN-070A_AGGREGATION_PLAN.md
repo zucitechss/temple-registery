@@ -80,7 +80,7 @@ simplest possible implementation also happens to give.
 | Artefact | Path |
 |---|---|
 | Fact entity | `entity/finance/FinRevenueFact.java` |
-| Fact DDL | `db/migration/V112__finance_canonical_revenue.sql` |
+| Fact DDL | `db/migration/V120__finance_canonical_revenue.sql` |
 | Fact repository | `repository/finance/FinRevenueFactRepository.java` |
 | Load stage | `service/finance/pipeline/RevenueLoadStage.java` |
 | Normalization | `service/finance/pipeline/RevenueNormalizationStage.java`, `RevenueNormalizer.java` |
@@ -89,7 +89,7 @@ simplest possible implementation also happens to give.
 | Reconciliation | `service/finance/pipeline/RevenueReconciliationStage.java` |
 | Gate | `service/finance/publication/ReconciliationGate.java` |
 | Orchestrator | `service/finance/pipeline/FinancePipelineOrchestrator.java` |
-| Batch | `entity/finance/FinSyncBatch.java`, `V110__finance_foundation.sql` |
+| Batch | `entity/finance/FinSyncBatch.java`, `V118__finance_foundation.sql` |
 | Capability | `entity/finance/FinTempleCapability.java`, `FinTempleCapabilityRepository.java` |
 | Source system | `entity/finance/FinSourceSystem.java` |
 | Jurisdiction | `security/JurisdictionGuard.java`, `security/RoleConstants.java` |
@@ -591,7 +591,7 @@ Recorded as open decision **D3** and risk **R2**.
 ## 11. Database design
 
 No migration is created by this task. The following is the recommended shape for FIN-070's
-migration (`V118`, next free number — `V117` is the mapping-rule version column).
+migration (`V126`, next free number — `V125` is the mapping-rule version column).
 
 ### 11.1 `fin_agg_revenue_period`
 
@@ -628,7 +628,7 @@ CONSTRAINT uk_farp_grain UNIQUE (
 ```
 
 Indexes: `(temple_id, financial_year, period_type)`, `(temple_id, period_type, period_key)`,
-`(agg_run_id)`. No foreign keys, consistent with FIN-D-003, V10, V110 and V112.
+`(agg_run_id)`. No foreign keys, consistent with FIN-D-003, V10, V118 and V120.
 
 Deliberately **not** a generated `net_amount`: unlike the fact table, net here must be NULL for a
 reason the database cannot see (the temple's declared cancellation capability), so the computation
@@ -641,13 +641,13 @@ Key `(temple_id, source_system_id, financial_year, service_id)`, with `category_
 `rate_card_amount`, `availability`, `reconciliation_status`, `agg_run_id`, `computed_at`.
 
 `pct_of_total` is **not** stored (§5.6). `rate_card_amount` is copied from `fin_service_dim` as
-context and must never be summed as revenue — V112's own comment makes that point about the
+context and must never be summed as revenue — V120's own comment makes that point about the
 dimension column.
 
 `service_id` is `NOT NULL` here: facts with a NULL `service_id` are not services and belong in
 `fin_agg_revenue_period` only. Excluding them is correct; silently folding them into a
 "service = none" row in a *service* report would invite a reader to treat hundi collections as a
-seva, which is the specific error V112's category vocabulary exists to prevent.
+seva, which is the specific error V120's category vocabulary exists to prevent.
 
 ### 11.3 `fin_agg_run`
 
@@ -945,7 +945,7 @@ leaves the architecture record ambiguous.
 documents a seven-column grain; extend the existing grain tests. Its own task, its own commit.
 
 **FIN-070 — `fin_agg_revenue_period`.**
-Migration `V118`; entity + repository with an upsert mirroring `FinRevenueFactRepository.upsert`;
+Migration `V126`; entity + repository with an upsert mirroring `FinRevenueFactRepository.upsert`;
 `RevenuePeriodAggregator` computing FY and MONTH candidates from facts, resolving availability from
 `fin_temple_capability`, calling `requirePublishable` immediately before writing; `fin_agg_run`
 recording every outcome. Tests: §15.1, §15.2, §15.3.

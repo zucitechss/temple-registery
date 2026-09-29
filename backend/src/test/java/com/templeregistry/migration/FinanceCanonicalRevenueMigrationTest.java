@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class FinanceCanonicalRevenueMigrationTest {
 
     private static final Path CANONICAL_MIGRATION = Path.of(
-            "src", "main", "resources", "db", "migration", "V112__finance_canonical_revenue.sql");
+            "src", "main", "resources", "db", "migration", "V120__finance_canonical_revenue.sql");
 
     private static final long TEMPLE_A = 900001L;
     private static final long TEMPLE_B = 900002L;
@@ -269,7 +269,7 @@ class FinanceCanonicalRevenueMigrationTest {
     class SourceSystemGrain {
 
         /**
-         * The defect V118 closes, and it never announced itself. Before V118 the second insert
+         * The defect V126 closes, and it never announced itself. Before V126 the second insert
          * did not fail — an upsert accepted it as a duplicate key and <em>replaced</em> the first
          * source's money, carrying the row's source_system_id and sync_batch_id across with it.
          * Nothing anywhere recorded that the first figure had existed (limitation 47).
@@ -356,7 +356,7 @@ class FinanceCanonicalRevenueMigrationTest {
 
         /**
          * The constraint itself, read back from the server. Every other test here proves a
-         * behaviour the index happens to produce; this one proves the index is what V118 says it
+         * behaviour the index happens to produce; this one proves the index is what V126 says it
          * is, including the column order that makes {@code (temple_id, source_system_id)} a usable
          * prefix for the source-scoped reconciliation queries.
          */
@@ -382,9 +382,9 @@ class FinanceCanonicalRevenueMigrationTest {
                     .isEqualTo("0");
         }
 
-        /** V118 changes an index and nothing else. No column may have moved or relaxed. */
+        /** V126 changes an index and nothing else. No column may have moved or relaxed. */
         @Test
-        @DisplayName("V118 left source_system_id NOT NULL and the generated columns intact")
+        @DisplayName("V126 left source_system_id NOT NULL and the generated columns intact")
         void should_leaveColumnsUntouched_when_grainWasWidened() throws SQLException {
             assertThat(scalar("SELECT is_nullable FROM information_schema.columns "
                     + "WHERE table_schema = DATABASE() AND table_name = 'fin_revenue_fact' "

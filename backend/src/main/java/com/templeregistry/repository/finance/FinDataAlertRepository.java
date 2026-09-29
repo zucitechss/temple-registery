@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Standing missed-entry conditions (V129, FR17, FR18, FR20).
+ * Standing missed-entry conditions (V137, FR17, FR18, FR20).
  *
  * <p>At most one OPEN row per temple and capability. MySQL and TiDB have no
  * partial unique index, so that invariant is enforced by the alert service and

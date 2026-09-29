@@ -8,7 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
-/** Perpetual seva bookings (V127, FR11). */
+/** Perpetual seva bookings (V135, FR11). */
 @Repository
 public interface FinNirantaraSubscriptionRepository
         extends JpaRepository<FinNirantaraSubscription, Long> {

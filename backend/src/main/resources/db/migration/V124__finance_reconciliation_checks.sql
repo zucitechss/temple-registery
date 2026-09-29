@@ -1,8 +1,8 @@
 -- ============================================================================
--- V116: Make a reconciliation result say what it compared, and stop it being
+-- V124: Make a reconciliation result say what it compared, and stop it being
 --       written twice (FIN-060)
 --
--- fin_reconciliation_result has existed since V110 and nothing has ever written
+-- fin_reconciliation_result has existed since V118 and nothing has ever written
 -- a row to it. Two things are missing before anything can.
 --
 -- 1. WHAT WAS COMPARED. The table was shaped for one kind of check: a total the

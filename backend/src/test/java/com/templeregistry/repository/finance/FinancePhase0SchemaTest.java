@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The Phase 0 schema contract (V122&ndash;V131), against a real MySQL 8.0 container with the real
+ * The Phase 0 schema contract (V130&ndash;V139), against a real MySQL 8.0 container with the real
  * migrations.
  *
  * <p>Phase 0 exists so that two people can build the ingestion write path and the reporting read
@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p><b>It has to be a container.</b> The {@code test} profile runs H2 with
  * {@code ddl-auto: create-drop} and Flyway disabled, which generates the schema from the entities
  * and so cannot disagree with them — a migration that forgot a unique key would pass. It also
- * carries no seed rows, and the expenditure taxonomy V124 seeds is part of the contract. Follows
+ * carries no seed rows, and the expenditure taxonomy V132 seeds is part of the contract. Follows
  * {@code RevenueAggregatePersistenceTest}, which established this setup for the same reason.
  *
  * <p>Loading the JPA context is again half the value: Spring Data validates every derived finder
@@ -156,14 +156,14 @@ class FinancePhase0SchemaTest {
                 .build()).getId();
 
         salariesCategoryId = expenseCategories.findByCategoryCodeAndDeletedFalse("SALARIES")
-                .orElseThrow(() -> new AssertionError("V124 seed missing: SALARIES"))
+                .orElseThrow(() -> new AssertionError("V132 seed missing: SALARIES"))
                 .getId();
     }
 
-    // ── V122: manual entry is a source system ───────────────────────────────
+    // ── V130: manual entry is a source system ───────────────────────────────
 
     /**
-     * A manual channel has no connector bean and never will. Until V122 the column was NOT NULL,
+     * A manual channel has no connector bean and never will. Until V130 the column was NOT NULL,
      * which would have forced a placeholder bean name the registry could later try to resolve.
      */
     @Test
@@ -189,8 +189,8 @@ class FinancePhase0SchemaTest {
     }
 
     /**
-     * The V122 key widening. FR7 sources precious-metal counts from the temple software and value
-     * from staff input — two sources, one temple, one subject. Before V122 the second declaration
+     * The V130 key widening. FR7 sources precious-metal counts from the temple software and value
+     * from staff input — two sources, one temple, one subject. Before V130 the second declaration
      * was rejected.
      */
     @Test
@@ -248,7 +248,7 @@ class FinancePhase0SchemaTest {
         assertThat(scheduled.getActorUserId()).isNull();
     }
 
-    // ── V123: the FR8 special-seva flag ─────────────────────────────────────
+    // ── V131: the FR8 special-seva flag ─────────────────────────────────────
 
     /** Nothing is special until somebody says so, and that is not the same as no sevas. */
     @Test
@@ -274,12 +274,12 @@ class FinancePhase0SchemaTest {
                 .isEqualTo("SAHASRANAMA");
     }
 
-    // ── V124: the record grain every new fact shares ────────────────────────
+    // ── V132: the record grain every new fact shares ────────────────────────
 
     /**
      * The grain both streams build against. A re-run restates the record rather than adding a
      * second one — the same idempotency guarantee {@code uk_frf_grain} gives revenue, at a
-     * different grain and for the reason set out in the V124 header.
+     * different grain and for the reason set out in the V132 header.
      */
     @Test
     void should_rejectDuplicate_when_theSameSourceRecordIsLoadedTwice() {
@@ -368,7 +368,7 @@ class FinancePhase0SchemaTest {
                 .endsWith("UNMAPPED");
     }
 
-    // ── V125, V126: funds, and the two-channel precious-item subject ────────
+    // ── V133, V134: funds, and the two-channel precious-item subject ────────
 
     /** FR6 is FR5 filtered. If this finder works, no work-project table is needed. */
     @Test
@@ -428,7 +428,7 @@ class FinancePhase0SchemaTest {
         });
     }
 
-    // ── V128, V129, V130: staging, freshness, uploads ───────────────────────
+    // ── V136, V137, V138: staging, freshness, uploads ───────────────────────
 
     /** The same record twice in one batch is impossible, whichever lane staged it. */
     @Test

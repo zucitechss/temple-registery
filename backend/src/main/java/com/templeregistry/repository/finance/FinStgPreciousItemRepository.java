@@ -8,7 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 /**
- * Staged PreciousItem rows (V128).
+ * Staged PreciousItem rows (V136).
  *
  * <p>Nothing outside the pipeline reads this table. Writes come from the
  * staging step of the PreciousItem ingestion stages; reads are the validator, the

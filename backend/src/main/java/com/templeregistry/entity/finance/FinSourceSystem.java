@@ -65,7 +65,7 @@ public class FinSourceSystem extends BaseEntity {
      * Spring bean name of the {@code TempleFinanceConnector} implementation,
      * e.g. {@code kollurFinanceConnector}. Resolved only inside the sync worker.
      *
-     * <p><b>Null for a manual channel</b> (V122). {@code MANUAL_ENTRY} and
+     * <p><b>Null for a manual channel</b> (V130). {@code MANUAL_ENTRY} and
      * {@code FILE_UPLOAD} sources extract nothing: the data arrives inbound over
      * HTTP, so there is no bean, and storing a placeholder would be a name the
      * registry could later try to resolve.
@@ -119,7 +119,7 @@ public class FinSourceSystem extends BaseEntity {
     private String notes;
 
     /**
-     * Optimistic lock for administrative edits (FIN-140, V120).
+     * Optimistic lock for administrative edits (FIN-140, V128).
      *
      * <p>Two administrators can load the same source system and save different connector beans or
      * credential aliases. Without this the second write wins silently and the first caller is told

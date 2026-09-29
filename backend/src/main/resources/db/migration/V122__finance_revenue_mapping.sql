@@ -1,5 +1,5 @@
 -- ----------------------------------------------------------------------------
--- V114 — Semantic mapping: what a staged source value MEANS canonically.
+-- V122 — Semantic mapping: what a staged source value MEANS canonically.
 --
 -- FIN-054. ADR-004 draws the line this migration sits on: anything deciding
 -- WHICH ROWS AND WHICH COLUMNS is connector code; anything deciding WHAT A

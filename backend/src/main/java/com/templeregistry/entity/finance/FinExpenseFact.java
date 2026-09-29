@@ -11,10 +11,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * One canonical expenditure record (V124, FR1.3 and FR4).
+ * One canonical expenditure record (V132, FR1.3 and FR4).
  *
  * <p><b>Grain: one row per source record</b>, not per day. This is deliberately
- * unlike {@link FinRevenueFact}, and the full reasoning is in the V124 header.
+ * unlike {@link FinRevenueFact}, and the full reasoning is in the V132 header.
  * In short: revenue collapses to a daily grain because one source holds 22
  * million receipts, whereas a temple records a handful of vouchers a day, each
  * with its own payee and its own receipt. Collapsing them would destroy exactly

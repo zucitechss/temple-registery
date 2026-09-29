@@ -1,8 +1,8 @@
 -- ============================================================================
--- V128: Staging for the four new subjects
+-- V136: Staging for the four new subjects
 --
 -- One staging table per capability, following the convention fin_stg_revenue
--- set in V113 and the note in its header: "other capabilities get their own
+-- set in V121 and the note in its header: "other capabilities get their own
 -- staging tables with their phases".
 --
 -- WHY FOUR TABLES AND NOT ONE WITH A CAPABILITY COLUMN
@@ -24,7 +24,7 @@
 -- THE SHAPE IS COPIED DELIBERATELY
 --
 -- Every column below means what the same column means in fin_stg_revenue, and
--- the three timestamps keep the same separation V113 insisted on:
+-- the three timestamps keep the same separation V121 insisted on:
 --
 --   extracted_at  when the row was read from the source, or submitted
 --   created_at    when this platform stored it
@@ -35,7 +35,7 @@
 -- declaration, and NULL here means "not declared at staging", never "no date".
 --
 -- Unlike revenue, source_record_ref is the fact grain for these subjects
--- (see V124), so what the staging unique key prevents -- the same record twice
+-- (see V132), so what the staging unique key prevents -- the same record twice
 -- in one batch -- is also what stops two facts being written for one input row.
 -- ============================================================================
 

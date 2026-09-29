@@ -1,5 +1,5 @@
 -- ============================================================================
--- V126: Precious items received -- counts, weight, purity and value (FR7)
+-- V134: Precious items received -- counts, weight, purity and value (FR7)
 --
 -- FR7 is the one report in the specification whose fields come from two
 -- different sources for the same temple on the same day:
@@ -46,7 +46,7 @@
 --
 -- METAL TYPE IS A MAPPED CANONICAL VALUE
 --
--- mapping_type = METAL_TYPE has existed in fin_mapping_rule since V110 with
+-- mapping_type = METAL_TYPE has existed in fin_mapping_rule since V118 with
 -- nothing to target. This is the target. The column is VARCHAR and the Java
 -- MetalType enum is the vocabulary, following payment_mode.
 -- ============================================================================

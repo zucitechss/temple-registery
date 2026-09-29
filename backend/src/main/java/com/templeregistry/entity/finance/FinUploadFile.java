@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * One uploaded workbook (V130, FR19).
+ * One uploaded workbook (V138, FR19).
  *
  * <p>An Excel import <em>is</em> a batch: {@link FinSyncBatch} already counts
  * rows extracted, rejected and loaded, holds a status, tracks retries and names
@@ -32,7 +32,7 @@ import java.time.LocalDateTime;
  * {@code (temple, capability)}: two temples filling the same template with the
  * same figures is a coincidence, not a duplicate. Two files differing only by a
  * spreadsheet recalculation are different files by this test, which is the safe
- * direction to be wrong in — the date-supersede protocol (V124) then prevents
+ * direction to be wrong in — the date-supersede protocol (V132) then prevents
  * the double count.
  */
 @Entity

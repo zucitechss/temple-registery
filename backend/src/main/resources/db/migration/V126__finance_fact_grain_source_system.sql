@@ -1,12 +1,12 @@
 -- ============================================================================
--- V118: The canonical revenue grain gains source_system_id (FIN-052A)
+-- V126: The canonical revenue grain gains source_system_id (FIN-052A)
 --
 -- Decision: FIN-070B D1 (docs/finance/FIN-070B_AGGREGATION_DECISIONS.md §4).
 -- Amends, and does not overturn, ADR-003.
 --
 -- WHAT WAS WRONG
 --
--- V112 declared uk_frf_grain over seven columns and omitted source_system_id,
+-- V120 declared uk_frf_grain over seven columns and omitted source_system_id,
 -- although the column is NOT NULL and populated on every row. Two source
 -- systems reporting the same temple, business date, service, category, payment
 -- mode, counter and operator therefore collided on the key, and the loader's

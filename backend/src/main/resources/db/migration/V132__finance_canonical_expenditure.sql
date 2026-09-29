@@ -1,8 +1,8 @@
 -- ============================================================================
--- V124: Canonical expenditure -- category dimension and fact (FR1.3, FR4)
+-- V132: Canonical expenditure -- category dimension and fact (FR1.3, FR4)
 --
 -- Nothing in the model records money leaving. FinanceCapability.EXPENSE has been
--- an enum value with no table behind it since V110.
+-- an enum value with no table behind it since V118.
 --
 -- ============================================================================
 -- THE GRAIN OF EVERY NEW FACT: ONE ROW PER SOURCE RECORD
@@ -69,7 +69,7 @@
 --
 -- NULL means the source does not record it. Zero means it was recorded and was
 -- zero. A nil return -- "we spent nothing on Tuesday" -- is a
--- fin_daily_data_status row (V129), not a zero-amount fact, because a fact
+-- fin_daily_data_status row (V137), not a zero-amount fact, because a fact
 -- asserts that a transaction happened.
 -- ============================================================================
 
@@ -99,7 +99,7 @@ CREATE TABLE fin_expense_fact (
     expense_date            DATE          NOT NULL  COMMENT 'BUSINESS date the spend belongs to. Never the entry date',
     financial_year          VARCHAR(10)   NOT NULL  COMMENT 'Canonical string, e.g. 2025-26. Never 20252026',
     category_id             BIGINT        NOT NULL  COMMENT 'fin_expense_category.id. Unmappable values land in UNMAPPED, never in OTHER_EXPENSE',
-    fund_utilisation_id     BIGINT        NULL      COMMENT 'fin_fund_utilisation.id where this spend was met from a DC-approved fund (V125). NULL for ordinary temple expenditure',
+    fund_utilisation_id     BIGINT        NULL      COMMENT 'fin_fund_utilisation.id where this spend was met from a DC-approved fund (V133). NULL for ordinary temple expenditure',
     amount                  DECIMAL(18,2) NULL      COMMENT 'NULL = not recorded by this source. 0 = recorded, and zero (ADR-007)',
     payment_mode            VARCHAR(30)   NOT NULL DEFAULT 'UNRECORDED' COMMENT 'CASH | CARD | UPI | BANK_TRANSFER | CHEQUE | OTHER | UNRECORDED',
     vendor_ref              VARCHAR(200)  NULL      COMMENT 'Payee as recorded. Not a person record, and never linked to one',

@@ -64,7 +64,7 @@ import java.util.stream.StreamSupport;
  * <p>Every column is emitted into {@link RawRow} under its own name, as a string, exactly as the
  * driver rendered it. Nothing here parses a date, converts a currency or decides what a value
  * means. That boundary is not stylistic: normalization looks up the staged payload by the
- * {@code source_field} a source-of-truth declaration names (V115), so a connector that renamed or
+ * {@code source_field} a source-of-truth declaration names (V123), so a connector that renamed or
  * cleaned a field would break the declaration that points at it and would hide the defects
  * staging exists to record.
  *

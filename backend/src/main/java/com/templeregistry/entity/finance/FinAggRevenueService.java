@@ -12,7 +12,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Revenue rolled up per service and period (V131, FR8 and FR10).
+ * Revenue rolled up per service and period (V139, FR8 and FR10).
  *
  * <p>Mirrors {@link FinAggRevenuePeriod} deliberately: same period vocabulary,
  * same source-system scope, same nullable measures with a companion count each,

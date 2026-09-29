@@ -14,7 +14,7 @@ import java.util.Objects;
  * <p>Every reporting endpoint needs the same thing: several rows — one per source system,
  * category and payment mode — collapsed into one number for a year, a month or a category. This
  * is the one place that collapse happens, so the null-propagation rules that make a single
- * aggregate row honest (V119, FIN-070) are not re-derived, and possibly gotten wrong, at every
+ * aggregate row honest (V127, FIN-070) are not re-derived, and possibly gotten wrong, at every
  * call site.
  *
  * <p>Pure and stateless, like {@code RevenueAggregator} one layer down: no repository, no clock,

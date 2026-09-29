@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Money received against perpetual seva bookings (V127, FR11).
+ * Money received against perpetual seva bookings (V135, FR11).
  *
  * <p>These amounts may also appear in {@code fin_revenue_fact}. No report sums
  * the two, and none should: FR11 reports per-booking income from here, and the

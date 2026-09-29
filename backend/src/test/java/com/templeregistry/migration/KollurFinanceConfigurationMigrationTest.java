@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class KollurFinanceConfigurationMigrationTest {
 
     private static final Path SEED_MIGRATION = Path.of(
-            "src", "main", "resources", "db", "migration", "V111__kollur_finance_configuration.sql");
+            "src", "main", "resources", "db", "migration", "V119__kollur_finance_configuration.sql");
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
@@ -60,10 +60,10 @@ class KollurFinanceConfigurationMigrationTest {
                 .load()
                 .migrate();
 
-        // Assert the guard BEFORE creating the temple: with no temple 300001, V111 must
+        // Assert the guard BEFORE creating the temple: with no temple 300001, V119 must
         // have seeded nothing at all.
         assertThat(count("fin_source_system"))
-                .as("V111 must not seed configuration for a temple that does not exist")
+                .as("V119 must not seed configuration for a temple that does not exist")
                 .isZero();
         assertThat(count("fin_temple_capability")).isZero();
         assertThat(count("fin_source_of_truth_decl")).isZero();

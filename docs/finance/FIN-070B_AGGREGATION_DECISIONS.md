@@ -33,14 +33,14 @@ task, because it costs one index swap and permanently removes a class of silent 
 are immutable; a mapping change affects only future extraction; no aggregation path corrects
 history. Here too the source changed the analysis, in a direction that helps: FIN-070A assumed a
 correction would require re-contacting the source. It would not.
-`uk_fsrm_row_type UNIQUE (stg_revenue_id, mapping_type)` exists, per V114's own comment, "so a
+`uk_fsrm_row_type UNIQUE (stg_revenue_id, mapping_type)` exists, per V122's own comment, "so a
 re-run after a rule correction updates the decision instead of adding a second one" — the mapping
 stage is already idempotent over **retained staging rows**, so a remap needs no source access and
 does not violate ADR-001. The missing piece was never re-extraction. It is a **fact retirement
 path**, which does not exist and which this task does not invent.
 
 **D5 — `category_id` is `NOT NULL` and part of the aggregate unique key. Totals are computed, never
-stored.** The decisive argument is in this codebase already: V112 hit the fact that MySQL and TiDB
+stored.** The decisive argument is in this codebase already: V120 hit the fact that MySQL and TiDB
 treat NULLs in a unique index as distinct, and solved it with three generated stand-in columns
 (FIN-D-018). The documented "`category_id` nullable, null = all" design would reproduce that exact
 defect one layer up — the unique key would not constrain the total row, so every aggregation run
@@ -68,22 +68,22 @@ establish them.
 
 | Claim | Evidence |
 |---|---|
-| `uk_frf_grain` has seven columns and omits `source_system_id` | `V112__finance_canonical_revenue.sql:186` |
-| Three grain columns are generated NULL stand-ins | `V112:175-183` — `grain_service_key`, `grain_counter_key`, `grain_operator_key`, with the MySQL/TiDB NULL-uniqueness rationale in the comment |
+| `uk_frf_grain` has seven columns and omits `source_system_id` | `V120__finance_canonical_revenue.sql:186` |
+| Three grain columns are generated NULL stand-ins | `V120:175-183` — `grain_service_key`, `grain_counter_key`, `grain_operator_key`, with the MySQL/TiDB NULL-uniqueness rationale in the comment |
 | The upsert assigns, never accumulates | `FinRevenueFactRepository.upsert` — `ON DUPLICATE KEY UPDATE … gross_amount = VALUES(gross_amount)` |
 | `source_system_id` is in the upsert's UPDATE list | same — so the last writer's source id overwrites the previous one |
 | Nothing deletes a fact | `grep delete` across `FinRevenueFactRepository` and `RevenueLoadStage` returns only `errors.deleteBySyncBatchIdAndErrorStage` |
 | No migration seeds facts | `grep "INSERT INTO fin_revenue_fact" db/migration/*.sql` → no matches |
 | No production connector exists | `grep -rln "implements TempleFinanceConnector"` matches **only four test classes**; `RevenueExtractionStage:108` resolves a connector through `ConnectorRegistry`, which throws `notRegistered` otherwise |
 | Therefore `fin_revenue_fact` is empty in every real environment | Follows from the two rows above: the only writer is the load stage, which is only reachable through extraction, which requires a registered connector |
-| Mapping decisions are already re-runnable and idempotent | `V114:123` `uk_fsrm_row_type UNIQUE (stg_revenue_id, mapping_type)`, with the stated purpose of surviving "a re-run after a rule correction" |
-| Source record identity exists at staging, per source, across batches | `V113:115` `uk_fsr_batch_record UNIQUE (sync_batch_id, source_record_ref)`, `source_record_ref NOT NULL`, plus `idx_fsr_source_record ON (source_system_id, source_record_ref)` commented "Following one source record across extractions" |
+| Mapping decisions are already re-runnable and idempotent | `V122:123` `uk_fsrm_row_type UNIQUE (stg_revenue_id, mapping_type)`, with the stated purpose of surviving "a re-run after a rule correction" |
+| Source record identity exists at staging, per source, across batches | `V121:115` `uk_fsr_batch_record UNIQUE (sync_batch_id, source_record_ref)`, `source_record_ref NOT NULL`, plus `idx_fsr_source_record ON (source_system_id, source_record_ref)` commented "Following one source record across extractions" |
 | Source record identity does **not** exist at fact level | `RevenueNormalizationStage.NormalizedFact` javadoc: `sourceRecordRef` "is carried only where one record produced the fact… Null there means 'several'" (FIN-D-040) |
 | The fact↔staged-row link is never persisted | `stagedRowIds` lives on the in-memory `NormalizedFact`; `RevenueLoadStage.write` uses it only to call `staging.markLoaded(...)`. No column anywhere records it |
 | The gate's unit of decision | `ReconciliationGate.evaluate(long templeId, long sourceSystemId, String financialYear)` |
 | Reconciliation writes only two period scopes | `RevenueReconciliationStage` — every `PeriodType` reference is `FULL_HISTORY`/`"ALL"` or `FINANCIAL_YEAR`/`year` |
-| `uk_ftc_temple_capability` is `(temple_id, capability)` | `V110:100`, although `source_system_id` on that table is `NOT NULL` (`V110:83`) |
-| `uk_fsd_temple_service` is `(temple_id, service_code)` | `V112:98` — the same single-source assumption |
+| `uk_ftc_temple_capability` is `(temple_id, capability)` | `V118:100`, although `source_system_id` on that table is `NOT NULL` (`V118:83`) |
+| `uk_fsd_temple_service` is `(temple_id, service_code)` | `V120:98` — the same single-source assumption |
 | All eleven finance ADRs are `Proposed` | `grep -H "^\*\*Status:\*\*" docs/finance/adr/*.md` |
 | Finance test suites | 22 test classes under `*finance*`; the gate has `ReconciliationGateTest` |
 
@@ -117,7 +117,7 @@ These bind every decision below. They are properties of the code, not preference
 **Recommendation:** **ACCEPT** — as a standalone task before a second source system is registered
 for any temple. **Not a blocker for FIN-070.**
 
-> **EXECUTED by FIN-052A, migration `V118__finance_fact_grain_source_system.sql`** (FIN-D-067).
+> **EXECUTED by FIN-052A, migration `V126__finance_fact_grain_source_system.sql`** (FIN-D-067).
 > The fact grain is now eight columns. `fin_temple_capability` and `fin_service_dim` remain
 > deferred under D9, as this decision specified.
 
@@ -126,7 +126,7 @@ for any temple. **Not a blocker for FIN-070.**
 ```sql
 CONSTRAINT uk_frf_grain UNIQUE (
     temple_id, transaction_date, grain_service_key, category_id,
-    payment_mode, grain_counter_key, grain_operator_key)          -- V112:186
+    payment_mode, grain_counter_key, grain_operator_key)          -- V120:186
 ```
 
 ```sql
@@ -247,7 +247,7 @@ design and is **not implemented**.
 
 ### 5.1 Evidence — the defect, restated from code
 
-`category_id` is a grain column (`V112:186`). The upsert has no delete path. Nothing else deletes
+`category_id` is a grain column (`V120:186`). The upsert has no delete path. Nothing else deletes
 facts. Therefore a re-extraction that changes any grain column inserts a new row and leaves the old
 one:
 
@@ -267,7 +267,7 @@ silently.
 
 FIN-070A treated correction as necessarily requiring re-extraction. Two constraints say otherwise:
 
-- `uk_fsrm_row_type UNIQUE (stg_revenue_id, mapping_type)`, whose V114 comment is explicit:
+- `uk_fsrm_row_type UNIQUE (stg_revenue_id, mapping_type)`, whose V122 comment is explicit:
   "One current decision per staged row per mapping type, so a re-run after a rule correction
   updates the decision instead of adding a second one."
 - Staged rows are retained indefinitely (Q7), with `raw_json NOT NULL` holding the original
@@ -317,7 +317,7 @@ Option D is rejected for two reasons. It is **unenforceable today** — there is
 on a mapping rule, and the gate's verdict is derived per `(temple, source, financial year)`, not
 per source value, so "has this rule's data been published" is not a question the schema can answer.
 And it is **harmful**: it would make `UNMAPPED` revenue permanently unclassifiable, which defeats
-the purpose of the `UNMAPPED` category, whose V112 description exists precisely so that such values
+the purpose of the `UNMAPPED` category, whose V120 description exists precisely so that such values
 "must be resolved by adding a mapping rule rather than absorbed into Other Income".
 
 Option C is the right destination and is **not buildable on the current schema**. It is recorded
@@ -373,7 +373,7 @@ never stored.**
 
 ### 6.1 Evidence — the platform has already been bitten by this
 
-V112 documents it directly:
+V120 documents it directly:
 
 > Three of the six grain columns are legitimately nullable, and MySQL and TiDB both treat NULLs in
 > a UNIQUE index as distinct from one another — so a unique key over the nullable columns
@@ -395,7 +395,7 @@ and a NULL `category_id` total row:
   a duplicate on every pass, and a report reading "the total" gets whichever the query plan
   returned.
 
-This is not a hypothetical: it is the identical mechanism V112 documents, in a table that would be
+This is not a hypothetical: it is the identical mechanism V120 documents, in a table that would be
 written far more often than the facts.
 
 ### 6.3 Alternatives compared
@@ -404,7 +404,7 @@ written far more often than the facts.
 |---|---|
 | **`category_id` NOT NULL, in the key; totals computed** ✅ | One representation of each number. Unique key fully constrains every row. Upsert is correct. Totals are a `SUM` over ~12 rows |
 | `category_id` nullable, `NULL = all` | Breaks uniqueness (§6.2). Also creates two representations of one number that must be kept in agreement by hand — and the first partial failure puts the table in contradiction with itself |
-| `category_id` nullable with a generated stand-in (`IFNULL(category_id, 0)`) | Fixes the uniqueness defect and keeps the double-representation problem. Copies a workaround that V112 needed because those columns were *legitimately* nullable — `category_id` is not |
+| `category_id` nullable with a generated stand-in (`IFNULL(category_id, 0)`) | Fixes the uniqueness defect and keeps the double-representation problem. Copies a workaround that V120 needed because those columns were *legitimately* nullable — `category_id` is not |
 | Separate detail and total tables | Removes the key problem, keeps the two-representations problem, and adds a table. Also needs the two kept in step across every rebuild |
 | A sentinel category row `ALL` in `fin_revenue_category` | Puts a non-category in the canonical taxonomy, where a report would rank it alongside `SEVA`. Rejected |
 
@@ -413,7 +413,7 @@ written far more often than the facts.
 | Question | Answer |
 |---|---|
 | **Is `category_id` nullable?** | **No.** `NOT NULL`, matching `fin_revenue_fact.category_id` |
-| **What does an unknown category mean?** | It resolves to the seeded **`UNMAPPED`** row in `fin_revenue_category`, never to NULL and never to `OTHER_INCOME` — whose own V112 description forbids that use. `UNMAPPED` means "real revenue whose kind is not yet known"; it is deliberately visible and deliberately unattractive to report |
+| **What does an unknown category mean?** | It resolves to the seeded **`UNMAPPED`** row in `fin_revenue_category`, never to NULL and never to `OTHER_INCOME` — whose own V120 description forbids that use. `UNMAPPED` means "real revenue whose kind is not yet known"; it is deliberately visible and deliberately unattractive to report |
 | **Are totals stored or calculated?** | **Calculated**, as `SUM` over the category rows for the period. ~12 rows per period per payment mode. No stored total, no `pct_of_total` (FIN-070A §5.6) |
 | **How does aggregate uniqueness work?** | `uk_farp_grain (temple_id, source_system_id, period_type, period_key, category_id, payment_mode)` — every column `NOT NULL`, so no generated stand-in is needed and `ON DUPLICATE KEY UPDATE` is fully effective |
 | **How does category-level filtering behave?** | A direct equality predicate on a key column, served by the leading index. No NULL-handling anywhere in the read path |
@@ -568,7 +568,7 @@ Unchanged from FIN-070A §11 except where D1/D3/D5 touch it.
 - `service_id NOT NULL` in the service table: facts with a NULL `service_id` are not services and
   belong only in the period table. Folding them into a "service = none" row would invite a reader
   to rank a hundi collection among sevas.
-- `rate_card_amount` carried as context, never summed as revenue (V112's own warning).
+- `rate_card_amount` carried as context, never summed as revenue (V120's own warning).
 - `pct_of_total` not stored (D5).
 
 ## 12. Impact on FIN-072
@@ -589,13 +589,13 @@ Unchanged from FIN-070A §11 except where D1/D3/D5 touch it.
 
 | Task | Migration | Content |
 |---|---|---|
-| **FIN-052A** (D1) | `V118` | Drop and recreate `uk_frf_grain` with `source_system_id` as the second column. No data change, no backfill |
-| **FIN-070** | `V119` | `fin_agg_revenue_period`, `fin_agg_run` |
-| **FIN-071** | `V120` | `fin_agg_revenue_service` |
+| **FIN-052A** (D1) | `V126` | Drop and recreate `uk_frf_grain` with `source_system_id` as the second column. No data change, no backfill |
+| **FIN-070** | `V127` | `fin_agg_revenue_period`, `fin_agg_run` |
+| **FIN-071** | `V128` | `fin_agg_revenue_service` |
 
-Numbers are indicative; `V117` is the last in the tree. Whichever task ships first takes `V118`.
+Numbers are indicative; `V125` is the last in the tree. Whichever task ships first takes `V126`.
 Flyway is forward-only (ADR-002), and no foreign keys are added, consistent with FIN-D-003, V10,
-V110 and V112.
+V118 and V120.
 
 ---
 
@@ -783,7 +783,7 @@ unverified against a real temple until it exists.
 
 | ID | Decision | Outcome | Rationale in one line | Blocks FIN-070 |
 |---|---|---|---|---|
-| **D1** | `source_system_id` in the fact grain | **ACCEPTED — and executed by FIN-052A (V118)** | Widening a UNIQUE key is safe with or without data; what expires is recovery of already-overwritten facts | No |
+| **D1** | `source_system_id` in the fact grain | **ACCEPTED — and executed by FIN-052A (V126)** | Widening a UNIQUE key is safe with or without data; what expires is recovery of already-overwritten facts | No |
 | **D1a** | `uk_ftc_temple_capability` source scope | **DEFERRED** with conditions (D9) | Not a mechanical widening — it forces an unanswered design question about disagreeing sources | No |
 | **D1b** | `uk_fsd_temple_service` source scope | **DEFERRED**, same deadline as D1 | Same assumption, newly found, lower stakes | No |
 | **D3** | Orphan-fact restatement | **Option A ACCEPTED**; Option C approved as successor, unimplemented; **B and D REJECTED** | B needs fact-level record identity that FIN-D-040 removed; D is unenforceable and would strand `UNMAPPED` revenue forever | No |

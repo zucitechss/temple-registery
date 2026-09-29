@@ -5,7 +5,7 @@ package com.templeregistry.entity.finance.enums;
  *
  * <p>{@link #TEMPLE_INPUT} and {@link #EXCEL_UPLOAD} are the two that always
  * have a person behind them, and they are the reason {@code
- * fin_sync_batch.actor_user_id} exists (V122). For every other value the actor
+ * fin_sync_batch.actor_user_id} exists (V130). For every other value the actor
  * is null, which is the honest reading: nobody entered a scheduled run.
  *
  * <p>{@link #MANUAL} is not the same thing as {@link #TEMPLE_INPUT}. It means an

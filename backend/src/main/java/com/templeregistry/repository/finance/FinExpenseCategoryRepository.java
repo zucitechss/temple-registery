@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
-/** The canonical expenditure taxonomy (V124). Read by mapping, validation and reporting. */
+/** The canonical expenditure taxonomy (V132). Read by mapping, validation and reporting. */
 @Repository
 public interface FinExpenseCategoryRepository extends JpaRepository<FinExpenseCategory, Long> {
 

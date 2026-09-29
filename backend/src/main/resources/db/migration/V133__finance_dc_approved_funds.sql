@@ -1,5 +1,5 @@
 -- ============================================================================
--- V125: DC-approved funds and their utilisation (FR1.4, FR5, FR6)
+-- V133: DC-approved funds and their utilisation (FR1.4, FR5, FR6)
 --
 -- FR5 names eight things to track per fund, and two of them -- supporting
 -- receipts and supporting photographic evidence -- are documents rather than
@@ -28,7 +28,7 @@
 --
 -- Manual input, entirely. The approval is the DC office's own act and no temple
 -- operational system holds it. Both tables therefore carry the same provenance
--- columns as every other fact, and the same record grain (see V124): the unique
+-- columns as every other fact, and the same record grain (see V132): the unique
 -- key is (source_system_id, source_record_ref), so a correction restates one row.
 --
 -- APPROVED_AMOUNT IS NULLABLE

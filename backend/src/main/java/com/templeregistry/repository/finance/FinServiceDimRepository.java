@@ -8,10 +8,10 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The per-temple service catalogue (V112, V123).
+ * The per-temple service catalogue (V120, V131).
  *
  * <p><b>This interface did not exist until Phase 0, and its absence was the
- * problem.</b> {@code fin_service_dim} has been a table since V112 and nothing
+ * problem.</b> {@code fin_service_dim} has been a table since V120 and nothing
  * else: no repository, no seed, no writer. {@code RevenueNormalizer} passes a
  * literal null for {@code service_id}, so the column is not merely nullable but
  * always null — which makes FR8 and FR10 unimplementable and left

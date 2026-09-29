@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * A fund approved by the DC office (V125, FR1.4 and FR5).
+ * A fund approved by the DC office (V133, FR1.4 and FR5).
  *
  * <p>An approval, not a transaction: it exists from the moment the sanction
  * letter is signed and before a rupee is spent. The spend side is

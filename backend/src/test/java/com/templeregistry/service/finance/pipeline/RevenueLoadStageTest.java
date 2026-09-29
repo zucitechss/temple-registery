@@ -319,7 +319,7 @@ class RevenueLoadStageTest {
     }
 
     /**
-     * FIN-052A, and the failure it closes is one nobody would have seen. Before V118 the second
+     * FIN-052A, and the failure it closes is one nobody would have seen. Before V126 the second
      * source's load matched the first source's grain, the upsert <em>replaced</em> its figures,
      * and the temple's year fell from ₹300 to ₹200 with no error, no warning and no record that
      * ₹100 had ever been loaded (limitation 47).

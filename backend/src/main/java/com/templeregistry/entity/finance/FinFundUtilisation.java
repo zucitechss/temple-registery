@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * One drawdown against a DC-approved fund (V125, FR5 and FR6).
+ * One drawdown against a DC-approved fund (V133, FR5 and FR6).
  *
  * <p>The spend side of {@link FinDcFund}, and what FR5.7 receipts and FR5.8
  * photographic evidence attach to. Documents live in the existing document

@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Staged expenditure, before it is judged (V128).
+ * Staged expenditure, before it is judged (V136).
  *
  * <p>Same shape and same rules as {@link FinStgRevenue}, and read that class
  * for the reasoning: nothing here is trusted, the payload stays loose so one
@@ -24,7 +24,7 @@ import java.time.LocalDateTime;
  * rejected submission leaves evidence of what was submitted.
  *
  * <p>Unlike revenue, {@link #sourceRecordRef} is also the fact grain for this
- * subject (V124), so the unique key that stops the same record being staged
+ * subject (V132), so the unique key that stops the same record being staged
  * twice in one batch is the same thing that stops two facts being written for
  * one input row.
  */

@@ -48,10 +48,10 @@ public interface FinRevenueFactRepository extends JpaRepository<FinRevenueFact, 
      * every batch that contributed. That is the honest reading: after a restatement, the earlier
      * batch's figures are no longer what the platform reports.
      *
-     * <p><b>A restatement is a restatement by the same source</b> (FIN-052A, V118).
+     * <p><b>A restatement is a restatement by the same source</b> (FIN-052A, V126).
      * {@code source_system_id} joined {@code uk_frf_grain}, so a matched row necessarily already
      * holds the value being written and assigning it again would be a no-op — it is absent from
-     * the update list for the same reason the generated columns are. Before V118 that assignment
+     * the update list for the same reason the generated columns are. Before V126 that assignment
      * was the mechanism by which a second source took ownership of another source's figures, and
      * the money it replaced was not recoverable.
      *

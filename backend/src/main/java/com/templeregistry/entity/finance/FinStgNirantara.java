@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Staged Nirantara subscription and payment rows, before they are judged (V128).
+ * Staged Nirantara subscription and payment rows, before they are judged (V136).
  *
  * <p>Same shape and rules as {@link FinStgRevenue}; see {@link FinStgExpense}
  * for why manual submissions are staged rather than written directly, and

@@ -1,5 +1,5 @@
 -- ============================================================================
--- V115: Business-date declaration for the first onboarded source (FIN-055)
+-- V123: Business-date declaration for the first onboarded source (FIN-055)
 --
 -- Normalization reads a staged payload only where fin_source_of_truth_decl tells
 -- it to (ADR-008). FIN-023 declared which field carries the authoritative
@@ -9,7 +9,7 @@
 -- This migration is source-specific configuration, not platform behaviour. The
 -- generic engine knows only the metric names; that a particular source keeps its
 -- business date in a particular column is data, and lives here with the rest of
--- that source's configuration (V111).
+-- that source's configuration (V119).
 --
 -- WHY THIS COLUMN. The approved REVENUE_AMOUNT declaration already bounds
 -- extraction with ReceiptDate >= '2015-01-01' -- that is, the analysis behind

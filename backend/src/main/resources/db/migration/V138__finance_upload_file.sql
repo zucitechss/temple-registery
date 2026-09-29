@@ -1,11 +1,11 @@
 -- ============================================================================
--- V130: The uploaded workbook (FR19)
+-- V138: The uploaded workbook (FR19)
 --
 -- ONE TABLE, BECAUSE THE BATCH ALREADY DOES THE REST
 --
 -- An Excel import is a batch. fin_sync_batch already counts rows extracted,
 -- rejected and loaded, holds a status, tracks retries, names its trigger and
--- now names its actor (V122). fin_sync_error already records a per-row failure
+-- now names its actor (V130). fin_sync_error already records a per-row failure
 -- with a stage, a code, a message and the offending payload, which is exactly
 -- the error report FR19 needs. None of that is rebuilt.
 --
@@ -24,7 +24,7 @@
 -- The hash is over the uploaded bytes. Two files that differ only in a
 -- spreadsheet recalculation are different files by this test, which is the safe
 -- direction to be wrong in: it admits a file it might have rejected, and the
--- date-supersede protocol (V124) then prevents the double count.
+-- date-supersede protocol (V132) then prevents the double count.
 --
 -- Scoped to (temple, capability) rather than globally, because two temples
 -- filling the same template with the same figures is a coincidence, not a

@@ -1,5 +1,5 @@
 -- ============================================================================
--- V111: Kollur finance configuration (FIN-021 .. FIN-024)
+-- V119: Kollur finance configuration (FIN-021 .. FIN-024)
 --
 -- CONFIGURATION DATA ONLY. This migration creates no table, alters no schema,
 -- and enables no synchronization. It records what is known about one temple's

@@ -13,7 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Expenditure rolled up per period (V131, FR1.3 and FR4).
+ * Expenditure rolled up per period (V139, FR1.3 and FR4).
  *
  * <p>Mirrors {@link FinAggRevenuePeriod} deliberately, so that a reader who
  * understands one understands all three aggregates.

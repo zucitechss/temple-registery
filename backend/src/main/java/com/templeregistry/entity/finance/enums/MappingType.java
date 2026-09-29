@@ -8,7 +8,7 @@ package com.templeregistry.entity.finance.enums;
  * temples without either knowing about the other.
  *
  * <p>The three added for the Financial Dashboard subjects target the tables
- * created in V124&ndash;V127. {@link #METAL_TYPE} predates them and finally has
+ * created in V132&ndash;V135. {@link #METAL_TYPE} predates them and finally has
  * a target: {@code fin_precious_item_fact.metal_type}.
  */
 public enum MappingType {

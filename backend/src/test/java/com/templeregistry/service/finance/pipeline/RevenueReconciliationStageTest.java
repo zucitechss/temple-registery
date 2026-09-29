@@ -481,9 +481,9 @@ class RevenueReconciliationStageTest {
                 .triggeredBy(SyncTrigger.MANUAL)
                 .status(SyncStatus.SUCCESS)
                 .build());
-        // The same day on purpose. Since FIN-052A (V118) source_system_id is part of uk_frf_grain,
+        // The same day on purpose. Since FIN-052A (V126) source_system_id is part of uk_frf_grain,
         // so two sources reporting one temple's day are two facts to keep apart rather than one
-        // grain silently overwriting the other. Before V118 this line replaced the fact above and
+        // grain silently overwriting the other. Before V126 this line replaced the fact above and
         // the comparison below saw 900.00 where the source had said 100.00 (was limitation 47).
         fact(theirs, CLOSED_DATE, 1L, "900.00");
         connector.reports(ReconMetric.GROSS_AMOUNT, "100.00");

@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class FinanceRevenueStagingMigrationTest {
 
     private static final Path STAGING_MIGRATION = Path.of(
-            "src", "main", "resources", "db", "migration", "V113__finance_revenue_staging.sql");
+            "src", "main", "resources", "db", "migration", "V121__finance_revenue_staging.sql");
 
     private static final long TEMPLE_A = 900001L;
     private static final long TEMPLE_B = 900002L;
@@ -70,11 +70,11 @@ class FinanceRevenueStagingMigrationTest {
     }
 
     @Test
-    @DisplayName("V113 applies and the staging table exists")
+    @DisplayName("V121 applies and the staging table exists")
     void should_applyMigration_when_flywayRuns() throws SQLException {
-        // MAX(version) would compare as text, where "9" beats "113".
+        // MAX(version) would compare as text, where "9" beats "121".
         assertThat(scalar("SELECT COUNT(*) FROM flyway_schema_history "
-                + "WHERE version = '113' AND success = 1")).isEqualTo("1");
+                + "WHERE version = '121' AND success = 1")).isEqualTo("1");
         assertThat(columnsOf("fin_stg_revenue")).isNotEmpty();
     }
 
@@ -89,7 +89,7 @@ class FinanceRevenueStagingMigrationTest {
                 continue;
             }
             assertThat(columns)
-                    .as("FinStgRevenue.%s is mapped to column [%s], which V113 does not create",
+                    .as("FinStgRevenue.%s is mapped to column [%s], which V121 does not create",
                             field.getName(), column.name())
                     .contains(column.name().toLowerCase(Locale.ROOT));
         }
@@ -370,9 +370,9 @@ class FinanceRevenueStagingMigrationTest {
                             "idx_fsr_temple_date", "idx_fsr_source_record");
         }
 
-        /** V113 must not have disturbed the canonical grain V112 established. */
+        /** V121 must not have disturbed the canonical grain V120 established. */
         @Test
-        @DisplayName("The canonical fact grain still holds after V113")
+        @DisplayName("The canonical fact grain still holds after V121")
         void should_leaveV112Intact_when_stagingAdded() throws SQLException {
             String insert = "INSERT INTO fin_revenue_fact (temple_id, source_system_id, sync_batch_id, "
                     + "transaction_date, financial_year, category_id, payment_mode, created_at, updated_at) "

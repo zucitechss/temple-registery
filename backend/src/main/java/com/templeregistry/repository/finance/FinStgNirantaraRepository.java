@@ -8,7 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 /**
- * Staged Nirantara rows (V128).
+ * Staged Nirantara rows (V136).
  *
  * <p>Nothing outside the pipeline reads this table. Writes come from the
  * staging step of the Nirantara ingestion stages; reads are the validator, the

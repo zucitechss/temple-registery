@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Whether one day of one capability arrived for one temple (V129, FR17, FR20).
+ * Whether one day of one capability arrived for one temple (V137, FR17, FR20).
  *
  * <p>Deriving this by scanning facts would make the question "was yesterday
  * submitted?" a table scan per temple per report, and — more importantly — it
