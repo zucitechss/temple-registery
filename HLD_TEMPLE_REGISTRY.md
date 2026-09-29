@@ -425,12 +425,12 @@ TA Creates DRAFT → Submits → DC Reviews → UNDER_REVIEW
 
 | Concern | Current State | Future Path |
 |---|---|---|
-| Concurrent users | 100-500 (district-level rollout) | Horizontal scaling behind load balancer |
+| Concurrent users | 100-500 (district-level rollout), **single replica** | Horizontal scaling behind load balancer, after §9.2 is addressed |
 | Temple records | ~50,000 statewide | Indexed queries; search summary refresh scales linearly |
 | Declaration volume | ~50,000/year | Partitioned by financial year if needed |
 | Notification volume | ~200,000/year | Outbox pattern decouples dispatch from transactions |
 
-**Stateless design** enables horizontal scaling — JWT tokens contain all required claims; no server-side session state.
+**Authentication is stateless** — JWT tokens carry all required claims and there is no server-side session state, so no sticky sessions are needed for login. This is a prerequisite for horizontal scaling, not a guarantee of it: the application also holds in-process state that is not shared between instances, and **currently supports exactly one replica**. See §9.2.
 
 ---
 
@@ -1380,7 +1380,7 @@ No try-catch blocks in controllers. No business logic in exception handlers.
 
 ### 8.7 Authentication in API
 
-- JWT delivered via `httpOnly`, `SameSite=Lax` cookie named `access_token`
+- JWT delivered via `httpOnly`, `Secure`, `SameSite=None` cookie named `access_token` (production topology is cross-origin — SPA on Vercel, API on Render — so `SameSite=None` is required, not a relaxed default; see §11.1a)
 - Fallback: `Authorization: Bearer <token>` header for non-browser clients
 - Access token expiry: 2 hours
 - Refresh via `POST /api/v1/auth/refresh` (uses httpOnly refresh token cookie)
@@ -1440,19 +1440,52 @@ The TRM is architected as a **well-structured Spring Boot monolith** with clear 
 
 ---
 
-### 9.2 Stateless Backend (Horizontal Scaling Ready)
+### 9.2 Deployment Topology — Single Replica
 
-The backend is **fully stateless**:
+> **The backend currently supports exactly ONE application replica.**
+> Running two or more instances produces duplicate, user-visible side effects.
+> Multi-replica support is future work — see the table below.
+
+**What is genuinely stateless:**
 - No `HttpSession` — `SessionCreationPolicy.STATELESS` enforced in Spring Security
-- No in-memory state between requests
-- JWT contains all required claims (userId, role, districtId, templeId)
-- Caffeine cache is process-local but swap-compatible with distributed Redis
+- JWT contains all required claims (userId, role, districtId, templeId), so authentication needs no sticky sessions
+- Workflow state, notifications and audit trails are persisted in the database
 
-**Horizontal scaling steps:**
-1. Deploy 2+ instances of the Spring Boot JAR
-2. Place Nginx (or AWS ALB) as load balancer in front
-3. Sessions automatically distributed since there are none
-4. Replace Caffeine cache with Redis for distributed caching
+**What is not — the in-process and instance-local state:**
+
+| # | Dependency | Where | Effect of a second replica |
+|---|---|---|---|
+| 1 | Unlocked email outbox pollers | `EmailDeliveryService.processQueue` (10s), `processRetries` (5m) | **Duplicate emails.** `findPendingBatch` / `findRetryableBatch` use a plain `SELECT … LIMIT` with no row locking, so every replica claims the same rows |
+| 2 | Unlocked notification outbox pollers | `NotificationRouter.dispatchPending` (5s), `retryFailed` (60s) | **Duplicate in-app notifications** and duplicate queued emails, same root cause |
+| 3 | Deadline warning sweep | `OverdueWorkflowScheduler.warnDeadlineApproaching` | **Duplicate warnings.** `WARN_DEADLINE_APPROACHING` leaves workflow status unchanged, so no from-status guard prevents a repeat |
+| 4 | SSE emitter registry | `SseNotificationService.emitters` (`ConcurrentHashMap`) | **Missed real-time pushes** — an emitter only exists on the instance that accepted the connection. Degraded only: the notification row is written to the database *before* the push, so nothing is lost |
+| 5 | DACVM authorization cache | In-process Caffeine (`CacheConfig`) | **Stale authorization** — `@CacheEvict` clears only the local replica, so others may honour a revoked permission for up to the 5-minute TTL |
+| 6 | Document storage | `LocalFileStorageServiceImpl` → `app.storage.base-dir` | **Missing documents** — files are on one instance's filesystem |
+| 7 | Export storage | `AsyncExportBean` → `trm.export.base-dir`, read back by path in `DcExportController` | **Failed downloads** — a job the database reports as complete returns 404 from another replica |
+
+`OverdueWorkflowScheduler.flagOverdueInstances` is *not* in this list: it transitions the instance to `OVERDUE` and `WorkflowInstance` carries an `@Version` column, so concurrent sweeps are rejected by optimistic locking.
+
+**Storage requirement (applies even with one replica):**
+`app.storage.base-dir` and `trm.export.base-dir` **must** be backed by storage that survives restarts and redeployments. Both default to relative paths (`./uploads`, `./exports`) which resolve inside the container's writable layer, where uploaded documents and generated exports are destroyed on every redeploy. Mount a persistent volume.
+
+**Resolved for the actual topology (H-3):** there is no cloud storage integration in this
+codebase — `LocalFileStorageServiceImpl` and `AsyncExportBean` write to the local
+filesystem only (see §11.1a for the topology this decision assumes). On Render, attach a
+Disk to the service and set `APP_STORAGE_BASE_DIR` / `TRM_EXPORT_BASE_DIR` to its mount
+path (see `backend/.env.example`). H-8 already creates `/app/uploads` and `/app/exports`
+inside the image, owned by the non-root container user, so a disk mounted at either path
+needs no further permission changes. A Render Disk attaches to exactly one instance,
+which is what this application's single-replica requirement above assumes — it is not a
+path to items 6–7 in the table becoming safe under multiple replicas; that still needs
+shared/object storage, as noted below.
+
+**Future work — before enabling more than one replica**, each item above must be addressed. Indicative approaches, none of which are implemented today:
+- Items 1–3: claim rows with `SELECT … FOR UPDATE SKIP LOCKED`, or coordinate the schedulers (e.g. ShedLock)
+- Item 4: sticky sessions at the load balancer, or a shared pub/sub fan-out
+- Item 5: a distributed cache, or accept the bounded staleness window
+- Items 6–7: a shared volume, or object storage behind `FileStorageService`
+
+Note that a distributed cache such as Redis is **not** a prerequisite for any of this — the database-backed options above are sufficient.
 
 ---
 
@@ -1605,7 +1638,7 @@ Sensitive fields encrypted using **AES-256-GCM** before persistence:
 |---|---|
 | **SQL Injection** | Spring Data JPA parameterized queries; no raw SQL in application code (only Flyway migrations) |
 | **XSS** | React escapes all rendered values by default; no `dangerouslySetInnerHTML` usage |
-| **CSRF** | Disabled (`csrf.disable()`) because API is stateless with JWT; SameSite=Lax on cookies provides additional CSRF protection |
+| **CSRF** | Stateless double-submit token (`CookieCsrfTokenRepository`) on every unsafe method (H-5). The auth cookies are `SameSite=None` for the cross-origin topology, so `SameSite` provides no CSRF protection here — the token is the actual control, not a documentation nicety |
 | **Unauthorized Access** | Deny-by-default security filter; `@PreAuthorize` on every service method |
 | **Mass Assignment** | DTOs explicitly define accepted fields; entities never deserialized from request body |
 | **Path Traversal** | File paths validated; `s3_key` stored as opaque reference, never user-controlled |
@@ -1618,8 +1651,8 @@ Sensitive fields encrypted using **AES-256-GCM** before persistence:
 ### 10.7 Session Management
 
 - **No server-side sessions** — `SessionCreationPolicy.STATELESS`
-- Access token delivered as `httpOnly`, `SameSite=Lax` cookie — inaccessible to JavaScript
-- `accessToken` also stored in Redux memory (volatile) for `Authorization: Bearer` header use in non-cookie scenarios
+- Access token delivered as `httpOnly`, `Secure`, `SameSite=None` cookie — inaccessible to JavaScript and to cross-origin CSS/image requests, but sent by the browser on the cross-origin XHR/fetch calls this deployment makes
+- `accessToken` is **not** stored in Redux or any client-side state (`authSlice.ts` keeps a stub field that is always null) — the `Authorization: Bearer` path in `JwtAuthenticationFilter` exists for non-browser API clients (E2E tests, scripts), not for the SPA itself
 - Refresh token is httpOnly cookie only — never in localStorage or Redux
 - Token revocation: refresh token revoked on logout; access tokens are self-expiring (2 hours)
 
@@ -1669,7 +1702,38 @@ Developer Machine
 
 ---
 
-### 11.2 Production Deployment Architecture
+### 11.1a Current Production Topology (Resolved — H-1)
+
+> The diagram in §11.2 below describes a target multi-instance AWS architecture
+> that was never built (see the H-7 note on that section: this application
+> currently supports exactly one replica). What is **actually deployed** today:
+
+```
+SPA (Vercel)                          API (Render)
+temple-registery.vercel.app  ------>  temple-registry.onrender.com
+                              <cross-origin, credentials: include>
+```
+
+- **Cross-origin.** The frontend and backend are on different domains, so the
+  browser only attaches the httpOnly auth cookies when the SPA sends
+  `credentials: 'include'` (it does — see `baseQueryWithReauth.ts` /
+  `baseQueryV2WithReauth.ts`) and the cookies are `SameSite=None; Secure`.
+- **`SameSite=None` is a requirement of this topology, not a weaker default.**
+  A same-origin deployment could use `Lax`, but that is a deliberate future
+  change (see `APP_CORS_ALLOWED_ORIGINS` in `backend/.env.example`), and CSRF
+  protection does not depend on it either way.
+- **CSRF is handled by a stateless double-submit token** (H-5), independent of
+  the `SameSite` value, because `SameSite=None` on its own provides none.
+- `APP_CORS_ALLOWED_ORIGINS` must be set to the exact SPA origin — see
+  `backend/.env.example`.
+
+---
+
+### 11.2 Production Deployment Architecture (Target — Not Currently Built)
+
+> As noted in §11.1a, this multi-instance diagram was never implemented. It
+> describes a possible future architecture, not the current one — see §11.1a
+> for what is actually deployed today.
 
 ```mermaid
 graph TB
@@ -1703,24 +1767,25 @@ graph TB
 
 ### 11.3 Docker Support
 
-The backend includes a production-grade multi-stage Dockerfile:
+The backend includes a production-grade multi-stage Dockerfile (see
+`backend/Dockerfile`, hardened under H-8):
 
 ```
-Stage 1: eclipse-temurin:21-jdk-alpine (builder)
-    → Maven build: mvn package -DskipTests
-    → Extracts Spring Boot layered JAR
+Stage 1: maven:3.9.9-eclipse-temurin-21 (builder)
+    → mvn clean package -DskipTests
+    → Fails the build if any .pem file reaches the jar (H-8 regression guard)
 
-Stage 2: eclipse-temurin:21-jre-alpine (runtime)
-    → Non-root user (UID 1001)
-    → Copies only application layers
+Stage 2: eclipse-temurin:21-jre-jammy (runtime)
+    → Non-root user, fixed uid/gid 10001
+    → Ships only the jar — no key material, no build tooling
     → EXPOSE 8080
-    → ENTRYPOINT ["java", "-jar", "app.jar"]
+    → CMD ["java", "-jar", "app.jar"]
 ```
 
 **Security hardening in Dockerfile:**
-- Non-root user prevents privilege escalation
-- JRE-only runtime (no JDK) reduces attack surface
-- Alpine base image minimizes OS vulnerabilities
+- Non-root, fixed-uid user prevents privilege escalation
+- JRE-only runtime (no JDK, no Maven) reduces attack surface
+- Build-time check refuses to ship an image containing a `.pem` file (H-8)
 
 ---
 

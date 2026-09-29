@@ -96,7 +96,7 @@ SOURCE:
    A05 Security Misconfiguration  : Spring Security defaults, CSP headers
    A06 Vulnerable Components      : Dependency scanning (OWASP Dependency-Check)
    A07 Auth Failures              : Account lockout, token rotation, MFA
-   A08 Int. & Auth Failure        : RS256 JWT, input validation, CSRF (N/A - SPA)
+   A08 Int. & Auth Failure        : RS256 JWT, input validation, CSRF double-submit token (H-5)
    A09 Logging & Monitoring       : 3 audit tables, auth event log, structured logs
    A10 SSRF                       : No user-supplied URLs to backend HTTP calls
 
@@ -120,5 +120,9 @@ SOURCE:
 
 7. ASSUMPTIONS
 
-   - CSRF protection: not required (SPA with Bearer token auth, no cookie auth)
+   - CSRF protection: required and implemented (H-5). Auth is cookie-based
+     (HttpOnly access_token / refresh_token, SameSite=None for the cross-origin
+     Vercel/Render topology — see HLD 11.1a), not Bearer-only, so every unsafe
+     method carries a stateless double-submit token (CookieCsrfTokenRepository).
+     No endpoint is exempt, including login, MFA, refresh and logout.
    - All internal AWS communication (ECS to RDS) is within VPC with security groups

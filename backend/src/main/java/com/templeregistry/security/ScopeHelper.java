@@ -1,23 +1,23 @@
 package com.templeregistry.security;
 
-import io.jsonwebtoken.Claims;
+import com.templeregistry.service.impl.auth.JwtKeyProvider;
 import io.jsonwebtoken.Jwts;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
-import java.security.spec.X509EncodedKeySpec;
-import java.util.Base64;
 
 /**
  * Parses and validates RS256 JWTs and extracts typed claims.
  * Used only by the filter; the full JwtService (sign + verify) lives in the auth module.
+ *
+ * <p>The verification key comes from {@link JwtKeyProvider}, the single key-loading
+ * mechanism introduced by C-1. This class previously bound
+ * {@code ${app.jwt.public-key-path}} to a {@link org.springframework.core.io.Resource}
+ * and parsed the PEM itself, which made it blind to {@code APP_JWT_PUBLIC_KEY}: on the
+ * production profile that path is deliberately blank, so the resource was null and
+ * startup failed with a {@code NullPointerException}.</p>
  */
 @Component
 @Slf4j
@@ -47,8 +47,8 @@ public class ScopeHelper {
 
     private final RSAPublicKey publicKey;
 
-    public ScopeHelper(@Value("${app.jwt.public-key-path}") Resource publicKeyResource) throws Exception {
-        this.publicKey = loadPublicKey(publicKeyResource);
+    public ScopeHelper(JwtKeyProvider keyProvider) {
+        this.publicKey = keyProvider.getPublicKey();
     }
 
     public Claims parse(String token) {
@@ -66,18 +66,5 @@ public class ScopeHelper {
         String accessType = body.get("accessType", String.class);
 
         return new Claims(userId, role, districtId, templeId, username, accessType);
-    }
-
-    private RSAPublicKey loadPublicKey(Resource resource) throws Exception {
-        String pem = resource.getContentAsString(StandardCharsets.UTF_8)
-                .lines()
-                .filter(line -> !line.startsWith("#"))
-                .collect(java.util.stream.Collectors.joining("\n"))
-                .replace("-----BEGIN PUBLIC KEY-----", "")
-                .replace("-----END PUBLIC KEY-----", "")
-                .replaceAll("\\s+", "");
-        byte[] encoded = Base64.getDecoder().decode(pem);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        return (RSAPublicKey) keyFactory.generatePublic(new X509EncodedKeySpec(encoded));
     }
 }

@@ -133,6 +133,13 @@ describe('UserFormDialog — Send Credentials Email', () => {
   })
 
   it('should toggle credentials switch on click and update the description text', async () => {
+    // The toggle defaults to ON (see "should default the credentials toggle to ON"
+    // below), so a single click must turn it OFF. This test previously asserted
+    // aria-checked='true' and the ON-state text after that same click — the
+    // starting state, not the state a toggle actually reaches. The adjacent test
+    // "should pass sendCredentialsEmail=false when toggle is OFF at form submit"
+    // performs the identical click and correctly expects 'false', which is what
+    // proved this assertion was inverted rather than a real component defect.
     const user = userEvent.setup()
     renderWithProviders(
       <UserFormDialog open onOpenChange={onOpenChange} onSubmit={onSubmit} />
@@ -145,8 +152,10 @@ describe('UserFormDialog — Send Credentials Email', () => {
     await user.click(toggle)
 
     await waitFor(() => {
-      expect(toggle).toHaveAttribute('aria-checked', 'true')
-      expect(screen.getByText(/account-created email with username & password/i)).toBeInTheDocument()
+      expect(toggle).toHaveAttribute('aria-checked', 'false')
+      expect(
+        screen.getByText(/enable to send the username and temporary password/i)
+      ).toBeInTheDocument()
     })
   })
 

@@ -13,7 +13,7 @@ public interface DocumentService {
      * @param ownerId    ID of the owning entity
      * @param referenceId optional secondary reference (e.g. declarationId)
      * @param label      human-readable label
-     * @param file       multipart file (validated: PDF/JPG/PNG, max 5 MB)
+     * @param file       multipart file (validated: PDF/JPG/PNG, max 10 MB — VAL-005)
      */
     DocumentResponse upload(String ownerType, Long ownerId, Long referenceId, String label, MultipartFile file);
 

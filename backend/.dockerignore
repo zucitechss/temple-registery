@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker does NOT read .gitignore. Without this file the whole backend/ tree is
+# uploaded to the daemon on every build — 195 MB, including backend/.env with
+# real secrets, dev-secrets.properties, 115 MB of target/ and 36 MB of uploaded
+# documents (H-8).
+#
+# Strategy: deny everything, then re-admit only what the build needs. A new file
+# dropped next to the Dockerfile is then excluded by default rather than shipped
+# by default.
+# ─────────────────────────────────────────────────────────────────────────────
+*
+
+!pom.xml
+!src/
+!.mvn/
+
+# ─── Re-denied inside the paths re-admitted above ────────────────────────────
+# The JWT signing keypair is generated here for local development. "COPY src
+# ./src" hands it to Maven, which copies src/main/resources/** into the jar, so
+# every image shipped BOOT-INF/classes/keys/jwt-private.pem. Production supplies
+# the keypair through APP_JWT_PRIVATE_KEY / APP_JWT_PUBLIC_KEY instead (C-1).
+**/keys/
+**/*.pem
+**/*.p12
+**/*.jks
+
+# ─── Redundant after "*", stated so the intent is readable ───────────────────
+.env
+.env.*
+dev-secrets.properties
+target/
+uploads/
+exports/
+logs/

@@ -151,6 +151,12 @@ export function TaTempleEditPage() {
     if (sel.hobliId) {
       form.setValue('hobliId', sel.hobliId, { shouldValidate: true, shouldDirty: true })
     }
+    // Taluk must be submitted independently of hobli — a temple's location may not have
+    // a Hobli in the master geo data yet, in which case this is the only geo selection
+    // the TA can make and save.
+    if (sel.talukId) {
+      form.setValue('talukId', sel.talukId, { shouldValidate: true, shouldDirty: true })
+    }
   }, [form])
 
   const handleDetectLocation = useCallback(() => {

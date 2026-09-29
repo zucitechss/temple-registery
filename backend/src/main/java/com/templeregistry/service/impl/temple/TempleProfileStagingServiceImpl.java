@@ -229,6 +229,7 @@ public class TempleProfileStagingServiceImpl implements TempleProfileStagingServ
                 .grade(temple.getGrade() != null ? temple.getGrade().name() : null)
                 .tradition(temple.getTradition() != null ? temple.getTradition().name() : null)
                 .hobliId(temple.getHobliId())
+                .talukId(temple.getTalukId())
                 .addressLine1(temple.getStreet())
                 .pinCode(temple.getPinCode())
                 .latitude(temple.getLatitude() != null ? temple.getLatitude().doubleValue() : null)
@@ -405,6 +406,7 @@ public class TempleProfileStagingServiceImpl implements TempleProfileStagingServ
         if (normalized(rq.getGrade()) != null)                    staging.setGrade(normalized(rq.getGrade()));
         if (normalized(rq.getTradition()) != null)                staging.setTradition(normalized(rq.getTradition()));
         if (rq.getHobliId() != null)                              staging.setHobliId(rq.getHobliId());
+        if (rq.getTalukId() != null)                              staging.setTalukId(rq.getTalukId());
         if (normalized(rq.getAddressLine1()) != null)             staging.setAddressLine1(normalized(rq.getAddressLine1()));
         if (normalized(rq.getPinCode()) != null)                  staging.setPinCode(normalized(rq.getPinCode()));
         if (rq.getLatitude() != null)                             staging.setLatitude(rq.getLatitude());
@@ -463,7 +465,8 @@ public class TempleProfileStagingServiceImpl implements TempleProfileStagingServ
                 .grade(s.getGrade())
                 .tradition(s.getTradition())
                 .hobliId(s.getHobliId())
-                .talukId(s.getHobliId() != null ? hobliRepository.findTalukIdById(s.getHobliId()).orElse(null) : null)
+                .talukId(s.getTalukId() != null ? s.getTalukId()
+                        : (s.getHobliId() != null ? hobliRepository.findTalukIdById(s.getHobliId()).orElse(null) : null))
                 .addressLine1(s.getAddressLine1())
                 .pinCode(s.getPinCode())
                 .latitude(s.getLatitude())
