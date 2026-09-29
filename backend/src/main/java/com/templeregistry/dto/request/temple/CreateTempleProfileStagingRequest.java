@@ -85,6 +85,12 @@ public class CreateTempleProfileStagingRequest {
     /** Hobli ID from the geo hierarchy. */
     private Long hobliId;
 
+    /**
+     * Taluk ID from the geo hierarchy. Independent of hobliId — a submission may set
+     * this without a hobliId when no hobli exists yet for the TA's location.
+     */
+    private Long talukId;
+
     /** Street / address line 1. Maps to Temple.street. */
     @Size(max = 255)
     private String addressLine1;

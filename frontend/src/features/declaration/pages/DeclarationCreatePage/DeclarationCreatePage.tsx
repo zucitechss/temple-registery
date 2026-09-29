@@ -148,8 +148,8 @@ export function DeclarationCreatePage({ onAfterSubmit }: DeclarationCreatePagePr
       return
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('PDF size must be 5 MB or smaller.')
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('PDF size must be 10 MB or smaller.')
       return
     }
 
@@ -689,7 +689,7 @@ function LeaseUploader({ index, declarationId }: { index: number; declarationId:
         <div className="space-y-1">
           <p className="text-sm font-medium text-foreground">Lease agreement PDF</p>
           <p className="text-xs text-muted-foreground">
-            PDF only, up to 5 MB. {documentId ? `Linked document #${documentId}` : 'No document linked yet.'}
+            PDF only, up to 10 MB. {documentId ? `Linked document #${documentId}` : 'No document linked yet.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -710,8 +710,8 @@ function LeaseUploader({ index, declarationId }: { index: number; declarationId:
                 toast.error('Only PDF files are allowed.')
                 return
               }
-              if (file.size > 5 * 1024 * 1024) {
-                toast.error('PDF size must be 5 MB or smaller.')
+              if (file.size > 10 * 1024 * 1024) {
+                toast.error('PDF size must be 10 MB or smaller.')
                 return
               }
 

@@ -24,6 +24,7 @@ import com.templeregistry.repository.declaration.DeclarationRepository;
 import com.templeregistry.repository.employee.EmployeeRepository;
 import com.templeregistry.repository.geo.CityRepository;
 import com.templeregistry.repository.geo.HobliRepository;
+import com.templeregistry.repository.geo.TalukRepository;
 import com.templeregistry.entity.temple.TempleProfileStaging;
 import com.templeregistry.repository.temple.TempleProfileStagingRepository;
 import com.templeregistry.repository.temple.TempleRepository;
@@ -85,6 +86,7 @@ class DcTempleProfileServiceImplTest {
     @Mock private CityRepository cityRepository;
     @Mock private DistrictRepository districtRepository;
     @Mock private HobliRepository hobliRepository;
+    @Mock private TalukRepository talukRepository;
     @Mock private JurisdictionGuard jurisdictionGuard;
     @Mock private FileStorageService fileStorageService;
     @Mock private GovernanceStatusResolver governanceStatusResolver;
@@ -435,6 +437,36 @@ class DcTempleProfileServiceImplTest {
         assertThat(result.getTalukName()).isEqualTo("Mysuru Taluk");
         assertThat(result.getDistrictName()).isEqualTo("Mysuru");
         assertThat(result.getCityName()).isEqualTo("Mysuru Division");
+    }
+
+    @Test
+    void should_resolveTalukNameFromPendingStaging_when_noHobliExistsYetButTalukIsExplicitlySet() {
+        // Scenario (V117 gap): the TA's location has no Hobli in the master geo data yet, so
+        // they can only pick District + Taluk. There is nothing for the hobli-based fallback
+        // above to resolve, but DC must still see the taluk the TA explicitly selected.
+        Temple temple = templeWithoutHobli();
+        temple.setId(22L);
+        stubMinimumForGetFullProfile(temple);
+        when(summaryRepository.findByTempleId(22L)).thenReturn(Optional.empty());
+
+        TempleProfileStaging staging = TempleProfileStaging.builder()
+                .templeId(22L)
+                .talukId(20L)
+                .build();
+        Taluk taluk = Taluk.builder().name("Mysuru Taluk").build();
+        taluk.setId(20L);
+
+        when(profileStagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
+                eq(22L),
+                eq(List.of(WorkflowStatus.SUBMITTED, WorkflowStatus.UNDER_REVIEW, WorkflowStatus.RESUBMITTED))))
+                .thenReturn(Optional.of(staging));
+        when(talukRepository.findById(20L)).thenReturn(Optional.of(taluk));
+
+        TempleFullProfileResponse result = service.getFullProfile(22L, SUPER_ADMIN_CLAIMS);
+
+        assertThat(result.getTalukName()).isEqualTo("Mysuru Taluk");
+        assertThat(result.getHobliName()).isNull();
+        verify(hobliRepository, never()).findWithGeoById(any());
     }
 
     @Test

@@ -70,11 +70,11 @@ export function CreateNoticeDialog({ open, onOpenChange }: CreateNoticeDialogPro
 
   const addFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
-    const MAX_SIZE = 5 * 1024 * 1024 // 5 MB
+    const MAX_SIZE = 10 * 1024 * 1024 // 10 MB — matches NoticeServiceImpl
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
     const valid = files.filter((f) => {
       if (f.size > MAX_SIZE) {
-        toast.error(`"${f.name}" exceeds 5 MB limit.`)
+        toast.error(`"${f.name}" exceeds 10 MB limit.`)
         return false
       }
       if (!ALLOWED_TYPES.includes(f.type)) {

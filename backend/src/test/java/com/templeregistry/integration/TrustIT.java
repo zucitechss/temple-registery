@@ -17,7 +17,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -27,11 +29,11 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -41,25 +43,24 @@ import org.junit.jupiter.api.Disabled;
  * Integration tests for the Trust & Board module.
  * Proves end-to-end correctness: validation, persistence, security, and PII masking.
  *
- * NOTE: These tests require a MySQL-compatible database. They are disabled in environments
- * without Docker/MySQL (e.g., local dev without Docker). All business logic is covered
- * by TrustServiceImplTest and TrustValidationServiceImplTest which run without a DB.
+ * NOTE: These tests require Docker. {@link MySQLContainerBase} provisions a real MySQL
+ * container and runs the Flyway migrations against it; if Docker is unavailable the test
+ * fails rather than skipping (H-9). Run by Failsafe during `mvn verify`, not by Surefire.
  *
- * To enable: remove @Disabled and ensure a MySQL-compatible DB is available via
- * Testcontainers or application-test.yml pointing to a real DB.
- *
- * Now uses {@link MySQLContainerBase} for automatic Testcontainers MySQL setup.
+ * Business logic is additionally covered by TrustServiceImplTest and
+ * TrustValidationServiceImplTest, which run without a database.
  */
 @SpringBootTest
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
-class TrustIntegrationTest extends MySQLContainerBase {
+class TrustIT extends MySQLContainerBase {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired TempleRepository templeRepository;
     @Autowired TrustRepository trustRepository;
     @Autowired BoardMemberRepository boardMemberRepository;
+    @Autowired JdbcTemplate jdbcTemplate;
 
     private Long templeId;
 
@@ -368,6 +369,36 @@ class TrustIntegrationTest extends MySQLContainerBase {
                     .andExpect(jsonPath("$.data.past").isArray())
                     .andExpect(jsonPath("$.data.current[0].fullName").value("Govinda Rao"));
         }
+
+        /**
+         * Trust has {@code is_deleted} since V1__initial_schema.sql and follows the same
+         * {@code @SQLRestriction("is_deleted = false")} soft-delete pattern as every other
+         * entity in the codebase (BoardMember included). Deleting a trust that still has
+         * board members must soft-delete, not hard-delete, or the FK from board_members
+         * blocks it since BoardMember rows are never physically removed.
+         */
+        @Test
+        void deleting_trust_with_board_members_soft_deletes_without_fk_violation() throws Exception {
+            Long trustId = createTrustAndGetId();
+
+            mockMvc.perform(post("/api/v1/trusts/" + trustId + "/board-members")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(validMemberRequest())))
+                    .andExpect(status().isCreated());
+
+            boardMemberRepository.deleteAll();
+            trustRepository.deleteAll();
+
+            assertThat(trustRepository.findById(trustId)).isEmpty();
+
+            Long physicalCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM trusts WHERE id = ?", Long.class, trustId);
+            assertThat(physicalCount).as("trust row must still physically exist").isEqualTo(1L);
+
+            Boolean isDeleted = jdbcTemplate.queryForObject(
+                    "SELECT is_deleted FROM trusts WHERE id = ?", Boolean.class, trustId);
+            assertThat(isDeleted).as("trust must be soft-deleted, not hard-deleted").isTrue();
+        }
     }
 
     // â”€â”€â”€ Security: Cross-Temple Access â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -392,6 +423,53 @@ class TrustIntegrationTest extends MySQLContainerBase {
             // Should be blocked by OwnershipGuard
             mockMvc.perform(get("/api/v1/trusts/" + trustId))
                     .andExpect(status().isForbidden());
+        }
+    }
+
+    // â”€â”€â”€ Temple registration number uniqueness â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    @Nested
+    class TempleRegistrationUniqueness {
+
+        /**
+         * registration_number is a real-world, registering-authority-issued identifier
+         * (V1__initial_schema.sql, unchanged since). Temple is never actually deleted in
+         * production (archival goes through TempleStatus, not is_deleted — see
+         * AdminTempleController suspend/freeze/reactivate). Soft-deleting a temple must NOT
+         * free its registration number for reuse.
+         */
+        @Test
+        void registration_number_remains_unique_after_soft_delete() {
+            Temple templeA = templeRepository.save(Temple.builder()
+                    .name("Temple A")
+                    .registrationNumber("REG-UNIQ-001")
+                    .grade(TempleGrade.A)
+                    .tradition(ReligiousTradition.OTHER)
+                    .doorNumber("1")
+                    .street("Main St")
+                    .villageTown("Testville")
+                    .pinCode("560001")
+                    .districtId(1L)
+                    .primaryDeity("Rama")
+                    .build());
+
+            templeRepository.delete(templeA);
+
+            Temple templeB = Temple.builder()
+                    .name("Temple B")
+                    .registrationNumber("REG-UNIQ-001")
+                    .grade(TempleGrade.A)
+                    .tradition(ReligiousTradition.OTHER)
+                    .doorNumber("2")
+                    .street("Second St")
+                    .villageTown("Testville")
+                    .pinCode("560002")
+                    .districtId(1L)
+                    .primaryDeity("Shiva")
+                    .build();
+
+            assertThatThrownBy(() -> templeRepository.saveAndFlush(templeB))
+                    .isInstanceOf(DataIntegrityViolationException.class);
         }
     }
 

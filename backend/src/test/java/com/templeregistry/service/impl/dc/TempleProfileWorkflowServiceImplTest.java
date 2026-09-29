@@ -15,6 +15,7 @@ import com.templeregistry.entity.workflow.WorkflowInstance;
 import com.templeregistry.entity.workflow.WorkflowStatus;
 import com.templeregistry.repository.dc.TempleProfileCurrentRepository;
 import com.templeregistry.repository.dc.TempleProfileHistoryRepository;
+import com.templeregistry.repository.geo.HobliRepository;
 import com.templeregistry.repository.temple.TempleProfileStagingRepository;
 import com.templeregistry.repository.temple.TempleRepository;
 import com.templeregistry.security.JurisdictionGuard;
@@ -58,6 +59,7 @@ class TempleProfileWorkflowServiceImplTest {
     @Mock private GovernanceAuditService governanceAuditService;
     @Mock private WorkflowEngine workflowEngine;
     @Mock private ActionContextResolver actionContextResolver;
+    @Mock private HobliRepository hobliRepository;
 
     @InjectMocks
     private TempleProfileWorkflowServiceImpl service;
@@ -312,5 +314,79 @@ class TempleProfileWorkflowServiceImplTest {
 
         assertThat(activeTemple.getPlaceId()).isEqualTo("ChIJ21P2rgVRrhkRjIgqmoQ0pIE");
         assertThat(activeTemple.getFormattedAddress()).isEqualTo("ISKCON Temple, Bengaluru");
+    }
+
+    // ── Bug repro: taluk must be derived from hobli on DC approval ──────────
+    //
+    // Expected: when a TA-submitted staging row carries a new hobliId, DC approval
+    // must promote BOTH temple.hobliId and temple.talukId (derived via
+    // HobliRepository.findTalukIdById) onto the Temple entity — talukId is a flat,
+    // denormalized column with no JPA relation, so nothing keeps it in sync
+    // automatically; the service must do it explicitly, exactly as
+    // TempleServiceImpl/RegistrationServiceImpl already do on their own write paths.
+    //
+    // Actual (bug): promoteToTemple() sets temple.hobliId (line 310) but never
+    // references talukId at all, so it stays null/stale after every DC approval.
+
+    @Test
+    void should_populate_talukId_when_hobliId_is_set_on_approval() {
+        TempleProfileStaging staging = stagingWith(1000L, 1L);
+        staging.setHobliId(55L);
+        when(stagingRepository.findById(1000L)).thenReturn(Optional.of(staging));
+        when(templeRepository.findWithGeoById(1L)).thenReturn(Optional.of(activeTemple));
+        when(workflowEngine.getState(WorkflowEntityType.TEMPLE_PROFILE, 1000L))
+                .thenReturn(workflowAt(989L, WorkflowStatus.SUBMITTED));
+        when(hobliRepository.findTalukIdById(55L)).thenReturn(Optional.of(42L));
+
+        ApproveProfileRequest req = new ApproveProfileRequest();
+        ReflectionTestUtils.setField(req, "remarks", "Approved");
+        service.approveProfile(1000L, req, dcClaims);
+
+        assertThat(activeTemple.getHobliId()).isEqualTo(55L);
+        assertThat(activeTemple.getTalukId())
+                .as("talukId must be derived from the newly-approved hobliId")
+                .isEqualTo(42L);
+    }
+
+    @Test
+    void should_not_touch_talukId_when_staging_hobliId_is_null() {
+        // No hobliId change in this submission (e.g. an edit that only touched contact info) —
+        // the existing hobli/taluk assignment must be left alone.
+        activeTemple.setHobliId(7L);
+        activeTemple.setTalukId(3L);
+        TempleProfileStaging staging = stagingWith(1001L, 1L);
+        when(stagingRepository.findById(1001L)).thenReturn(Optional.of(staging));
+        when(templeRepository.findWithGeoById(1L)).thenReturn(Optional.of(activeTemple));
+        when(workflowEngine.getState(WorkflowEntityType.TEMPLE_PROFILE, 1001L))
+                .thenReturn(workflowAt(988L, WorkflowStatus.SUBMITTED));
+
+        ApproveProfileRequest req = new ApproveProfileRequest();
+        ReflectionTestUtils.setField(req, "remarks", "Approved");
+        service.approveProfile(1001L, req, dcClaims);
+
+        assertThat(activeTemple.getHobliId()).isEqualTo(7L);
+        assertThat(activeTemple.getTalukId()).isEqualTo(3L);
+        verifyNoInteractions(hobliRepository);
+    }
+
+    @Test
+    void should_leave_talukId_unchanged_when_hobli_has_no_resolvable_taluk() {
+        // Defensive case: hobliId points at a row with no taluk link (data integrity issue
+        // elsewhere). Must not null out a previously-good talukId just because the lookup missed.
+        activeTemple.setTalukId(9L);
+        TempleProfileStaging staging = stagingWith(1002L, 1L);
+        staging.setHobliId(66L);
+        when(stagingRepository.findById(1002L)).thenReturn(Optional.of(staging));
+        when(templeRepository.findWithGeoById(1L)).thenReturn(Optional.of(activeTemple));
+        when(workflowEngine.getState(WorkflowEntityType.TEMPLE_PROFILE, 1002L))
+                .thenReturn(workflowAt(987L, WorkflowStatus.SUBMITTED));
+        when(hobliRepository.findTalukIdById(66L)).thenReturn(Optional.empty());
+
+        ApproveProfileRequest req = new ApproveProfileRequest();
+        ReflectionTestUtils.setField(req, "remarks", "Approved");
+        service.approveProfile(1002L, req, dcClaims);
+
+        assertThat(activeTemple.getHobliId()).isEqualTo(66L);
+        assertThat(activeTemple.getTalukId()).isEqualTo(9L);
     }
 }

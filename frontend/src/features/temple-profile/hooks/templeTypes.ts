@@ -237,6 +237,7 @@ export interface TaProfileStagingRequest {
   grade?: string
   tradition?: string
   hobliId?: number
+  talukId?: number
   addressLine1?: string
   pinCode?: string
   latitude?: number | null
@@ -280,6 +281,7 @@ export const taProfileStagingSchema = z.object({
   grade: z.enum(['A', 'B', 'C']).optional(),
   tradition: z.enum(['SHAIVITE', 'VAISHNAVITE', 'SHAKTA', 'JAIN', 'BUDDHIST', 'OTHER']).optional(),
   hobliId: z.number().int().positive().optional(),
+  talukId: z.number().int().positive().optional(),
   addressLine1: z.string().max(255).optional(),
   pinCode: z.string().regex(/^\d{6}$/, 'PIN code must be 6 digits').optional().or(z.literal('')),
   latitude: z.number().min(-90).max(90).optional().nullable(),

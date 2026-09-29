@@ -16,6 +16,7 @@ import com.templeregistry.entity.workflow.WorkflowStatus;
 import com.templeregistry.exception.EntityNotFoundException;
 import com.templeregistry.repository.dc.TempleProfileCurrentRepository;
 import com.templeregistry.repository.dc.TempleProfileHistoryRepository;
+import com.templeregistry.repository.geo.HobliRepository;
 import com.templeregistry.repository.temple.TempleProfileStagingRepository;
 import com.templeregistry.repository.temple.TempleRepository;
 import com.templeregistry.security.JurisdictionGuard;
@@ -77,6 +78,7 @@ public class TempleProfileWorkflowServiceImpl implements TempleProfileWorkflowSe
     private final GovernanceAuditService governanceAuditService;
     private final WorkflowEngine workflowEngine;
     private final ActionContextResolver actionContextResolver;
+    private final HobliRepository hobliRepository;
 
     @Override
     @Transactional
@@ -307,7 +309,18 @@ public class TempleProfileWorkflowServiceImpl implements TempleProfileWorkflowSe
         if (staging.getTradition() != null) {
             try { temple.setTradition(com.templeregistry.entity.temple.ReligiousTradition.valueOf(staging.getTradition())); } catch (IllegalArgumentException ignored) {}
         }
-        if (staging.getHobliId() != null)                  temple.setHobliId(staging.getHobliId());
+        if (staging.getHobliId() != null) temple.setHobliId(staging.getHobliId());
+        // talukId (V117): prefer the staging row's own explicit talukId — a TA may have
+        // picked District+Taluk with no Hobli yet available for their location, so it
+        // cannot always be derived from hobliId. Fall back to hobli-derivation only when
+        // no explicit talukId was submitted (staging rows from before V117, or a
+        // hobli-only submission). A lookup miss on the fallback path leaves the existing
+        // talukId alone rather than nulling out otherwise-good data.
+        if (staging.getTalukId() != null) {
+            temple.setTalukId(staging.getTalukId());
+        } else if (staging.getHobliId() != null) {
+            hobliRepository.findTalukIdById(staging.getHobliId()).ifPresent(temple::setTalukId);
+        }
         if (staging.getAddressLine1() != null)             temple.setStreet(staging.getAddressLine1());
         if (staging.getPinCode() != null)                  temple.setPinCode(staging.getPinCode());
         if (staging.getLatitude() != null)                 temple.setLatitude(java.math.BigDecimal.valueOf(staging.getLatitude()));

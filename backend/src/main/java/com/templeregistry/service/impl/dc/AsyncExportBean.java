@@ -42,7 +42,7 @@ public class AsyncExportBean {
     private final TempleSearchSummaryRepository summaryRepository;
     private final NotificationEventPublisher notificationPublisher;
 
-    @Value("${trm.export.base-dir:/data/exports}")
+    @Value("${trm.export.base-dir:./exports}")
     private String exportBaseDir;
 
     /**
