@@ -259,3 +259,36 @@ part of the contract.
    one figure traced from form to dashboard, the provenance query returning the uploader and the
    staged payload. If the grain, the provenance columns or the refresh port are wrong, that is
    where it surfaces — in one subject, not in five. Do not defer it to the end.
+
+---
+
+## 10. What the `main` merge changed for both streams
+
+`main` was merged into the integration branch before the stream branches were cut, so both start
+from the same baseline. One commit, `c37e759`, and four things in it touch what you are about to
+build.
+
+**CSRF is enforced, and you almost certainly need to do nothing.** `SecurityConfig` had
+`csrf.disable()`; it now uses a cookie token repository across every state-changing request. On
+the frontend this is already handled centrally — `withCsrfProtection` wraps the raw base query
+*inside* `baseQueryWithReauth`, and all three finance APIs already use it, so a new RTK Query
+mutation is protected without a line of extra code. The exception is a raw `fetch`, `XMLHttpRequest`
+or a form post: those bypass the wrapper and must carry the token themselves. There is none in the
+finance code today. **Keep it that way** — if the FR15 download or the FR19 upload tempts you into
+a bare `fetch`, go through the base query instead.
+
+**Multipart is capped at 10MB per file, 25MB per request** (`application.yml`). That is the ceiling
+on an FR19 workbook, and it is a limit to validate against and report on, not to discover from a
+stack trace. Stream B: reject an oversized file with the same envelope as any other rejection.
+
+**`ScopeHelper` takes a `JwtKeyProvider` now** instead of loading the PEM itself. Its public
+surface — `parse` and the `Claims` record — is unchanged, so §6's rule is untouched: every
+endpoint guarded by `CAN_ENTER_TEMPLE_FINANCE` still resolves the path temple against
+`ScopeHelper.Claims`. Only a test that constructs `ScopeHelper` directly has to change.
+
+**No JWT key material is on the test classpath.** Context-loading tests inject a generated keypair
+through `RsaTestKeys` and `@DynamicPropertySource`. Copy that pattern in any new test that boots
+the full context; the old `classpath:keys/jwt-public.pem` is gone.
+
+And the migrations moved: see the note in §1. Drop and re-migrate any database that ran the old
+numbers before you start.

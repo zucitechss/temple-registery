@@ -1,5 +1,6 @@
 package com.templeregistry.service.finance.sync;
 
+import com.templeregistry.service.impl.auth.RsaTestKeys;
 import com.templeregistry.TempleRegistryApplication;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,6 +9,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.context.WebApplicationContext;
 
@@ -36,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles({"test", "sync-worker"})
 @TestPropertySource(properties = {
-        "app.jwt.public-key-path=classpath:keys/jwt-public.pem",
         // application.yml carries a TiDB-only session setting that H2 rejects.
         // ApplicationContextIntegrationTest overrides it the same way for plain MySQL.
         "spring.datasource.hikari.connection-init-sql=SELECT 1",
@@ -47,6 +49,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.jpa.hibernate.ddl-auto=create-drop"
 })
 class SyncWorkerRuntimeContextTest {
+
+    /**
+     * A generated keypair, because JwtKeyProvider now requires a private key as well and the dev
+     * PEMs under src/main/resources/keys are gitignored -- pointing at them passes only on a
+     * machine that happens to have them. Same approach as MySQLContainerBase.
+     */
+    private static final RsaTestKeys JWT_KEYS = RsaTestKeys.generate();
+
+    @DynamicPropertySource
+    static void jwtKeys(DynamicPropertyRegistry registry) {
+        registry.add("app.jwt.private-key", JWT_KEYS::privateKeyPem);
+        registry.add("app.jwt.public-key", JWT_KEYS::publicKeyPem);
+    }
 
     @Autowired
     private ApplicationContext context;

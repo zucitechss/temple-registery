@@ -56,6 +56,13 @@ class KollurFinanceConfigurationMigrationTest {
         Flyway.configure()
                 .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
                 .locations("classpath:db/migration")
+                // V116__bootstrap_super_admin.sql's placeholders. A standalone Flyway never sees
+                // application.yml's spring.flyway.placeholders defaults, and blank keeps the
+                // migration the no-op it is on dev and test.
+                .placeholders(java.util.Map.of(
+                        "bootstrapAdminUsername", "",
+                        "bootstrapAdminEmail", "",
+                        "bootstrapAdminPasswordHash", ""))
                 .validateOnMigrate(false)
                 .load()
                 .migrate();

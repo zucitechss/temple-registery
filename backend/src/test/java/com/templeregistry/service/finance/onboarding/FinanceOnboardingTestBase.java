@@ -1,5 +1,6 @@
 package com.templeregistry.service.finance.onboarding;
 
+import com.templeregistry.service.impl.auth.RsaTestKeys;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.DockerClientFactory;
@@ -36,6 +37,11 @@ abstract class FinanceOnboardingTestBase {
         }
     }
 
+    /** Generated per run: the PEMs under src/main/resources/keys are gitignored, so pointing at
+     *  them passes on a machine that has them and fails on a fresh clone and in CI. Same approach
+     *  as MySQLContainerBase. */
+    private static final RsaTestKeys JWT_KEYS = RsaTestKeys.generate();
+
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
@@ -46,8 +52,8 @@ abstract class FinanceOnboardingTestBase {
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
         registry.add("spring.datasource.hikari.connection-init-sql", () -> "SELECT 1");
-        registry.add("app.jwt.private-key-path", () -> "classpath:keys/jwt-private.pem");
-        registry.add("app.jwt.public-key-path", () -> "classpath:keys/jwt-public.pem");
+        registry.add("app.jwt.private-key", JWT_KEYS::privateKeyPem);
+        registry.add("app.jwt.public-key", JWT_KEYS::publicKeyPem);
         registry.add("cloud.aws.s3.bucket-name", () -> "test-bucket");
         registry.add("cloud.aws.region.static", () -> "ap-south-1");
         registry.add("app.encryption.aes-key", () -> "12345678901234567890123456789012");
