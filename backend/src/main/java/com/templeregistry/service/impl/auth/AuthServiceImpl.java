@@ -8,6 +8,7 @@ import com.templeregistry.entity.auth.RefreshToken;
 import com.templeregistry.entity.auth.User;
 import com.templeregistry.exception.AccountLockedException;
 import com.templeregistry.exception.EntityNotFoundException;
+import com.templeregistry.exception.MfaVerificationException;
 import com.templeregistry.repository.auth.RefreshTokenRepository;
 import com.templeregistry.repository.auth.UserRepository;
 import com.templeregistry.security.TokenRevocationGuard;
@@ -36,6 +37,8 @@ import java.util.HexFormat;
 public class AuthServiceImpl implements AuthService {
 
     private static final int MAX_FAILED_ATTEMPTS = 5;
+    /** Must match the "type" claim JwtServiceImpl sets on temp tokens. */
+    private static final String TOKEN_TYPE_TEMP = "TEMP";
     private static final int LOCK_DURATION_MINUTES = 30;
 
     private final UserRepository userRepository;
@@ -94,19 +97,105 @@ public class AuthServiceImpl implements AuthService {
         return issueTokenPair(user);
     }
 
+    /**
+     * Second factor of the two-step login. Previously this method validated the
+     * temp token and issued a full token pair without ever inspecting
+     * {@code mfaCode}, which made MFA decorative (audit finding C-3).
+     *
+     * <p>A token pair is now issued only after the submitted code is verified
+     * against the user's configured factor. Failures are counted against the
+     * same {@code failedLoginCount} / {@code lockedUntil} fields that password
+     * login uses, so a 6-digit TOTP cannot be brute-forced inside the 5-minute
+     * temp-token window.</p>
+     */
     @Override
     @Transactional
     public AuthTokenResponse verifyMfa(MfaVerifyRequest request) {
         Claims claims = jwtService.validateAndParse(request.getTempToken());
-        String username = claims.getSubject();
 
-        User user = userRepository.findByUsername(username)
+        // The temp token is the only credential accepted here. Refuse a full
+        // access token so an already-issued session cannot mint a second one.
+        if (!TOKEN_TYPE_TEMP.equals(claims.get("type", String.class))) {
+            throw new MfaVerificationException("Invalid MFA session. Please sign in again.");
+        }
+
+        User user = userRepository.findByUsername(claims.getSubject())
                 .orElseThrow(() -> new EntityNotFoundException("User not found.", "USER_NOT_FOUND"));
 
+        if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(LocalDateTime.now())) {
+            throw new AccountLockedException(
+                    user.getLockedUntil().toEpochSecond(java.time.ZoneOffset.UTC));
+        }
+
+        verifyMfaCode(user, request.getMfaCode());
+
+        // Success — clear the failure counter exactly as password login does.
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
 
         return issueTokenPair(user);
+    }
+
+    /**
+     * Verifies {@code mfaCode} against the factor configured on the account.
+     * Always throws on failure; returning normally means the code was valid.
+     */
+    private void verifyMfaCode(User user, String mfaCode) {
+        MfaType mfaType = user.getMfaType();
+
+        if (mfaType == null || mfaType == MfaType.NONE) {
+            // login() only issues a temp token when a factor is configured, so
+            // reaching here means the account changed underneath the challenge.
+            throw new MfaVerificationException(
+                    "No multi-factor method is configured for this account. Please sign in again.");
+        }
+
+        if (mfaCode == null || mfaCode.isBlank()) {
+            registerMfaFailure(user);
+            throw new MfaVerificationException("MFA code is required.");
+        }
+
+        switch (mfaType) {
+            case TOTP -> {
+                if (user.getMfaSecret() == null || user.getMfaSecret().isBlank()) {
+                    throw new MfaVerificationException(
+                            "TOTP is enabled but no secret is enrolled for this account. "
+                                    + "Contact an administrator.");
+                }
+                try {
+                    mfaService.verifyTotp(user.getMfaSecret(), mfaCode.trim());
+                } catch (MfaVerificationException ex) {
+                    registerMfaFailure(user);
+                    throw ex;
+                }
+            }
+            case SMS_OTP -> {
+                // No SMS provider is wired up: MfaServiceImpl.sendSmsOtp is a stub
+                // and verifySmsOtp has no persisted store to check against. Rather
+                // than accept any code, refuse the factor outright until login-time
+                // SMS OTP is actually implemented (C-3).
+                throw new MfaVerificationException(
+                        "SMS one-time passcodes are not available. "
+                                + "Contact an administrator to switch this account to an authenticator app.");
+            }
+            default -> throw new MfaVerificationException("Unsupported MFA method: " + mfaType);
+        }
+    }
+
+    /**
+     * Counts a bad MFA code against the shared lockout budget and persists it
+     * immediately, so the attempt survives the exception that follows.
+     */
+    private void registerMfaFailure(User user) {
+        int attempts = user.getFailedLoginCount() + 1;
+        user.setFailedLoginCount(attempts);
+        if (attempts >= MAX_FAILED_ATTEMPTS) {
+            user.setLockedUntil(LocalDateTime.now().plusMinutes(LOCK_DURATION_MINUTES));
+            log.warn("Account locked for user [{}] after {} failed MFA attempts", user.getId(), attempts);
+        }
+        userRepository.save(user);
     }
 
     @Override

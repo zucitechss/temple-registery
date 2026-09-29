@@ -60,8 +60,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
@@ -94,6 +94,7 @@ public class DcTempleProfileServiceImpl implements DcTempleProfileService {
         private final CityRepository cityRepository;
         private final DistrictRepository districtRepository;
         private final com.templeregistry.repository.geo.HobliRepository hobliRepository;
+        private final com.templeregistry.repository.geo.TalukRepository talukRepository;
         private final JurisdictionGuard jurisdictionGuard;
         private final TrustValidationService trustValidationService;
         private final WorkflowEngine workflowEngine;
@@ -155,17 +156,17 @@ public class DcTempleProfileServiceImpl implements DcTempleProfileService {
                 // resolve geo names from the latest SUBMITTED/UNDER_REVIEW/RESUBMITTED
                 // staging so DC sees correct City and Hobli values before approving.
                 if (hobliName == null) {
-                        com.templeregistry.entity.geo.Hobli stagingHobli =
+                        TempleProfileStaging pendingStaging =
                                 profileStagingRepository.findTopByTempleIdAndStatusInOrderByVersionNumberDesc(
                                         templeId,
                                         java.util.List.of(
                                                 com.templeregistry.entity.workflow.WorkflowStatus.SUBMITTED,
                                                 com.templeregistry.entity.workflow.WorkflowStatus.UNDER_REVIEW,
                                                 com.templeregistry.entity.workflow.WorkflowStatus.RESUBMITTED))
-                                .map(TempleProfileStaging::getHobliId)
-                                .filter(Objects::nonNull)
-                                .flatMap(hobliRepository::findWithGeoById)
                                 .orElse(null);
+                        com.templeregistry.entity.geo.Hobli stagingHobli = pendingStaging != null && pendingStaging.getHobliId() != null
+                                ? hobliRepository.findWithGeoById(pendingStaging.getHobliId()).orElse(null)
+                                : null;
                         if (stagingHobli != null) {
                                 hobliName = stagingHobli.getName();
                                 if (stagingHobli.getTaluk() != null) {
@@ -179,6 +180,16 @@ public class DcTempleProfileServiceImpl implements DcTempleProfileService {
                                 }
                                 log.debug("Geo names resolved from pending staging for templeId={}: hobli={}, taluk={}, district={}, city={}",
                                         templeId, hobliName, talukName, districtName, cityName);
+                        } else if (pendingStaging != null && pendingStaging.getTalukId() != null) {
+                                // No hobli exists yet for this location, but the TA explicitly set a
+                                // taluk (V117) — resolve just that, so DC still sees it before a hobli
+                                // is ever added to the master geo data.
+                                talukName = talukRepository.findById(pendingStaging.getTalukId())
+                                        .map(com.templeregistry.entity.geo.Taluk::getName)
+                                        .orElse(null);
+                                log.debug("Taluk name resolved from pending staging's explicit talukId "
+                                                + "(no hobli available yet) for templeId={}: taluk={}",
+                                                templeId, talukName);
                         }
                 }
 
@@ -740,7 +751,8 @@ public class DcTempleProfileServiceImpl implements DcTempleProfileService {
                                 .grade(s.getGrade())
                                 .tradition(s.getTradition())
                                 .hobliId(s.getHobliId())
-                                .talukId(s.getHobliId() != null ? hobliRepository.findTalukIdById(s.getHobliId()).orElse(null) : null)
+                                .talukId(s.getTalukId() != null ? s.getTalukId()
+                                        : (s.getHobliId() != null ? hobliRepository.findTalukIdById(s.getHobliId()).orElse(null) : null))
                                 .addressLine1(s.getAddressLine1())
                                 .pinCode(s.getPinCode())
                                 .latitude(s.getLatitude())

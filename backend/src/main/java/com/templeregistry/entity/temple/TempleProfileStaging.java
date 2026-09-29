@@ -106,6 +106,16 @@ public class TempleProfileStaging extends BaseEntity {
     @Column(name = "hobli_id")
     private Long hobliId;
 
+    /**
+     * Independent, directly-settable column (V117) — NOT purely derived from hobliId.
+     * A TA may pick District + Taluk with no Hobli yet available in the master geo
+     * data for their location; that selection must still persist. When null,
+     * read paths fall back to deriving it from hobliId (Hobli -> Taluk), matching
+     * behavior for staging rows written before this column existed.
+     */
+    @Column(name = "taluk_id")
+    private Long talukId;
+
     @Column(name = "address_line1", length = 255)
     private String addressLine1;
 

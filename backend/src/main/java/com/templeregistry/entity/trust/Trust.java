@@ -6,6 +6,7 @@ import com.templeregistry.util.AesEncryptionConverter;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.time.LocalDate;
@@ -16,6 +17,7 @@ import java.time.LocalDate;
         @Index(name = "idx_trust_registration_number", columnList = "trust_registration_number")
 })
 @SQLRestriction("is_deleted = false")
+@SQLDelete(sql = "UPDATE trusts SET is_deleted = true, updated_at = NOW(6) WHERE id = ? AND lock_version = ?")
 @Getter
 @Setter
 @SuperBuilder
