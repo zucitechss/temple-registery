@@ -283,7 +283,8 @@ export interface DeclarationDetailResponse {
   otherMovableValue: number | null
   submittedAt: string | null
   reviewedAt: string | null
-  reviewedBy?: number | null
+  reviewedBy: number | null
+  acknowledgedAt: string | null
   remarks?: string | null
   acknowledgementNumber: string | null
   dueDate: string | null

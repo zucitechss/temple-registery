@@ -443,6 +443,20 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                 </dt>
                 <dd className="text-xs font-bold text-teal-700">{declaration.reviewedAt ? formatDate(declaration.reviewedAt) : '—'}</dd>
               </div>
+              <div className="p-2 rounded-md border border-teal-200/60 bg-gradient-to-br from-teal-50/50 to-teal-100/30">
+                <dt className="text-[10px] text-muted-foreground flex items-center gap-1 mb-1">
+                  <CheckCircle2 className="h-2.5 w-2.5 text-teal-600" />
+                  <span className="uppercase tracking-wider font-medium">Reviewed By</span>
+                </dt>
+                <dd className="text-xs font-bold text-teal-700">{declaration.reviewedBy ? `User #${declaration.reviewedBy}` : '—'}</dd>
+              </div>
+              <div className="p-2 rounded-md border border-rose-200/60 bg-gradient-to-br from-rose-50/50 to-rose-100/30">
+                <dt className="text-[10px] text-muted-foreground flex items-center gap-1 mb-1">
+                  <FileText className="h-2.5 w-2.5 text-rose-600" />
+                  <span className="uppercase tracking-wider font-medium">Acknowledged</span>
+                </dt>
+                <dd className="text-xs font-bold text-rose-700">{declaration.acknowledgedAt ? formatDate(declaration.acknowledgedAt) : '—'}</dd>
+              </div>
             </dl>
           </div>
         </div>

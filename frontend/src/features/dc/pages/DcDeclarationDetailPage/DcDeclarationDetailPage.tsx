@@ -368,6 +368,11 @@ export function DcDeclarationDetailPage() {
               <DetailRow label="Due date" value={formatDate(declaration.dueDate)} />
               <DetailRow label="Submitted" value={formatDate(declaration.submittedAt)} />
               <DetailRow label="Reviewed" value={formatDate(declaration.reviewedAt)} />
+              <DetailRow
+                label="Reviewed by"
+                value={declaration.reviewedBy ? `User #${declaration.reviewedBy}` : 'Not reviewed'}
+              />
+              <DetailRow label="Acknowledged" value={formatDate(declaration.acknowledgedAt)} />
               <DetailRow label="Remarks" value={declaration.remarks ?? 'None'} />
             </CardContent>
           </Card>

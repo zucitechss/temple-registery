@@ -327,6 +327,8 @@ public class DcTempleProfileServiceImpl implements DcTempleProfileService {
                                 .otherMovableValue(d.getOtherMovableValue())
                                 .submittedAt(d.getSubmittedAt())
                                 .reviewedAt(d.getReviewedAt())
+                                .reviewedBy(d.getReviewedBy())
+                                .acknowledgedAt(d.getAcknowledgedAt())
                                 .acknowledgementNumber(d.getAcknowledgementNumber())
                                 .dueDate(d.getDueDate())
                                 .clarificationRound(d.getClarificationRound())
@@ -680,6 +682,7 @@ public class DcTempleProfileServiceImpl implements DcTempleProfileService {
                                 .otherMovableValue(d.getOtherMovableValue())
                                 .submittedAt(d.getSubmittedAt())
                                 .reviewedAt(d.getReviewedAt())
+                                .reviewedBy(d.getReviewedBy())
                                 .acknowledgementNumber(d.getAcknowledgementNumber())
                                 .dueDate(d.getDueDate())
                                 .governanceStatus(showGovernance

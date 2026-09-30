@@ -3,6 +3,8 @@ package com.templeregistry.service.impl.governance;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.templeregistry.dto.request.governance.RejectRequest;
 import com.templeregistry.dto.request.governance.SendBackRequest;
+import com.templeregistry.entity.declaration.AssetDeclaration;
+import com.templeregistry.entity.declaration.DeclarationStatus;
 import com.templeregistry.entity.temple.Temple;
 import com.templeregistry.entity.trust.Trust;
 import com.templeregistry.entity.trust.TrustType;
@@ -258,6 +260,32 @@ class GovernanceWorkflowServiceImplTest {
 
         verify(workflowEngineAdaptor).adaptApprove(
             eq(WorkflowEntityType.TRUST), eq(TRUST_ID), anyLong(), eq(ACTOR_ID));
+    }
+
+    // â”€â”€ Declaration submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    @Test
+    void should_setSubmittedAt_when_declarationSubmitted() {
+        // Regression: submitDeclaration previously set submittedBy but never
+        // submittedAt, so every declaration showed a blank "Submitted" date
+        // on both the TA and DC sides regardless of submission state.
+        AssetDeclaration declaration = AssetDeclaration.builder()
+                .templeId(TEMPLE_ID)
+                .districtId(DISTRICT_ID)
+                .status(DeclarationStatus.DRAFT)
+                .build();
+        org.springframework.test.util.ReflectionTestUtils.setField(declaration, "id", 100L);
+
+        when(declarationRepository.findById(100L)).thenReturn(Optional.of(declaration));
+        when(workflowEngineAdaptor.adaptSubmit(
+                eq(WorkflowEntityType.DECLARATION), eq(100L), eq(TEMPLE_ID), eq(DISTRICT_ID), anyLong()))
+                .thenReturn(true);
+
+        service.submitDeclaration(100L);
+
+        assertThat(declaration.getSubmittedAt()).isNotNull();
+        assertThat(declaration.getSubmittedBy()).isEqualTo(ACTOR_ID);
+        verify(declarationRepository).save(declaration);
     }
 
     // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
