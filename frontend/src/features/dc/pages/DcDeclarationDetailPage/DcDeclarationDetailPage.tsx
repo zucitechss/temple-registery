@@ -217,13 +217,13 @@ export function DcDeclarationDetailPage() {
                   <AssetLine title={item.itemDescription ?? 'Metal item'} subtitle={`${item.metalType ?? 'Type n/a'} · ${item.weightGrams ?? 0} g · ${item.purity ?? 'Purity n/a'}`} value={formatCurrency(item.approximateValueInr ?? 0)} />
                 )} />
                 <AssetSection title="Artifacts" items={declaration.artifacts ?? []} renderItem={(item) => (
-                  <AssetLine title={item.itemDescription ?? 'Artifact'} subtitle={`${item.material ?? 'Material n/a'} · ${item.ageOrPeriod ?? 'Age n/a'}`} value={item.museumGradeClassification ?? item.provenance ?? 'No classification'} />
+                  <AssetLine title={item.itemDescription ?? 'Artifact'} subtitle={`${item.material ?? 'Material n/a'} · ${item.ageOrPeriod ?? 'Age n/a'} · ${item.museumGradeClassification ?? item.provenance ?? 'No classification'}`} value={formatCurrency(item.estimatedValueInr ?? item.approximateValueInr ?? 0)} />
                 )} />
                 <AssetSection title="Vehicles" items={declaration.vehicles ?? []} renderItem={(item) => (
                   <AssetLine title={item.registrationNumber ?? 'Vehicle'} subtitle={`${item.makeModel ?? 'Model n/a'} · ${item.year ?? 'Year n/a'}`} value={item.purpose ?? 'Purpose n/a'} />
                 )} />
                 <AssetSection title="Equipment" items={declaration.equipment ?? []} renderItem={(item) => (
-                  <AssetLine title={item.itemName ?? 'Equipment'} subtitle={item.serialNumber ?? 'Serial n/a'} value={formatCurrency(item.approximateValueInr ?? 0)} />
+                  <AssetLine title={item.itemName ?? 'Equipment'} subtitle={item.serialNumber ?? 'Serial n/a'} value={formatCurrency(item.estimatedValueInr ?? 0)} />
                 )} />
               </AssetGroup>
             </TabsContent>

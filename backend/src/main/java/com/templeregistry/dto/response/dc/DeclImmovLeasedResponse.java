@@ -14,6 +14,5 @@ public class DeclImmovLeasedResponse {
     private LocalDate leaseStartDate;
     private LocalDate leaseEndDate;
     private BigDecimal monthlyRent;
-    private BigDecimal annualRent;
     private Long agreementDocumentId;
 }

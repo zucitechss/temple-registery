@@ -195,8 +195,6 @@ export interface DeclImmovAgriLandResponse {
   areaAcres: number | null
   ownerOfRecord: string | null
   pattaStatus: string | null
-  villageName?: string | null
-  estimatedValueInr?: number | null
 }
 
 export interface DeclImmovBuildingResponse {
@@ -206,9 +204,6 @@ export interface DeclImmovBuildingResponse {
   yearBuilt: number | null
   structureType: string | null
   valuationInr: number | null
-  buildingName?: string | null
-  totalSqft?: number | null
-  estimatedValueInr?: number | null
 }
 
 export interface DeclImmovLeasedResponse {
@@ -219,8 +214,6 @@ export interface DeclImmovLeasedResponse {
   leaseEndDate: string | null
   monthlyRent: number | null
   agreementDocumentId: number | null
-  lesseeOrLandlordName?: string | null
-  annualRent?: number | null
 }
 
 export interface DeclImmovOtherResponse {
@@ -229,8 +222,6 @@ export interface DeclImmovOtherResponse {
   area: number | null
   usageType: string | null
   revenueDepartmentReference: string | null
-  description?: string | null
-  estimatedValueInr?: number | null
 }
 
 export interface DeclMovArtifactResponse {
@@ -241,7 +232,6 @@ export interface DeclMovArtifactResponse {
   provenance: string | null
   museumGradeClassification: string | null
   approximateValueInr: number | null
-  artifactName?: string | null
   estimatedValueInr?: number | null
 }
 
@@ -249,10 +239,7 @@ export interface DeclMovEquipmentResponse {
   id: number
   itemName: string | null
   serialNumber: string | null
-  approximateValueInr: number | null
-  equipmentName?: string | null
-  quantity?: number | null
-  estimatedValueInr?: number | null
+  estimatedValueInr: number | null
 }
 
 export interface DeclMovPreciousMetalResponse {
@@ -271,7 +258,6 @@ export interface DeclMovVehicleResponse {
   makeModel: string | null
   year: number | null
   purpose: string | null
-  vehicleType?: string | null
   estimatedValueInr?: number | null
 }
 

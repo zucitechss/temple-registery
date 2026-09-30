@@ -60,7 +60,6 @@ public class DeclarationAssetMapper {
                 .leaseStartDate(request.getLeaseStartDate())
                 .leaseExpiry(request.getLeaseEndDate())
                 .monthlyRent(request.getMonthlyRent())
-                .annualRent(request.getMonthlyRent())
                 .agreementDocumentId(request.getAgreementDocumentId())
                 .build();
     }
