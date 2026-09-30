@@ -9,14 +9,6 @@ import { Button } from '@/components/ui/button'
 import { loginSchema, type LoginRequest } from '../../authTypes'
 import { useLogin } from '../../authHooks'
 
-const DEV_USERS = [
-  { label: 'DC', username: 'dc_mysuru' },
-  { label: 'DC Staff', username: 'dc_staff_mysuru' },
-  { label: 'Temple Auth', username: 'ta_chamundi' },
-  { label: 'Admin', username: 'super_admin' },
-  { label: 'Auditor', username: 'auditor_dev' },
-] as const
-
 export function LoginForm() {
   const { handleLogin, isLoading } = useLogin()
   const [showPassword, setShowPassword] = useState(false)
@@ -25,11 +17,6 @@ export function LoginForm() {
     resolver: zodResolver(loginSchema),
     defaultValues: { username: '', password: '' },
   })
-
-  function fillDevUser(username: string) {
-    form.setValue('username', username)
-    // Password intentionally not pre-filled — enter it manually in dev
-  }
 
   return (
     <Form {...form}>
@@ -113,27 +100,6 @@ export function LoginForm() {
             Forgot password?
           </Link>
         </div>
-
-        {/* Dev-only quick fill */}
-        {import.meta.env.DEV && (
-          <div className="border-t border-gray-200 pt-3 mt-3">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Dev shortcuts
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {DEV_USERS.map(({ label, username }) => (
-                <button
-                  key={username}
-                  type="button"
-                  onClick={() => fillDevUser(username)}
-                  className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-[10px] font-medium text-gray-700 hover:bg-gray-100 transition-colors"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </form>
     </Form>
   )

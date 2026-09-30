@@ -203,6 +203,7 @@ interface UsersTableProps {
 function UsersTable({ users, role, onView, onEdit, onToggleStatus, onResetPassword, deactivating, activating }: UsersTableProps) {
   const showDistrict = role === 'ALL' || DISTRICT_ROLES.has(role as 'DISTRICT_COLLECTOR' | 'DC_STAFF' | 'TEMPLE_AUTHORITY')
   const showTemple = role === 'ALL' || TEMPLE_ROLES.has(role as 'TEMPLE_AUTHORITY')
+  const showAadhaar = role !== USER_ROLES.SUPER_ADMIN && role !== USER_ROLES.DISTRICT_COLLECTOR
 
   if (users.length === 0) {
     return (
@@ -232,7 +233,9 @@ function UsersTable({ users, role, onView, onEdit, onToggleStatus, onResetPasswo
               <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap w-[160px]">Temple</th>
             )}
             <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap w-[90px]">Status</th>
-            <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap w-[140px]">Aadhaar</th>
+            {showAadhaar && (
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap w-[140px]">Aadhaar</th>
+            )}
             <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap w-[175px]">Last Login</th>
             <th className="px-4 py-3 whitespace-nowrap w-[140px]" />
           </tr>
@@ -297,11 +300,17 @@ function UsersTable({ users, role, onView, onEdit, onToggleStatus, onResetPasswo
               </td>
 
               {/* Aadhaar */}
-              <td className="px-4 py-3 whitespace-nowrap">
-                <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                  {maskAadhaar(user.aadhaarNumber)}
-                </span>
-              </td>
+              {showAadhaar && (
+                <td className="px-4 py-3 whitespace-nowrap">
+                  {user.role === USER_ROLES.SUPER_ADMIN || user.role === USER_ROLES.DISTRICT_COLLECTOR ? (
+                    <span className="text-xs text-muted-foreground/50">—</span>
+                  ) : (
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                      {maskAadhaar(user.aadhaarNumber)}
+                    </span>
+                  )}
+                </td>
+              )}
 
               {/* Last Login */}
               <td className="px-4 py-3 whitespace-nowrap">

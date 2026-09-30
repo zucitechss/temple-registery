@@ -92,8 +92,11 @@ class SecurityConfigCsrfTest {
 
     @BeforeEach
     void stubAuthenticatedUser() {
-        when(scopeHelper.parse(anyString())).thenReturn(new ScopeHelper.Claims(
-                7L, "TEMPLE_AUTHORITY", 3L, 11L, "ta-user", "FULL"));
+        ScopeHelper.Claims claims = new ScopeHelper.Claims(
+                7L, "TEMPLE_AUTHORITY", 3L, 11L, "ta-user", "FULL");
+        when(scopeHelper.parse(anyString())).thenReturn(claims);
+        when(scopeHelper.parseFull(anyString()))
+                .thenReturn(new ScopeHelper.ParsedToken(claims, false));
     }
 
     /** A request carrying a valid auth cookie but no CSRF token - the forgery scenario. */

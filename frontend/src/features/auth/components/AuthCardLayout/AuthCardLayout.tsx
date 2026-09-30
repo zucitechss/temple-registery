@@ -60,7 +60,7 @@ export function AuthCardLayout({ title, subtitle, children, footer }: AuthCardLa
           {footer}
 
           <p className="mt-4 text-center text-xs text-gray-500">
-            © 2024 Government of Karnataka. All rights reserved.
+            © {new Date().getFullYear()} Government of Karnataka. All rights reserved.
           </p>
         </div>
       </div>

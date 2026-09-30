@@ -260,7 +260,7 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px] max-h-[92vh] flex flex-col overflow-hidden p-0">
         <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
-          <DialogTitle>{isEdit ? `Edit â€” ${user.fullName}` : 'Create New User'}</DialogTitle>
+          <DialogTitle>{isEdit ? `Edit — ${user.fullName}` : 'Create New User'}</DialogTitle>
           {isEdit && (
             <DialogDescription className="text-xs">
               Username and role are locked after creation.

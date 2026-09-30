@@ -1,4 +1,4 @@
--- V110: Password management — forced password change after an admin-issued temporary
+-- V118: Password management — forced password change after an admin-issued temporary
 -- password, plus a last-password-change timestamp shown on the user profile page.
 --
 -- Guarded via information_schema because `ADD COLUMN IF NOT EXISTS` is TiDB-only —
