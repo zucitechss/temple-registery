@@ -33,4 +33,7 @@ public class VehicleItemRequest extends AssetItemRequest {
     @NotBlank(message = "Purpose is required")
     @Size(max = 200, message = "Purpose must not exceed 200 characters")
     private String purpose;
+
+    @DecimalMin(value = "0", message = "Approximate value must not be negative")
+    private BigDecimal approximateValueInr;
 }

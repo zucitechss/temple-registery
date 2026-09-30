@@ -14,4 +14,5 @@ public class VehicleItemResponse extends AssetItemResponse {
     private String makeModel;
     private Integer year;
     private String purpose;
+    private BigDecimal approximateValueInr;
 }

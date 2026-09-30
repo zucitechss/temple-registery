@@ -131,6 +131,7 @@ public class DeclarationAssetMapper {
                 .makeAndModel(request.getMakeModel())
                 .yearOfPurchase(request.getYear())
                 .usagePurpose(request.getPurpose())
+                .currentValue(request.getApproximateValueInr())
                 .build();
     }
 
@@ -141,6 +142,7 @@ public class DeclarationAssetMapper {
         response.setMakeModel(entity.getMakeAndModel());
         response.setYear(entity.getYearOfPurchase());
         response.setPurpose(entity.getUsagePurpose());
+        response.setApproximateValueInr(entity.getCurrentValue());
         return response;
     }
 

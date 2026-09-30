@@ -122,7 +122,7 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
               title="Agricultural Land"
               icon={<Trees className="h-4 w-4" />}
               count={agriLandCount}
-              value={formatCurrency(declaration.agriculturalLandValue)}
+              value={declaration.agriculturalLandAcres ? `${declaration.agriculturalLandAcres} acres` : ''}
               isOpen={openAccordion === 'agri-land'}
               onToggle={() => toggleAccordion('agri-land')}
               colorTheme="emerald"
@@ -199,6 +199,7 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     <DetailField icon={<FileText size={12} />} label="Lessee" value={property.lesseeName} />
                     <DetailField icon={<IndianRupee size={12} />} label="Monthly Rent" value={formatCurrency(property.monthlyRent)} />
                     <DetailField icon={<Calendar size={12} />} label="Lease End" value={property.leaseEndDate} />
+                    <DetailField icon={<FileText size={12} />} label="Agreement Document" value={property.agreementDocumentId ? `Doc #${property.agreementDocumentId}` : 'No PDF'} />
                   </AssetCard>
                 ))}
               </div>
@@ -212,7 +213,7 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
               title="Other Land"
               icon={<Map className="h-4 w-4" />}
               count={otherLandCount}
-              value={formatCurrency(declaration.otherLandValue)}
+              value=""
               isOpen={openAccordion === 'other-land'}
               onToggle={() => toggleAccordion('other-land')}
               colorTheme="amber"

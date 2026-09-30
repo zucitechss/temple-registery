@@ -123,6 +123,7 @@ export function AssetsTab({ declaration }: AssetsTabProps) {
                 { label: 'Make & Model', value: item.makeModel || '—' },
                 { label: 'Year', value: item.year?.toString() || '—' },
                 { label: 'Purpose', value: item.purpose || '—' },
+                { label: 'Approximate Value', value: formatCurrency(item.approximateValueInr || 0) },
               ]}
             />
           )}
