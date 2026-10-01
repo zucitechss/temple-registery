@@ -11,6 +11,7 @@ import com.templeregistry.entity.temple.Temple;
 import com.templeregistry.entity.temple.TempleStatus;
 import com.templeregistry.exception.DuplicateResourceException;
 import com.templeregistry.exception.EntityNotFoundException;
+import com.templeregistry.repository.auth.RefreshTokenRepository;
 import com.templeregistry.repository.auth.UserRepository;
 import com.templeregistry.repository.geo.CityRepository;
 import com.templeregistry.repository.geo.DistrictRepository;
@@ -22,6 +23,7 @@ import com.templeregistry.service.audit.AuditService;
 import com.templeregistry.service.notification.EmailService;
 import com.templeregistry.service.temple.TempleSearchSummaryService;
 import com.templeregistry.util.PaginationUtil;
+import com.templeregistry.util.TemporaryPasswordGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -54,6 +56,7 @@ public class AdminServiceImpl implements AdminService {
     private final AuditService auditService;
     private final PaginationUtil paginationUtil;
     private final EmailService emailService;
+    private final RefreshTokenRepository refreshTokenRepository;
 
     @org.springframework.beans.factory.annotation.Value("${app.base-url:http://localhost:5173}")
     private String baseUrl;
@@ -223,6 +226,42 @@ public class AdminServiceImpl implements AdminService {
             searchSummaryService.scheduleRefresh(user.getTempleId());
         }
         log.info("User [{}] activated.", id);
+    }
+
+    @Override
+    @PreAuthorize(RoleConstants.ADMIN_ONLY)
+    @Transactional
+    public void resetUserPassword(Long id) {
+        User user = findOrThrow(id);
+
+        // Generated locally, held only for the duration of this method and the email render.
+        String temporaryPassword = TemporaryPasswordGenerator.generate();
+
+        user.setPasswordHash(passwordEncoder.encode(temporaryPassword));
+        user.setMustChangePassword(true);
+        user.setPasswordUpdatedAt(java.time.LocalDateTime.now());
+        // An admin reset supersedes any self-service reset link the user may hold.
+        user.setPasswordResetTokenHash(null);
+        user.setPasswordResetTokenExpiresAt(null);
+        // Clear any lockout so the user can actually sign in with the new temporary password.
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
+
+        // Every existing session must die — the old password is gone.
+        refreshTokenRepository.revokeAllByUserId(user.getId(), java.time.LocalDateTime.now());
+
+        emailService.sendTemporaryPasswordEmail(
+                user.getEmail(),
+                user.getFullName(),
+                user.getUsername(),
+                temporaryPassword,        // email render only — never logged or persisted in plaintext
+                baseUrl + "/login");
+
+        auditService.logDataEvent(currentActorId(), "SUPER_ADMIN", "ADMIN_RESET_USER_PASSWORD",
+                "User", id, "Temporary password issued and emailed to the registered address");
+        // Log the user id only — never the temporary password.
+        log.info("[AdminResetPassword] Temporary password issued for user [{}] — sessions revoked", id);
     }
 
     @Override

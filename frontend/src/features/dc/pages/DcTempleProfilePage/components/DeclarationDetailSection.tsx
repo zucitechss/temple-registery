@@ -122,7 +122,7 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
               title="Agricultural Land"
               icon={<Trees className="h-4 w-4" />}
               count={agriLandCount}
-              value={formatCurrency(declaration.agriculturalLandValue)}
+              value={declaration.agriculturalLandAcres ? `${declaration.agriculturalLandAcres} acres` : ''}
               isOpen={openAccordion === 'agri-land'}
               onToggle={() => toggleAccordion('agri-land')}
               colorTheme="emerald"
@@ -133,12 +133,12 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     key={land.id}
                     index={index}
                     label="Agricultural Land"
-                    value={formatCurrency(land.estimatedValueInr)}
+                    value={land.areaAcres ? `${land.areaAcres} acres` : '—'}
                   >
                     <DetailField icon={<Hash size={12} />} label="Survey No." value={land.surveyNumber} />
                     <DetailField icon={<MapPin size={12} />} label="Village" value={land.village} />
-                    <DetailField icon={<Ruler size={12} />} label="Area" value={land.areaAcres ? `${land.areaAcres} acres` : null} />
-                    <DetailField icon={<IndianRupee size={12} />} label="Value" value={formatCurrency(land.estimatedValueInr)} />
+                    <DetailField icon={<FileText size={12} />} label="Owner of Record" value={land.ownerOfRecord} />
+                    <DetailField icon={<FileText size={12} />} label="Patta Status" value={land.pattaStatus} />
                   </AssetCard>
                 ))}
               </div>
@@ -163,12 +163,12 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     key={building.id}
                     index={index}
                     label="Building"
-                    value={formatCurrency(building.valuationInr ?? building.estimatedValueInr)}
+                    value={formatCurrency(building.valuationInr)}
                   >
                     <DetailField icon={<MapPin size={12} />} label="Location" value={building.location} />
-                    <DetailField icon={<Ruler size={12} />} label="Area" value={(building.totalAreaSqft ?? building.totalSqft) ? `${building.totalAreaSqft ?? building.totalSqft} sq ft` : null} />
+                    <DetailField icon={<Ruler size={12} />} label="Area" value={building.totalAreaSqft ? `${building.totalAreaSqft} sq ft` : null} />
                     <DetailField icon={<FileText size={12} />} label="Type" value={building.structureType} />
-                    <DetailField icon={<IndianRupee size={12} />} label="Value" value={formatCurrency(building.valuationInr ?? building.estimatedValueInr)} />
+                    <DetailField icon={<IndianRupee size={12} />} label="Value" value={formatCurrency(building.valuationInr)} />
                   </AssetCard>
                 ))}
               </div>
@@ -193,11 +193,13 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     key={property.id}
                     index={index}
                     label="Leased Property"
-                    value={formatCurrency(property.annualRent)}
+                    value={formatCurrency(property.monthlyRent)}
                   >
                     <DetailField icon={<MapPin size={12} />} label="Address" value={property.propertyAddress} className="col-span-2" />
-                    <DetailField icon={<IndianRupee size={12} />} label="Annual Rent" value={formatCurrency(property.annualRent)} />
+                    <DetailField icon={<FileText size={12} />} label="Lessee" value={property.lesseeName} />
+                    <DetailField icon={<IndianRupee size={12} />} label="Monthly Rent" value={formatCurrency(property.monthlyRent)} />
                     <DetailField icon={<Calendar size={12} />} label="Lease End" value={property.leaseEndDate} />
+                    <DetailField icon={<FileText size={12} />} label="Agreement Document" value={property.agreementDocumentId ? `Doc #${property.agreementDocumentId}` : 'No PDF'} />
                   </AssetCard>
                 ))}
               </div>
@@ -211,7 +213,7 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
               title="Other Land"
               icon={<Map className="h-4 w-4" />}
               count={otherLandCount}
-              value={formatCurrency(declaration.otherLandValue)}
+              value=""
               isOpen={openAccordion === 'other-land'}
               onToggle={() => toggleAccordion('other-land')}
               colorTheme="amber"
@@ -222,11 +224,11 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     key={land.id}
                     index={index}
                     label="Other Land"
-                    value={formatCurrency(land.estimatedValueInr)}
+                    value={land.area ? `${land.area} units` : '—'}
                   >
                     <DetailField icon={<MapPin size={12} />} label="Location" value={land.location} />
-                    <DetailField icon={<FileText size={12} />} label="Description" value={land.description} />
-                    <DetailField icon={<IndianRupee size={12} />} label="Value" value={formatCurrency(land.estimatedValueInr)} />
+                    <DetailField icon={<FileText size={12} />} label="Usage Type" value={land.usageType} />
+                    <DetailField icon={<FileText size={12} />} label="Revenue Dept Reference" value={land.revenueDepartmentReference} />
                   </AssetCard>
                 ))}
               </div>
@@ -271,11 +273,12 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     key={metal.id}
                     index={index}
                     label="Precious Metal"
-                    value={metal.weightGrams ? `${metal.weightGrams}g` : '—'}
+                    value={formatCurrency(metal.estimatedValueInr ?? metal.approximateValueInr)}
                   >
                     <DetailField icon={<FileText size={12} />} label="Description" value={metal.itemDescription} className="col-span-2" />
                     <DetailField icon={<Coins size={12} />} label="Metal Type" value={metal.metalType} />
                     <DetailField icon={<Ruler size={12} />} label="Weight" value={metal.weightGrams ? `${metal.weightGrams} grams` : null} />
+                    <DetailField icon={<FileText size={12} />} label="Purity" value={metal.purity} />
                   </AssetCard>
                 ))}
               </div>
@@ -304,6 +307,9 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                   >
                     <DetailField icon={<FileText size={12} />} label="Description" value={artifact.itemDescription} className="col-span-2" />
                     <DetailField icon={<FileText size={12} />} label="Material" value={artifact.material} />
+                    <DetailField icon={<Calendar size={12} />} label="Age/Period" value={artifact.ageOrPeriod} />
+                    <DetailField icon={<FileText size={12} />} label="Provenance" value={artifact.provenance} />
+                    <DetailField icon={<FileText size={12} />} label="Museum Grade" value={artifact.museumGradeClassification} />
                     <DetailField icon={<IndianRupee size={12} />} label="Est. Value" value={formatCurrency(artifact.estimatedValueInr ?? artifact.approximateValueInr)} />
                   </AssetCard>
                 ))}
@@ -332,8 +338,9 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     value={formatCurrency(vehicle.estimatedValueInr)}
                   >
                     <DetailField icon={<Hash size={12} />} label="Registration" value={vehicle.registrationNumber} />
-                    <DetailField icon={<FileText size={12} />} label="Type" value={vehicle.vehicleType} />
+                    <DetailField icon={<FileText size={12} />} label="Make & Model" value={vehicle.makeModel} />
                     <DetailField icon={<Calendar size={12} />} label="Year" value={vehicle.year?.toString()} />
+                    <DetailField icon={<FileText size={12} />} label="Purpose" value={vehicle.purpose} />
                     <DetailField icon={<IndianRupee size={12} />} label="Est. Value" value={formatCurrency(vehicle.estimatedValueInr)} />
                   </AssetCard>
                 ))}
@@ -362,6 +369,7 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                     value={formatCurrency(item.estimatedValueInr)}
                   >
                     <DetailField icon={<FileText size={12} />} label="Name" value={item.itemName} />
+                    <DetailField icon={<Hash size={12} />} label="Serial No." value={item.serialNumber} />
                     <DetailField icon={<IndianRupee size={12} />} label="Est. Value" value={formatCurrency(item.estimatedValueInr)} />
                   </AssetCard>
                 ))}
@@ -434,6 +442,20 @@ export function DeclarationDetailSection({ declaration }: DeclarationDetailSecti
                   <span className="uppercase tracking-wider font-medium">Reviewed At</span>
                 </dt>
                 <dd className="text-xs font-bold text-teal-700">{declaration.reviewedAt ? formatDate(declaration.reviewedAt) : '—'}</dd>
+              </div>
+              <div className="p-2 rounded-md border border-teal-200/60 bg-gradient-to-br from-teal-50/50 to-teal-100/30">
+                <dt className="text-[10px] text-muted-foreground flex items-center gap-1 mb-1">
+                  <CheckCircle2 className="h-2.5 w-2.5 text-teal-600" />
+                  <span className="uppercase tracking-wider font-medium">Reviewed By</span>
+                </dt>
+                <dd className="text-xs font-bold text-teal-700">{declaration.reviewedBy ? `User #${declaration.reviewedBy}` : '—'}</dd>
+              </div>
+              <div className="p-2 rounded-md border border-rose-200/60 bg-gradient-to-br from-rose-50/50 to-rose-100/30">
+                <dt className="text-[10px] text-muted-foreground flex items-center gap-1 mb-1">
+                  <FileText className="h-2.5 w-2.5 text-rose-600" />
+                  <span className="uppercase tracking-wider font-medium">Acknowledged</span>
+                </dt>
+                <dd className="text-xs font-bold text-rose-700">{declaration.acknowledgedAt ? formatDate(declaration.acknowledgedAt) : '—'}</dd>
               </div>
             </dl>
           </div>

@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { PasswordStrengthMeter, getPasswordStrength, MIN_ACCEPTABLE_PASSWORD_SCORE } from '@/components/feedback/PasswordStrengthMeter/PasswordStrengthMeter'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -39,7 +40,14 @@ const userSchema = z.object({
   ] as [UserRole, ...UserRole[]]),
   username: z.string().min(3, 'At least 3 characters'),
   email: z.string().email('Invalid email'),
-  password: z.string().min(8, 'At least 8 characters').optional().or(z.literal('')),
+  password: z
+    .string()
+    .min(8, 'At least 8 characters')
+    .refine((v) => getPasswordStrength(v) >= MIN_ACCEPTABLE_PASSWORD_SCORE, {
+      message: 'Password is too weak. Add uppercase letters, numbers, or symbols.',
+    })
+    .optional()
+    .or(z.literal('')),
   fullName: z.string().min(2, 'Full name is required'),
   mobile: z.string().regex(/^[6-9]\d{9}$/, 'Valid 10-digit Indian mobile'),
   cityId: z.string().optional(),
@@ -252,7 +260,7 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px] max-h-[92vh] flex flex-col overflow-hidden p-0">
         <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
-          <DialogTitle>{isEdit ? `Edit â€” ${user.fullName}` : 'Create New User'}</DialogTitle>
+          <DialogTitle>{isEdit ? `Edit — ${user.fullName}` : 'Create New User'}</DialogTitle>
           {isEdit && (
             <DialogDescription className="text-xs">
               Username and role are locked after creation.
@@ -514,48 +522,32 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
 
               {/* Password — create only */}
               {!isEdit && (
-                <FormField control={form.control} name="password" render={({ field }) => {
-                  const score = getPasswordStrength(passwordValue)
-                  const colors = ['bg-red-500', 'bg-orange-400', 'bg-yellow-400', 'bg-emerald-500']
-                  const labels = ['Weak', 'Fair', 'Good', 'Strong']
-                  return (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            {...field}
-                            type={showPassword ? 'text' : 'password'}
-                            placeholder="Min 8 characters"
-                            className="pr-10"
-                            onChange={e => { field.onChange(e); setPasswordValue(e.target.value) }}
-                          />
-                          <button
-                            type="button"
-                            tabIndex={-1}
-                            onClick={() => setShowPassword(p => !p)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          >
-                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                      </FormControl>
-                      {passwordValue.length > 0 && (
-                        <div className="space-y-1 pt-1">
-                          <div className="flex gap-1 h-1.5">
-                            {[0, 1, 2, 3].map(i => (
-                              <div key={i} className={`flex-1 rounded-full transition-colors ${i < score ? colors[score - 1] : 'bg-muted'}`} />
-                            ))}
-                          </div>
-                          <p className={`text-xs font-medium ${score >= 3 ? 'text-emerald-600' : score === 2 ? 'text-yellow-600' : 'text-red-500'}`}>
-                            {labels[score - 1] ?? 'Too short'}
-                          </p>
-                        </div>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )
-                }} />
+                <FormField control={form.control} name="password" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input
+                          {...field}
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Min 8 characters"
+                          className="pr-10"
+                          onChange={e => { field.onChange(e); setPasswordValue(e.target.value) }}
+                        />
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setShowPassword(p => !p)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <PasswordStrengthMeter password={passwordValue} />
+                    <FormMessage />
+                  </FormItem>
+                )} />
               )}
 
               {/* Full Name */}
@@ -716,15 +708,6 @@ export function UserFormDialog({ open, onOpenChange, user, onSubmit, isLoading }
       </DialogContent>
     </Dialog>
   )
-}
-
-function getPasswordStrength(password: string): number {
-  if (password.length < 8) return 0
-  let score = 1
-  if (/[A-Z]/.test(password)) score++
-  if (/[0-9]/.test(password)) score++
-  if (/[^A-Za-z0-9]/.test(password)) score++
-  return score
 }
 
 function buildDefaults(user?: UserAdminResponse | null): UserFormValues {

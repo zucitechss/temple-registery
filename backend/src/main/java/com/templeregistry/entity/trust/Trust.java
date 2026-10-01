@@ -17,6 +17,10 @@ import java.time.LocalDate;
         @Index(name = "idx_trust_registration_number", columnList = "trust_registration_number")
 })
 @SQLRestriction("is_deleted = false")
+// Soft delete, like every sibling in this package (BoardMember, BoardMeeting, TrustFinancial).
+// Without this, deleteTrust() issued a hard DELETE that the board_members, board_meetings and
+// trust_financials foreign keys reject — and those children are themselves soft-deleted, so their
+// rows always remain to block it. The version predicate is required because of @Version below.
 @SQLDelete(sql = "UPDATE trusts SET is_deleted = true, updated_at = NOW(6) WHERE id = ? AND lock_version = ?")
 @Getter
 @Setter

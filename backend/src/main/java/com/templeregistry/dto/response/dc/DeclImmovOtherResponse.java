@@ -9,9 +9,7 @@ import java.math.BigDecimal;
 public class DeclImmovOtherResponse {
     private Long id;
     private String location;
-    private String description;
     private BigDecimal area;
     private String usageType;
     private String revenueDepartmentReference;
-    private BigDecimal estimatedValueInr;
 }

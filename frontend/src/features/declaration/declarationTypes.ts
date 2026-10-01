@@ -126,6 +126,7 @@ export const vehicleItemSchema = z.object({
   makeModel: z.string().trim().max(255).optional(),
   year: z.number().int().min(1900).max(3000).optional(),
   purpose: z.string().trim().max(255).optional(),
+  approximateValueInr: z.number().nonnegative().optional(),
 })
 
 export const equipmentItemSchema = z.object({
@@ -235,6 +236,7 @@ export interface VehicleItemResponse extends AssetItemResponse {
   makeModel: string | null
   year: number | null
   purpose: string | null
+  approximateValueInr: number | null
 }
 
 export interface EquipmentItemResponse extends AssetItemResponse {

@@ -490,9 +490,9 @@ function MovableStep({
       <ArraySection
         name="vehicles"
         title="Vehicles"
-        description="Registration number, make/model, year, and purpose."
+        description="Registration number, make/model, year, purpose, and approximate value."
         addLabel="Add vehicle"
-        blankItem={{ registrationNumber: '', makeModel: '', year: undefined, purpose: '' }}
+        blankItem={{ registrationNumber: '', makeModel: '', year: undefined, purpose: '', approximateValueInr: undefined }}
         declarationId={declarationId}
         renderRow={(index, remove) => (
           <RowCard index={index} onRemove={remove} label="Vehicle">
@@ -501,6 +501,7 @@ function MovableStep({
               <FormInput name={`vehicles.${index}.makeModel`} label="Make / model" />
               <FormNumber name={`vehicles.${index}.year`} label="Year" step="1" />
               <FormInput name={`vehicles.${index}.purpose`} label="Purpose" />
+              <FormMoney name={`vehicles.${index}.approximateValueInr`} label="Approximate value" />
             </FormGrid>
           </RowCard>
         )}
@@ -911,6 +912,7 @@ function mapDeclarationToForm(declaration: CompleteDeclarationResponse): CreateD
       makeModel: item.makeModel ?? '',
       year: item.year ?? undefined,
       purpose: item.purpose ?? '',
+      approximateValueInr: item.approximateValueInr ?? undefined,
     })) ?? [],
     equipment: declaration.equipment?.map((item) => ({
       id: item.id,
@@ -961,6 +963,7 @@ function buildSummary(values?: CreateDeclarationRequest): SummaryState {
     sum(values?.leasedProperties?.map((item) => item.monthlyRent)) +
     sum(values?.preciousMetals?.map((item) => item.approximateValueInr)) +
     sum(values?.artifacts?.map((item) => item.approximateValueInr)) +
+    sum(values?.vehicles?.map((item) => item.approximateValueInr)) +
     sum(values?.equipment?.map((item) => item.approximateValueInr)) +
     sum(values?.financialAssets?.map((item) => item.amount))
 

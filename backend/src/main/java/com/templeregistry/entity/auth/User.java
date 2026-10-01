@@ -104,4 +104,16 @@ public class User extends BaseEntity {
     /** Expiry timestamp for the pending reset token. */
     @Column(name = "password_reset_expires_at")
     private LocalDateTime passwordResetTokenExpiresAt;
+
+    /**
+     * True when the current password is an admin-issued temporary password that the user
+     * must replace before regaining access to the rest of the application.
+     */
+    @Builder.Default
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
+    /** Timestamp of the last successful password change. Null for accounts never changed. */
+    @Column(name = "password_updated_at")
+    private LocalDateTime passwordUpdatedAt;
 }

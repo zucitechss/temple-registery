@@ -157,7 +157,7 @@ function CreateSheet({ open, onClose, level, isCreating, onSubmit, parentName }:
           )}
         </SheetHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 mt-6">
+        <form onSubmit={handleSubmit} className="space-y-4 mt-6 px-6">
           <div className="space-y-1.5">
             <Label htmlFor="geo-name">{meta?.label ?? 'Name'} <span className="text-destructive">*</span></Label>
             <Input

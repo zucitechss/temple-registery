@@ -185,4 +185,35 @@ class AdminControllerTest {
                     .andExpect(jsonPath("$.message").value("User activated."));
         }
     }
+
+    @Nested
+    class ResetUserPassword {
+
+        @Test
+        void should_return200_when_temporaryPasswordIssued() throws Exception {
+            doNothing().when(adminService).resetUserPassword(1L);
+
+            mockMvc.perform(post("/api/v1/admin/users/1/reset-password"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.message")
+                            .value("Temporary password generated and sent to the user's registered email."));
+
+            verify(adminService).resetUserPassword(1L);
+        }
+
+        @Test
+        void should_neverReturnTheTemporaryPassword_when_passwordIsReset() throws Exception {
+            doNothing().when(adminService).resetUserPassword(1L);
+
+            String body = mockMvc.perform(post("/api/v1/admin/users/1/reset-password"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+
+            // The email channel is the only place the password may appear.
+            org.assertj.core.api.Assertions.assertThat(body)
+                    .doesNotContain("password\":\"")
+                    .doesNotContain("temporaryPassword");
+        }
+    }
 }

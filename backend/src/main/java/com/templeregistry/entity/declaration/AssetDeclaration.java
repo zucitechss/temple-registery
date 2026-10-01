@@ -21,6 +21,8 @@ import java.time.LocalDateTime;
         @Index(name = "idx_decl_overdue",      columnList = "is_overdue, status, temple_id")
 })
 @SQLRestriction("is_deleted = false")
+// The version predicate is required: with @Version present Hibernate binds id AND version to the
+// soft-delete statement, so a single-placeholder SQL fails with "Parameter index out of range".
 @SQLDelete(sql = "UPDATE asset_declarations SET is_deleted = true, updated_at = NOW(6) WHERE id = ? AND lock_version = ?")
 @Getter @Setter @SuperBuilder @NoArgsConstructor @AllArgsConstructor
 public class AssetDeclaration extends BaseEntity {

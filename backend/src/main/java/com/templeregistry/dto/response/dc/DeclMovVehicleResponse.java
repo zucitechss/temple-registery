@@ -9,7 +9,8 @@ import java.math.BigDecimal;
 public class DeclMovVehicleResponse {
     private Long id;
     private String registrationNumber;
-    private String vehicleType;
+    private String makeModel;
     private Integer year;
+    private String purpose;
     private BigDecimal estimatedValueInr;
 }

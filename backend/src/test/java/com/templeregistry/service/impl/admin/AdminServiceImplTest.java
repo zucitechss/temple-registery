@@ -25,6 +25,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -39,6 +40,8 @@ class AdminServiceImplTest {
     @Mock private TempleSearchSummaryService searchSummaryService;
     @Mock private AuditService auditService;
     @Mock private PaginationUtil paginationUtil;
+    @Mock private com.templeregistry.service.notification.EmailService emailService;
+    @Mock private com.templeregistry.repository.auth.RefreshTokenRepository refreshTokenRepository;
 
     @InjectMocks
     private AdminServiceImpl adminService;
@@ -206,5 +209,91 @@ class AdminServiceImplTest {
         verify(searchSummaryService).rebuildAll();
         verify(auditService).logDataEvent(anyLong(), eq("SUPER_ADMIN"), eq("REBUILD_SEARCH_SUMMARY"),
                 eq("System"), eq(0L), anyString());
+    }
+
+    // ── Super Admin: reset another user's password ───────────────────────────
+
+    private User existingUser() {
+        User u = User.builder()
+                .username("ta_chamundi").email("ta@example.com").fullName("Temple Admin")
+                .role(UserRole.TEMPLE_AUTHORITY).passwordHash("old-hash")
+                .isActive(true).build();
+        u.setId(42L);
+        return u;
+    }
+
+    @Test
+    void should_storeHashedTemporaryPassword_when_superAdminResetsUserPassword() {
+        User target = existingUser();
+        when(userRepository.findById(42L)).thenReturn(Optional.of(target));
+        when(passwordEncoder.encode(anyString())).thenReturn("bcrypt-hash-of-temp");
+        when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+
+        adminService.resetUserPassword(42L);
+
+        // Whatever was generated must have gone through the encoder, never stored raw.
+        var generated = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(passwordEncoder).encode(generated.capture());
+        assertThat(target.getPasswordHash()).isEqualTo("bcrypt-hash-of-temp");
+        assertThat(target.getPasswordHash()).isNotEqualTo(generated.getValue());
+        assertThat(generated.getValue()).hasSizeGreaterThanOrEqualTo(8);
+    }
+
+    @Test
+    void should_requirePasswordChange_when_superAdminResetsUserPassword() {
+        User target = existingUser();
+        target.setFailedLoginCount(4);
+        target.setLockedUntil(java.time.LocalDateTime.now().plusMinutes(30));
+        when(userRepository.findById(42L)).thenReturn(Optional.of(target));
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed");
+        when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+
+        adminService.resetUserPassword(42L);
+
+        assertThat(target.isMustChangePassword()).isTrue();
+        assertThat(target.getPasswordUpdatedAt()).isNotNull();
+        assertThat(target.getFailedLoginCount()).isZero();
+        assertThat(target.getLockedUntil()).isNull();
+    }
+
+    @Test
+    void should_emailTemporaryPasswordAndRevokeSessions_when_superAdminResetsUserPassword() {
+        User target = existingUser();
+        when(userRepository.findById(42L)).thenReturn(Optional.of(target));
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed");
+        when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+
+        adminService.resetUserPassword(42L);
+
+        verify(emailService).sendTemporaryPasswordEmail(
+                eq("ta@example.com"), eq("Temple Admin"), eq("ta_chamundi"),
+                anyString(), contains("/login"));
+        verify(refreshTokenRepository).revokeAllByUserId(eq(42L), any());
+        verify(auditService).logDataEvent(anyLong(), eq("SUPER_ADMIN"),
+                eq("ADMIN_RESET_USER_PASSWORD"), eq("User"), eq(42L), anyString());
+    }
+
+    @Test
+    void should_clearPendingResetToken_when_superAdminResetsUserPassword() {
+        User target = existingUser();
+        target.setPasswordResetTokenHash("pending-hash");
+        target.setPasswordResetTokenExpiresAt(java.time.LocalDateTime.now().plusMinutes(10));
+        when(userRepository.findById(42L)).thenReturn(Optional.of(target));
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed");
+        when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+
+        adminService.resetUserPassword(42L);
+
+        assertThat(target.getPasswordResetTokenHash()).isNull();
+        assertThat(target.getPasswordResetTokenExpiresAt()).isNull();
+    }
+
+    @Test
+    void should_throwEntityNotFound_when_resettingPasswordForUnknownUser() {
+        when(userRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> adminService.resetUserPassword(404L))
+                .isInstanceOf(com.templeregistry.exception.EntityNotFoundException.class);
+        verifyNoInteractions(emailService);
     }
 }

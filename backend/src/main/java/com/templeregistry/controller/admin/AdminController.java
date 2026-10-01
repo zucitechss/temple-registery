@@ -99,6 +99,15 @@ public class AdminController {
         return ResponseEntity.ok(ApiResponse.success("User activated."));
     }
 
+    @PostMapping("/users/{id}/reset-password")
+    @Operation(summary = "Generate a temporary password for a user and email it to their registered address")
+    public ResponseEntity<ApiResponse<Void>> resetUserPassword(@PathVariable Long id) {
+        adminService.resetUserPassword(id);
+        // The temporary password is deliberately absent from the response body.
+        return ResponseEntity.ok(ApiResponse.success(
+                "Temporary password generated and sent to the user's registered email."));
+    }
+
     /* ───── Temple assignment search ───── */
 
     @GetMapping("/temples/search")

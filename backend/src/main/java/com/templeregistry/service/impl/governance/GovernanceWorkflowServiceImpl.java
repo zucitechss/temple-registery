@@ -266,6 +266,7 @@ public class GovernanceWorkflowServiceImpl implements GovernanceWorkflowService 
             declaration.setStatus(DeclarationStatus.SUBMITTED);
         }
         declaration.setSubmittedBy(currentUserId());
+        declaration.setSubmittedAt(LocalDateTime.now());
         declarationRepository.save(declaration);
 
         log.info("Declaration [{}] submitted by userId={}", declarationId, currentUserId());

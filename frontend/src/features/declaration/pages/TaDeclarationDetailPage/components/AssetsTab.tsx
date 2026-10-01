@@ -107,6 +107,7 @@ export function AssetsTab({ declaration }: AssetsTabProps) {
                 { label: 'Age/Period', value: item.ageOrPeriod || '—' },
                 { label: 'Provenance', value: item.provenance || '—' },
                 { label: 'Museum Grade', value: item.museumGradeClassification || '—' },
+                { label: 'Approximate Value', value: formatCurrency(item.approximateValueInr || 0), highlight: true },
               ]}
             />
           )}
@@ -122,6 +123,7 @@ export function AssetsTab({ declaration }: AssetsTabProps) {
                 { label: 'Make & Model', value: item.makeModel || '—' },
                 { label: 'Year', value: item.year?.toString() || '—' },
                 { label: 'Purpose', value: item.purpose || '—' },
+                { label: 'Approximate Value', value: formatCurrency(item.approximateValueInr || 0) },
               ]}
             />
           )}

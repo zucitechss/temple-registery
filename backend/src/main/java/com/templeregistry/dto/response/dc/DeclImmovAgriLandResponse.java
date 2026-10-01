@@ -13,5 +13,4 @@ public class DeclImmovAgriLandResponse {
     private BigDecimal areaAcres;
     private String ownerOfRecord;
     private String pattaStatus;
-    private BigDecimal estimatedValueInr;
 }

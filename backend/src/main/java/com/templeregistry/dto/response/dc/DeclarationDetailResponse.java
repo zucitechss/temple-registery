@@ -48,6 +48,8 @@ public class DeclarationDetailResponse {
     // Workflow metadata
     private LocalDateTime submittedAt;
     private LocalDateTime reviewedAt;
+    private Long reviewedBy;
+    private LocalDateTime acknowledgedAt;
     private String acknowledgementNumber;
     private LocalDate dueDate;
     private int clarificationRound;

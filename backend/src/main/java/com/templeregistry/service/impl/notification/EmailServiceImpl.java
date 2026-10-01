@@ -222,6 +222,49 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    // ─── Admin-issued temporary password ─────────────────────────────────────
+
+    /**
+     * Sends the temporary password produced by the Super Admin "reset user password" action.
+     *
+     * <p><strong>Security</strong>: the {@code temporaryPassword} is passed only to the
+     * Thymeleaf template renderer and is never logged.
+     */
+    @Override
+    @Async("taskExecutor")
+    public void sendTemporaryPasswordEmail(String recipientEmail, String fullName, String username,
+                                            String temporaryPassword, String loginUrl) {
+        if (!emailEnabled) {
+            log.info("[TempPassword] Email disabled — temporary password issued for username=[{}]", username);
+            return;
+        }
+        String template = "email/temporary-password";
+        String subject  = "Temple Registry — Your Password Has Been Reset";
+        try {
+            Context context = new Context();
+            context.setVariable("title",             "Your Password Has Been Reset");
+            context.setVariable("fullName",          fullName);
+            context.setVariable("username",          username);
+            context.setVariable("temporaryPassword", temporaryPassword);  // never logged below
+            context.setVariable("loginUrl",          loginUrl);
+            context.setVariable("year",              LocalDateTime.now().getYear());
+            context.setVariable("actionUrl",         loginUrl);
+
+            String htmlContent = templateEngine.process(template, context);
+            send(recipientEmail, subject, htmlContent);
+
+            logEmailDelivery(null, recipientEmail, subject, template, "SENT", null);
+            // Log only the username — NEVER the password
+            log.info("[TempPassword] Temporary password email sent to [{}] username=[{}]",
+                recipientEmail, username);
+
+        } catch (MessagingException ex) {
+            log.error("[TempPassword] Failed to send temporary password email to [{}] username=[{}]",
+                recipientEmail, username, ex);
+            logEmailDelivery(null, recipientEmail, subject, template, "FAILED", ex.getMessage());
+        }
+    }
+
     // ─── Test email ───────────────────────────────────────────────────────────
 
     @Override

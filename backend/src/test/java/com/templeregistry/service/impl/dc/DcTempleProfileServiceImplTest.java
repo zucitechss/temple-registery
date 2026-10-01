@@ -1,7 +1,10 @@
 package com.templeregistry.service.impl.dc;
 
+import com.templeregistry.dto.response.dc.DeclarationDetailResponse;
 import com.templeregistry.dto.response.dc.TempleFullProfileResponse;
 import com.templeregistry.dto.response.governance.GovernanceStatusPayload;
+import com.templeregistry.entity.declaration.AssetDeclaration;
+import com.templeregistry.entity.dc.DeclMovVehicle;
 import com.templeregistry.entity.geo.City;
 import com.templeregistry.entity.geo.District;
 import com.templeregistry.entity.geo.Hobli;
@@ -492,5 +495,46 @@ class DcTempleProfileServiceImplTest {
         assertThat(result.getCityName()).isEqualTo("Mysuru Division");
         // Fallback must not be triggered — hobliRepository is never consulted
         verify(hobliRepository, never()).findWithGeoById(any());
+    }
+
+    // ── Test: vehicle make/model + purpose reach the DC declaration detail response ──
+
+    @Test
+    void should_includeMakeModelAndPurpose_when_vehicleDeclaredByTempleAuthority() {
+        // Regression: DcTempleProfileServiceImpl previously built DeclMovVehicleResponse
+        // without reading entity.getMakeAndModel()/getUsagePurpose(), so TA-submitted
+        // vehicle data never reached the DC review screen.
+        AssetDeclaration declaration = AssetDeclaration.builder()
+                .templeId(1L)
+                .districtId(10L)
+                .build();
+        declaration.setId(50L);
+
+        when(declarationRepository.findById(50L)).thenReturn(Optional.of(declaration));
+        when(templeRepository.findWithGeoById(1L)).thenReturn(Optional.of(templeWithFullGeo()));
+        when(clarificationRepository.findAllByDeclarationIdOrderByCreatedAtAsc(50L)).thenReturn(List.of());
+        when(agriLandRepository.findAllByDeclarationId(50L)).thenReturn(List.of());
+        when(buildingRepository.findAllByDeclarationId(50L)).thenReturn(List.of());
+        when(leasedRepository.findAllByDeclarationId(50L)).thenReturn(List.of());
+        when(otherImmovRepository.findAllByDeclarationId(50L)).thenReturn(List.of());
+        when(preciousMetalRepository.findAllByDeclarationId(50L)).thenReturn(List.of());
+        when(artifactRepository.findAllByDeclarationId(50L)).thenReturn(List.of());
+        when(equipmentRepository.findAllByDeclarationId(50L)).thenReturn(List.of());
+
+        DeclMovVehicle vehicle = DeclMovVehicle.builder()
+                .declarationId(50L)
+                .registrationNumber("KA-09-1234")
+                .makeAndModel("Toyota Innova")
+                .yearOfPurchase(2020)
+                .usagePurpose("Temple pooja transport")
+                .build();
+        vehicle.setId(500L);
+        when(vehicleRepository.findAllByDeclarationId(50L)).thenReturn(List.of(vehicle));
+
+        DeclarationDetailResponse result = service.getDeclarationDetail(50L, DC_CLAIMS);
+
+        assertThat(result.getVehicles()).hasSize(1);
+        assertThat(result.getVehicles().get(0).getMakeModel()).isEqualTo("Toyota Innova");
+        assertThat(result.getVehicles().get(0).getPurpose()).isEqualTo("Temple pooja transport");
     }
 }

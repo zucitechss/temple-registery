@@ -34,7 +34,9 @@ describe('TempleLocationPicker', () => {
   })
 
   it('should_render_fallback_when_api_key_missing', () => {
-    // VITE_GOOGLE_MAPS_API_KEY is undefined in test environment by default
+    // .env ships a placeholder value for local dev, so it must be stubbed empty here —
+    // it is not actually unset in the test environment.
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', '')
     vi.mocked(useJsApiLoader).mockReturnValue({ isLoaded: false, loadError: undefined as any })
     renderWithProviders(
       <TempleLocationPicker lat={null} lng={null} onChange={mockOnChange} />,
@@ -76,6 +78,7 @@ describe('TempleLocationPicker', () => {
   })
 
   it('should_render_fallback_text_when_no_api_key', () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', '')
     vi.mocked(useJsApiLoader).mockReturnValue({ isLoaded: false, loadError: undefined as any })
     renderWithProviders(
       <TempleLocationPicker lat={12.9716} lng={77.5946} onChange={mockOnChange} />,
